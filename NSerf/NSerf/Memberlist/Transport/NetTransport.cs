@@ -1,0 +1,365 @@
+// Ported from: github.com/hashicorp/memberlist/net_transport.go
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: MPL-2.0
+
+using System.Net;
+using System.Net.Sockets;
+using System.Threading.Channels;
+using Microsoft.Extensions.Logging;
+
+namespace NSerf.Memberlist.Transport;
+
+/// <summary>
+/// NetTransport is a Transport implementation that uses UDP for packet operations
+/// and TCP connections for stream operations.
+/// </summary>
+public class NetTransport : INodeAwareTransport
+{
+    private const int UdpPacketBufSize = 65536;
+    private const int UdpRecvBufSize = 2 * 1024 * 1024;
+    
+    private readonly NetTransportConfig _config;
+    private readonly Channel<Packet> _packetChannel;
+    private readonly Channel<NetworkStream> _streamChannel;
+    private readonly ILogger? _logger;
+    private readonly List<TcpListener> _tcpListeners = new();
+    private readonly List<UdpClient> _udpListeners = new();
+    private readonly CancellationTokenSource _shutdownCts = new();
+    private readonly List<Task> _backgroundTasks = new();
+    private int _shutdown;
+    private bool _disposed;
+    
+    private NetTransport(NetTransportConfig config)
+    {
+        _config = config;
+        _logger = config.Logger;
+        _packetChannel = Channel.CreateUnbounded<Packet>();
+        _streamChannel = Channel.CreateUnbounded<NetworkStream>();
+    }
+    
+    /// <summary>
+    /// Creates a new NetTransport with the given configuration.
+    /// All network listeners will be created and listening.
+    /// </summary>
+    public static NetTransport Create(NetTransportConfig config)
+    {
+        if (config.BindAddrs.Count == 0)
+        {
+            throw new ArgumentException("At least one bind address is required", nameof(config));
+        }
+        
+        var transport = new NetTransport(config);
+        
+        try
+        {
+            transport.Initialize();
+            return transport;
+        }
+        catch
+        {
+            transport.Dispose();
+            throw;
+        }
+    }
+    
+    private void Initialize()
+    {
+        int port = _config.BindPort;
+        
+        // Build all TCP and UDP listeners
+        foreach (var addr in _config.BindAddrs)
+        {
+            var ip = IPAddress.Parse(addr);
+            
+            // Create TCP listener
+            var tcpListener = new TcpListener(ip, port);
+            tcpListener.Start();
+            _tcpListeners.Add(tcpListener);
+            
+            // If port was 0, use the assigned port for all listeners
+            if (port == 0)
+            {
+                port = ((IPEndPoint)tcpListener.LocalEndpoint).Port;
+            }
+            
+            // Create UDP listener
+            var udpListener = new UdpClient(new IPEndPoint(ip, port));
+            
+            // Try to set large receive buffer
+            try
+            {
+                udpListener.Client.ReceiveBufferSize = UdpRecvBufSize;
+            }
+            catch
+            {
+                // Fall back to smaller buffer if needed
+                try
+                {
+                    udpListener.Client.ReceiveBufferSize = UdpRecvBufSize / 2;
+                }
+                catch
+                {
+                    // Use default if we can't set it
+                }
+            }
+            
+            _udpListeners.Add(udpListener);
+        }
+        
+        // Start background listeners
+        for (int i = 0; i < _config.BindAddrs.Count; i++)
+        {
+            var tcpListener = _tcpListeners[i];
+            var udpListener = _udpListeners[i];
+            
+            _backgroundTasks.Add(Task.Run(() => TcpListenAsync(tcpListener)));
+            _backgroundTasks.Add(Task.Run(() => UdpListenAsync(udpListener)));
+        }
+    }
+    
+    /// <summary>
+    /// Gets the auto-assigned port if BindPort was 0.
+    /// </summary>
+    public int GetAutoBindPort()
+    {
+        return ((IPEndPoint)_tcpListeners[0].LocalEndpoint).Port;
+    }
+    
+    public (IPAddress Ip, int Port) FinalAdvertiseAddr(string ip, int port)
+    {
+        IPAddress advertiseAddr;
+        int advertisePort;
+        
+        if (!string.IsNullOrEmpty(ip))
+        {
+            advertiseAddr = IPAddress.Parse(ip);
+            
+            // Convert to IPv4 if possible
+            if (advertiseAddr.IsIPv4MappedToIPv6)
+            {
+                advertiseAddr = advertiseAddr.MapToIPv4();
+            }
+            
+            advertisePort = port;
+        }
+        else
+        {
+            // Use bound address
+            var endpoint = (IPEndPoint)_tcpListeners[0].LocalEndpoint;
+            advertiseAddr = endpoint.Address;
+            
+            // If bound to 0.0.0.0, try to get a specific interface address
+            if (advertiseAddr.Equals(IPAddress.Any))
+            {
+                // Try to get a private IP
+                var privateIp = GetPrivateIP();
+                if (privateIp != null)
+                {
+                    advertiseAddr = privateIp;
+                }
+            }
+            
+            advertisePort = GetAutoBindPort();
+        }
+        
+        return (advertiseAddr, advertisePort);
+    }
+    
+    public async Task<DateTimeOffset> WriteToAsync(byte[] buffer, string addr, CancellationToken cancellationToken = default)
+    {
+        var address = new Address { Addr = addr, Name = string.Empty };
+        return await WriteToAddressAsync(buffer, address, cancellationToken);
+    }
+    
+    public async Task<DateTimeOffset> WriteToAddressAsync(byte[] buffer, Address addr, CancellationToken cancellationToken = default)
+    {
+        var parts = addr.Addr.Split(':');
+        var host = string.Join(':', parts.Take(parts.Length - 1));
+        var port = int.Parse(parts[^1]);
+        
+        var endpoint = new IPEndPoint(IPAddress.Parse(host), port);
+        
+        // Use first UDP listener to send
+        await _udpListeners[0].SendAsync(buffer, endpoint, cancellationToken);
+        
+        return DateTimeOffset.UtcNow;
+    }
+    
+    public ChannelReader<Packet> PacketChannel => _packetChannel.Reader;
+    
+    public async Task<NetworkStream> DialTimeoutAsync(string addr, TimeSpan timeout, CancellationToken cancellationToken = default)
+    {
+        var address = new Address { Addr = addr, Name = string.Empty };
+        return await DialAddressTimeoutAsync(address, timeout, cancellationToken);
+    }
+    
+    public async Task<NetworkStream> DialAddressTimeoutAsync(Address addr, TimeSpan timeout, CancellationToken cancellationToken = default)
+    {
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(timeout);
+        
+        var parts = addr.Addr.Split(':');
+        var host = string.Join(':', parts.Take(parts.Length - 1));
+        var port = int.Parse(parts[^1]);
+        
+        var client = new TcpClient();
+        await client.ConnectAsync(host, port, cts.Token);
+        
+        return client.GetStream();
+    }
+    
+    public ChannelReader<NetworkStream> StreamChannel => _streamChannel.Reader;
+    
+    public async Task ShutdownAsync()
+    {
+        if (Interlocked.CompareExchange(ref _shutdown, 1, 0) == 1)
+        {
+            return; // Already shutdown
+        }
+        
+        _logger?.LogInformation("NetTransport: Shutting down");
+        
+        // Signal shutdown
+        _shutdownCts.Cancel();
+        
+        // Close all listeners
+        foreach (var listener in _tcpListeners)
+        {
+            listener.Stop();
+        }
+        
+        foreach (var listener in _udpListeners)
+        {
+            listener.Close();
+        }
+        
+        // Wait for background tasks
+        try
+        {
+            await Task.WhenAll(_backgroundTasks);
+        }
+        catch
+        {
+            // Expected during shutdown
+        }
+        
+        // Complete channels
+        _packetChannel.Writer.Complete();
+        _streamChannel.Writer.Complete();
+    }
+    
+    private async Task TcpListenAsync(TcpListener listener)
+    {
+        const int BaseDelayMs = 5;
+        const int MaxDelayMs = 1000;
+        int delayMs = 0;
+        
+        while (!_shutdownCts.Token.IsCancellationRequested)
+        {
+            try
+            {
+                var client = await listener.AcceptTcpClientAsync(_shutdownCts.Token);
+                delayMs = 0; // Reset delay on success
+                
+                var stream = client.GetStream();
+                await _streamChannel.Writer.WriteAsync(stream, _shutdownCts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                if (Interlocked.CompareExchange(ref _shutdown, 0, 0) == 1)
+                {
+                    break;
+                }
+                
+                _logger?.LogError(ex, "Error accepting TCP connection");
+                
+                // Exponential backoff
+                delayMs = delayMs == 0 ? BaseDelayMs : Math.Min(delayMs * 2, MaxDelayMs);
+                await Task.Delay(delayMs, _shutdownCts.Token);
+            }
+        }
+    }
+    
+    private async Task UdpListenAsync(UdpClient listener)
+    {
+        while (!_shutdownCts.Token.IsCancellationRequested)
+        {
+            try
+            {
+                var result = await listener.ReceiveAsync(_shutdownCts.Token);
+                var timestamp = DateTimeOffset.UtcNow;
+                
+                // Validate packet
+                if (result.Buffer.Length < 1)
+                {
+                    _logger?.LogWarning("UDP packet too short ({Length} bytes)", result.Buffer.Length);
+                    continue;
+                }
+                
+                var packet = new Packet
+                {
+                    Buf = result.Buffer,
+                    From = result.RemoteEndPoint,
+                    Timestamp = timestamp
+                };
+                
+                await _packetChannel.Writer.WriteAsync(packet, _shutdownCts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                if (Interlocked.CompareExchange(ref _shutdown, 0, 0) == 1)
+                {
+                    break;
+                }
+                
+                _logger?.LogError(ex, "Error reading UDP packet");
+            }
+        }
+    }
+    
+    private static IPAddress? GetPrivateIP()
+    {
+        try
+        {
+            var host = Dns.GetHostEntry(Dns.GetHostName());
+            foreach (var ip in host.AddressList)
+            {
+                if (ip.AddressFamily == AddressFamily.InterNetwork)
+                {
+                    // Check if it's a private IP
+                    var bytes = ip.GetAddressBytes();
+                    if (bytes[0] == 10 ||
+                        (bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31) ||
+                        (bytes[0] == 192 && bytes[1] == 168))
+                    {
+                        return ip;
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // Ignore errors
+        }
+        
+        return null;
+    }
+    
+    public void Dispose()
+    {
+        if (!_disposed)
+        {
+            _disposed = true;
+            ShutdownAsync().GetAwaiter().GetResult();
+            _shutdownCts.Dispose();
+        }
+    }
+}
