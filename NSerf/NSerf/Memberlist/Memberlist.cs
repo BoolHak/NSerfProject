@@ -20,7 +20,7 @@ namespace NSerf.Memberlist;
 /// It is eventually consistent but converges quickly. Node failures are detected and network partitions
 /// are partially tolerated by attempting to communicate with potentially dead nodes through multiple routes.
 /// </summary>
-public class Memberlist : IDisposable
+public class Memberlist : IDisposable, IAsyncDisposable
 {
     // Atomic counters
     private uint _sequenceNum;
@@ -42,11 +42,11 @@ public class Memberlist : IDisposable
     // Transport
     private readonly INodeAwareTransport _transport;
     private readonly PacketHandler _packetHandler;
-    private readonly List<Task> _backgroundTasks = new();
+    private readonly List<Task> _backgroundTasks = [];
 
     // Node management
     internal readonly object _nodeLock = new();
-    internal readonly List<NodeState> _nodes = new();
+    internal readonly List<NodeState> _nodes = [];
     internal readonly ConcurrentDictionary<string, NodeState> _nodeMap = new();
     internal readonly ConcurrentDictionary<string, object> _nodeTimers = new(); // Suspicion timers
 
@@ -94,7 +94,7 @@ public class Memberlist : IDisposable
     /// This will not connect to any other node yet, but will start all the listeners
     /// to allow other nodes to join this memberlist.
     /// </summary>
-    public static async Task<Memberlist> CreateAsync(MemberlistConfig config, CancellationToken cancellationToken = default)
+    public static Memberlist Create(MemberlistConfig config, CancellationToken cancellationToken = default)
     {
         // Validate protocol version
         if (config.ProtocolVersion < ProtocolVersion.Min)
@@ -134,7 +134,7 @@ public class Memberlist : IDisposable
         var memberlist = new Memberlist(config, transport);
 
         // Initialize local node
-        await memberlist.InitializeLocalNodeAsync();
+        memberlist.InitializeLocalNode();
 
         //Update config with actual bound port if it was 0
         if (config.BindPort == 0 && transport is NetTransport netTransport)
@@ -283,8 +283,6 @@ public class Memberlist : IDisposable
         {
             _logger?.LogDebug(ex, "Error shutting down transport");
         }
-
-        await Task.CompletedTask;
     }
 
     /// <summary>
@@ -452,15 +450,25 @@ public class Memberlist : IDisposable
         }
 
         int numCheck = 0;
+        int maxChecks;
 
-        while (true)
+        lock (_nodeLock)
+        {
+            maxChecks = _nodes.Count;
+            if (maxChecks == 0)
+            {
+                return; // No nodes to probe
+            }
+        }
+
+        while (numCheck < maxChecks)
         {
             NodeState? nodeToProbe = null;
 
             lock (_nodeLock)
             {
-                // Make sure we don't wrap around infinitely
-                if (numCheck >= _nodes.Count)
+                // Recheck node count in case it changed
+                if (_nodes.Count == 0)
                 {
                     return; // No nodes to probe
                 }
@@ -469,25 +477,22 @@ public class Memberlist : IDisposable
                 if (_probeIndex >= _nodes.Count)
                 {
                     _probeIndex = 0;
-                    numCheck++;
-                    continue;
                 }
 
                 // Get candidate node
                 var node = _nodes[_probeIndex];
                 _probeIndex++;
+                numCheck++;
 
                 // Skip local node
                 if (node.Name == _config.Name)
                 {
-                    numCheck++;
                     continue;
                 }
 
                 // Skip dead or left nodes
                 if (node.State == NodeStateType.Dead || node.State == NodeStateType.Left)
                 {
-                    numCheck++;
                     continue;
                 }
 
@@ -501,6 +506,9 @@ public class Memberlist : IDisposable
                 return;
             }
         }
+
+        // No suitable nodes found after checking all
+        _logger?.LogDebug("No suitable nodes to probe after checking {Count} nodes", numCheck);
     }
 
     /// <summary>
@@ -597,7 +605,14 @@ public class Memberlist : IDisposable
                 {
                     if (timerObj is Suspicion suspicion)
                     {
-                        suspicion.Dispose();
+                        try
+                        {
+                            suspicion.Dispose();
+                        }
+                        catch (ObjectDisposedException)
+                        {
+                            // Timer already disposed, safe to ignore
+                        }
                     }
                 }
                 return;
@@ -614,7 +629,14 @@ public class Memberlist : IDisposable
                 {
                     if (timerObj is Suspicion suspicion)
                     {
-                        suspicion.Dispose();
+                        try
+                        {
+                            suspicion.Dispose();
+                        }
+                        catch (ObjectDisposedException)
+                        {
+                            // Timer already disposed, safe to ignore
+                        }
                     }
                 }
                 return;
@@ -692,7 +714,6 @@ public class Memberlist : IDisposable
         // Calculate bytes available for broadcasts
         int bytesAvail = _config.UDPBufferSize - Messages.MessageConstants.CompoundHeaderOverhead;
 
-        Console.WriteLine($"[GOSSIP] Starting gossip round to {kNodes.Count} nodes, {_broadcasts.NumQueued()} broadcasts queued");
         _logger?.LogDebug("[GOSSIP] Starting gossip round to {Count} nodes, {Queued} broadcasts queued", kNodes.Count, _broadcasts.NumQueued());
 
         foreach (var node in kNodes)
@@ -713,14 +734,11 @@ public class Memberlist : IDisposable
                 Name = node.Name
             };
 
-            Console.WriteLine($"[GOSSIP] Sending to {node.Name} at {addr.Addr}");
-
             try
             {
                 if (msgs.Count == 1)
                 {
                     // Send single message as-is
-                    Console.WriteLine($"[GOSSIP] Sending single message of {msgs[0].Length} bytes, first byte: {msgs[0][0]}");
                     var packet = msgs[0];
 
                     // Add label header if configured
@@ -730,13 +748,11 @@ public class Memberlist : IDisposable
                     }
 
                     await _transport.WriteToAddressAsync(packet, addr, _shutdownCts.Token);
-                    Console.WriteLine($"[GOSSIP] WriteToAddressAsync returned");
                 }
                 else
                 {
                     // Create compound message
                     var compoundBytes = Messages.CompoundMessage.MakeCompoundMessage(msgs);
-                    Console.WriteLine($"[GOSSIP] Sending compound message of {compoundBytes.Length} bytes");
 
                     // Add label header if configured
                     if (!string.IsNullOrEmpty(_config.Label))
@@ -747,12 +763,10 @@ public class Memberlist : IDisposable
                     await _transport.WriteToAddressAsync(compoundBytes, addr, _shutdownCts.Token);
                 }
 
-                Console.WriteLine($"[GOSSIP] Send complete to {node.Name}");
                 _logger?.LogDebug("[GOSSIP] Successfully sent {Count} messages to {Node} at {Addr}", msgs.Count, node.Name, addr.Addr);
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[GOSSIP] Exception sending to {node.Name}: {ex.Message}");
                 _logger?.LogWarning(ex, "Failed to send gossip to {Node}", node.Name);
             }
         }
@@ -920,9 +934,10 @@ public class Memberlist : IDisposable
                 await stream.WriteAsync(new byte[] { (byte)MessageType.Err });
                 await stream.FlushAsync();
             }
-            catch
+            catch (Exception errEx)
             {
-                // Ignore errors when sending error response
+                // Errors when sending error response are expected (connection may be closed)
+                _logger?.LogDebug(errEx, "Failed to send error response to stream");
             }
         }
     }
@@ -958,7 +973,7 @@ public class Memberlist : IDisposable
     /// <summary>
     /// Initializes the local node with address from transport.
     /// </summary>
-    private async Task InitializeLocalNodeAsync()
+    private void InitializeLocalNode()
     {
         // Get advertise address from transport
         var (ip, port) = _transport.FinalAdvertiseAddr(_config.AdvertiseAddr, _config.AdvertisePort);
@@ -975,7 +990,7 @@ public class Memberlist : IDisposable
             Name = _config.Name,
             Addr = ip,
             Port = (ushort)port,
-            Meta = _config.Delegate?.NodeMeta(ushort.MaxValue) ?? Array.Empty<byte>(),
+            Meta = _config.Delegate?.NodeMeta(ushort.MaxValue) ?? [],
             State = NodeStateType.Alive,
             PMin = ProtocolVersion.Min,
             PMax = ProtocolVersion.Max,
@@ -1000,8 +1015,6 @@ public class Memberlist : IDisposable
         {
             _nodes.Add(localState);
         }
-
-        await Task.CompletedTask;
     }
 
     /// <summary>
@@ -1031,8 +1044,13 @@ public class Memberlist : IDisposable
         {
             try
             {
+                if (_config.Keyring == null)
+                {
+                    throw new InvalidOperationException("Encryption is enabled but no keyring is configured");
+                }
+
                 var authData = System.Text.Encoding.UTF8.GetBytes(streamLabel);
-                var primaryKey = _config.Keyring!.GetPrimaryKey() ?? throw new InvalidOperationException("No primary key available");
+                var primaryKey = _config.Keyring.GetPrimaryKey() ?? throw new InvalidOperationException("No primary key available");
                 buf = Security.EncryptPayload(1, primaryKey, buf, authData);
             }
             catch (Exception ex)
@@ -1131,7 +1149,6 @@ public class Memberlist : IDisposable
     /// </summary>
     internal void EncodeAndBroadcast(string node, MessageType msgType, object message)
     {
-        Console.WriteLine($"[ENCODE] EncodeAndBroadcast called for {node}, type {msgType}");
         EncodeBroadcastNotify(node, msgType, message, null);
     }
 
@@ -1140,7 +1157,6 @@ public class Memberlist : IDisposable
     /// </summary>
     internal void EncodeBroadcastNotify(string node, MessageType msgType, object message, BroadcastNotifyChannel? notify)
     {
-        Console.WriteLine($"[ENCODE] EncodeBroadcastNotify called for {node}, type {msgType}, message type: {message.GetType().Name}");
         try
         {
             // Convert protocol structures to MessagePack messages
@@ -1176,14 +1192,11 @@ public class Memberlist : IDisposable
                 };
             }
 
-            Console.WriteLine($"[ENCODE] About to encode {msgToEncode.GetType().Name}...");
             var encoded = Messages.MessageEncoder.Encode(msgType, msgToEncode);
-            Console.WriteLine($"[ENCODE] Encoded message size: {encoded.Length} bytes");
 
             // Check size limits
             if (encoded.Length > _config.UDPBufferSize)
             {
-                Console.WriteLine($"[ENCODE] Message too large! {encoded.Length} > {_config.UDPBufferSize}");
                 _logger?.LogError("Encoded {Type} message for {Node} is too large ({Size} > {Max})",
                     msgType, node, encoded.Length, _config.UDPBufferSize);
                 return;
@@ -1192,18 +1205,15 @@ public class Memberlist : IDisposable
             // Check if we should skip broadcasting our own messages based on config
             if (node == _config.Name && _config.DeadNodeReclaimTime == TimeSpan.Zero)
             {
-                Console.WriteLine($"[ENCODE] Skipping broadcast for local node (reclaim time is 0)");
                 // Don't broadcast our own state changes if reclaim time is 0
                 _logger?.LogDebug("Skipping broadcast for local node {Node} (reclaim time is 0)", node);
                 return;
             }
 
-            Console.WriteLine($"[ENCODE] Calling QueueBroadcast");
             QueueBroadcast(node, msgType, encoded, notify);
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[ENCODE] Exception: {ex.Message}");
             _logger?.LogError(ex, "Failed to encode and broadcast {Type} for {Node}", msgType, node);
         }
     }
@@ -1242,7 +1252,14 @@ public class Memberlist : IDisposable
         {
             if (kvp.Value is Suspicion suspicion)
             {
-                suspicion.Dispose();
+                try
+                {
+                    suspicion.Dispose();
+                }
+                catch (ObjectDisposedException)
+                {
+                    // Timer already disposed, safe to ignore
+                }
             }
         }
         _nodeTimers.Clear();
@@ -1586,8 +1603,6 @@ public class Memberlist : IDisposable
     /// </summary>
     private void QueueBroadcast(string node, MessageType msgType, byte[] message, BroadcastNotifyChannel? notify)
     {
-        Console.WriteLine($"[QUEUEBCAST] QueueBroadcast CALLED for {node}, type {msgType}, message size {message.Length}");
-
         // Create broadcast with notify channel - it will call notify.Notify() when Finished() is invoked
         // by the TransmitLimitedQueue (either when invalidated or transmit limit reached)
         IBroadcast broadcast = msgType switch
@@ -1598,10 +1613,7 @@ public class Memberlist : IDisposable
             _ => throw new ArgumentException($"Unsupported message type for broadcast: {msgType}", nameof(msgType))
         };
 
-        Console.WriteLine($"[QUEUEBCAST] Created broadcast object, about to queue...");
         _broadcasts.QueueBroadcast(broadcast);
-        Console.WriteLine($"[QUEUEBCAST] QUEUED! Queue size now: {_broadcasts.NumQueued()}");
-        Console.WriteLine($"[BROADCAST] Queued {msgType} broadcast for {node}, queue size: {_broadcasts.NumQueued()}");
         _logger?.LogDebug("[BROADCAST] Queued {Type} broadcast for {Node}, queue size: {Size}", msgType, node, _broadcasts.NumQueued());
     }
 
@@ -1610,7 +1622,26 @@ public class Memberlist : IDisposable
         if (!_disposed)
         {
             _disposed = true;
-            ShutdownAsync().GetAwaiter().GetResult();
+            // Try async dispose first, but if we must use sync Dispose,
+            // use Task.Run to avoid deadlocks in synchronization contexts
+            try
+            {
+                Task.Run(async () => await ShutdownAsync()).GetAwaiter().GetResult();
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "Error during synchronous disposal");
+            }
+            _shutdownCts.Dispose();
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (!_disposed)
+        {
+            _disposed = true;
+            await ShutdownAsync();
             _shutdownCts.Dispose();
         }
     }

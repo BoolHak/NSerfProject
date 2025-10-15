@@ -78,8 +78,8 @@ public class StateTests
         var config2 = CreateTestConfig("node2");
         config2.Transport = network.CreateTransport("node2");
         
-        var m1 = await NSerf.Memberlist.Memberlist.CreateAsync(config1);
-        var m2 = await NSerf.Memberlist.Memberlist.CreateAsync(config2);
+        var m1 =  NSerf.Memberlist.Memberlist.Create(config1);
+        var m2 =  NSerf.Memberlist.Memberlist.Create(config2);
 
         try
         {
@@ -141,7 +141,7 @@ public class StateTests
         config1.ProbeTimeout = TimeSpan.FromMilliseconds(10);
         config1.ProbeInterval = TimeSpan.FromMilliseconds(100);
         
-        var m1 = await NSerf.Memberlist.Memberlist.CreateAsync(config1);
+        var m1 = NSerf.Memberlist.Memberlist.Create(config1);
 
         try
         {
@@ -192,7 +192,7 @@ public class StateTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -244,7 +244,7 @@ public class StateTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -317,7 +317,7 @@ public class StateTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -370,7 +370,7 @@ public class StateTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -413,7 +413,7 @@ public class StateTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -475,7 +475,7 @@ public class StateTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -534,7 +534,7 @@ public class StateTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -587,7 +587,7 @@ public class StateTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -630,7 +630,7 @@ public class StateTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -676,7 +676,7 @@ public class StateTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -730,7 +730,7 @@ public class StateTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -783,7 +783,7 @@ public class StateTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -849,7 +849,7 @@ public class StateTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -912,7 +912,7 @@ public class StateTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -958,7 +958,7 @@ public class StateTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -1029,7 +1029,7 @@ public class StateTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -1066,7 +1066,7 @@ public class StateTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -1119,7 +1119,7 @@ public class StateTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -1172,7 +1172,7 @@ public class StateTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -1222,7 +1222,7 @@ public class StateTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -1265,7 +1265,7 @@ public class StateTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -1310,7 +1310,7 @@ public class StateTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -1369,7 +1369,7 @@ public class StateTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -1421,7 +1421,7 @@ public class StateTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -1489,7 +1489,7 @@ public class StateTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -1527,7 +1527,7 @@ public class StateTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -1570,7 +1570,7 @@ public class StateTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -1599,7 +1599,7 @@ public class StateTests
         config.Transport = network.CreateTransport("node1");
         config.SuspicionMult = 10;
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -1641,7 +1641,7 @@ public class StateTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -1683,7 +1683,7 @@ public class StateTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -1727,7 +1727,7 @@ public class StateTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -1752,7 +1752,7 @@ public class StateTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -1807,7 +1807,7 @@ public class StateTests
         config.Transport = network.CreateTransport("node1");
         config.SuspicionMult = 20;
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -1849,7 +1849,7 @@ public class StateTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -1893,7 +1893,7 @@ public class StateTests
         config.Transport = network.CreateTransport("node1");
         config.SuspicionMult = 50;
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -1950,7 +1950,7 @@ public class StateTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -1988,7 +1988,7 @@ public class StateTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -2034,7 +2034,7 @@ public class StateTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -2070,7 +2070,7 @@ public class StateTests
         var config = CreateTestConfig("local");
         config.Transport = network.CreateTransport("local");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -2099,7 +2099,7 @@ public class StateTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -2128,7 +2128,7 @@ public class StateTests
         config.Transport = network.CreateTransport("observer");
         config.SuspicionMult = 100;
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -2198,7 +2198,7 @@ public class StateTests
         config.Transport = network.CreateTransport("node1");
         config.SuspicionMult = 5;
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -2236,7 +2236,7 @@ public class StateTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -2260,7 +2260,7 @@ public class StateTests
         var config = CreateTestConfig("hub");
         config.Transport = network.CreateTransport("hub");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -2300,7 +2300,7 @@ public class StateTests
         config.Transport = network.CreateTransport("coordinator");
         config.SuspicionMult = 50;
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -2351,7 +2351,7 @@ public class StateTests
         config.Transport = network.CreateTransport("observer");
         config.SuspicionMult = 1;
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -2392,7 +2392,7 @@ public class StateTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -2430,7 +2430,7 @@ public class StateTests
         var config = CreateTestConfig("counter");
         config.Transport = network.CreateTransport("counter");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -2482,7 +2482,7 @@ public class StateTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -2514,7 +2514,7 @@ public class StateTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -2567,7 +2567,7 @@ public class StateTests
         };
         config1.Transport = NetTransport.Create(transportConfig1);
         
-        var m1 = await NSerf.Memberlist.Memberlist.CreateAsync(config1);
+        var m1 = NSerf.Memberlist.Memberlist.Create(config1);
         
         try
         {
@@ -2584,7 +2584,7 @@ public class StateTests
             };
             config2.Transport = NetTransport.Create(transportConfig2);
             
-            var m2 = await NSerf.Memberlist.Memberlist.CreateAsync(config2);
+            var m2 = NSerf.Memberlist.Memberlist.Create(config2);
             
             try
             {
@@ -2640,7 +2640,7 @@ public class StateTests
         };
         config1.Transport = NetTransport.Create(transportConfig1);
         
-        var m1 = await NSerf.Memberlist.Memberlist.CreateAsync(config1);
+        var m1 = NSerf.Memberlist.Memberlist.Create(config1);
         
         try
         {
@@ -2656,7 +2656,7 @@ public class StateTests
             };
             config2.Transport = NetTransport.Create(transportConfig2);
             
-            var m2 = await NSerf.Memberlist.Memberlist.CreateAsync(config2);
+            var m2 = NSerf.Memberlist.Memberlist.Create(config2);
             
             try
             {

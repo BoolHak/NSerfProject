@@ -42,7 +42,7 @@ public class UserStateMergingTests : IDisposable
         };
     }
     
-    private async Task<NSerf.Memberlist.Memberlist> CreateMemberlistAsync(MemberlistConfig config)
+    private NSerf.Memberlist.Memberlist CreateMemberlistAsync(MemberlistConfig config)
     {
         var transportConfig = new NetTransportConfig
         {
@@ -54,7 +54,7 @@ public class UserStateMergingTests : IDisposable
         var transport = NetTransport.Create(transportConfig);
         config.Transport = transport;
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
         _memberlists.Add(m);
         return m;
     }
@@ -65,16 +65,16 @@ public class UserStateMergingTests : IDisposable
         // Arrange - Create two nodes with test delegates
         var delegate1 = new TestDelegate("node1-state-v1");
         var config1 = CreateTestConfig("node1", delegate1);
-        var m1 = await CreateMemberlistAsync(config1);
+        var m1 =  CreateMemberlistAsync(config1);
         
         var delegate2 = new TestDelegate("node2-state-v1");
         var config2 = CreateTestConfig("node2", delegate2);
-        var m2 = await CreateMemberlistAsync(config2);
+        var m2 =  CreateMemberlistAsync(config2);
         
         // Act - Join nodes (triggers push/pull)
         var joinAddr = $"{m1._config.BindAddr}:{m1._config.BindPort}";
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-        var (numJoined, error) = await m2.JoinAsync(new[] { joinAddr }, cts.Token);
+        var (numJoined, error) =  await m2.JoinAsync([joinAddr], cts.Token);
         
         error.Should().BeNull();
         numJoined.Should().Be(1);
@@ -96,10 +96,10 @@ public class UserStateMergingTests : IDisposable
     {
         // Arrange - Create two nodes without delegates
         var config1 = CreateTestConfig("node1", null);
-        var m1 = await CreateMemberlistAsync(config1);
+        var m1 =  CreateMemberlistAsync(config1);
         
         var config2 = CreateTestConfig("node2", null);
-        var m2 = await CreateMemberlistAsync(config2);
+        var m2 =  CreateMemberlistAsync(config2);
         
         // Act - Join should work without delegates
         var joinAddr = $"{m1._config.BindAddr}:{m1._config.BindPort}";
@@ -121,11 +121,11 @@ public class UserStateMergingTests : IDisposable
         // Arrange - Delegates that return empty state
         var delegate1 = new TestDelegate("");
         var config1 = CreateTestConfig("node1", delegate1);
-        var m1 = await CreateMemberlistAsync(config1);
+        var m1 =  CreateMemberlistAsync(config1);
         
         var delegate2 = new TestDelegate("");
         var config2 = CreateTestConfig("node2", delegate2);
-        var m2 = await CreateMemberlistAsync(config2);
+        var m2 =  CreateMemberlistAsync(config2);
         
         // Act - Join nodes
         var joinAddr = $"{m1._config.BindAddr}:{m1._config.BindPort}";
@@ -144,12 +144,12 @@ public class UserStateMergingTests : IDisposable
         var largeState1 = new string('A', 10240);
         var delegate1 = new TestDelegate(largeState1);
         var config1 = CreateTestConfig("node1", delegate1);
-        var m1 = await CreateMemberlistAsync(config1);
+        var m1 =  CreateMemberlistAsync(config1);
         
         var largeState2 = new string('B', 10240);
         var delegate2 = new TestDelegate(largeState2);
         var config2 = CreateTestConfig("node2", delegate2);
-        var m2 = await CreateMemberlistAsync(config2);
+        var m2 =  CreateMemberlistAsync(config2);
         
         // Act - Join nodes
         var joinAddr = $"{m1._config.BindAddr}:{m1._config.BindPort}";
@@ -173,11 +173,11 @@ public class UserStateMergingTests : IDisposable
         // Arrange - Track whether join flag is set correctly
         var delegate1 = new TestDelegate("state1");
         var config1 = CreateTestConfig("node1", delegate1);
-        var m1 = await CreateMemberlistAsync(config1);
+        var m1 =  CreateMemberlistAsync(config1);
         
         var delegate2 = new TestDelegate("state2");
         var config2 = CreateTestConfig("node2", delegate2);
-        var m2 = await CreateMemberlistAsync(config2);
+        var m2 = CreateMemberlistAsync(config2);
         
         // Act - Join (should have join=true initially)
         var joinAddr = $"{m1._config.BindAddr}:{m1._config.BindPort}";
@@ -204,11 +204,11 @@ public class UserStateMergingTests : IDisposable
         
         var delegate1 = new BinaryStateDelegate(binaryState);
         var config1 = CreateTestConfig("node1", delegate1);
-        var m1 = await CreateMemberlistAsync(config1);
+        var m1 =  CreateMemberlistAsync(config1);
         
         var delegate2 = new BinaryStateDelegate(new byte[] { 255, 254, 253 });
         var config2 = CreateTestConfig("node2", delegate2);
-        var m2 = await CreateMemberlistAsync(config2);
+        var m2 =  CreateMemberlistAsync(config2);
         
         // Act - Join nodes
         var joinAddr = $"{m1._config.BindAddr}:{m1._config.BindPort}";

@@ -21,7 +21,7 @@ public class MemberlistTests
         config.Transport = network.CreateTransport("test-node");
         
         // Act
-        var memberlist = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var memberlist = NSerf.Memberlist.Memberlist.Create(config);
         
         // Assert
         memberlist.Should().NotBeNull();
@@ -33,7 +33,7 @@ public class MemberlistTests
     }
     
     [Fact]
-    public async Task Create_WithInvalidProtocolVersion_ShouldThrow()
+    public void Create_WithInvalidProtocolVersion_ShouldThrow()
     {
         // Arrange
         var config = MemberlistConfig.DefaultLocalConfig();
@@ -43,11 +43,10 @@ public class MemberlistTests
         config.Transport = network.CreateTransport("test-node");
         
         // Act
-        Func<Task> act = async () => await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var act =  () =>  NSerf.Memberlist.Memberlist.Create(config);
         
         // Assert
-        await act.Should().ThrowAsync<ArgumentException>()
-            .WithMessage("*protocol version*");
+        act.Should().Throw<ArgumentException>().WithMessage("*protocol version*");
     }
     
     [Fact]
@@ -61,7 +60,7 @@ public class MemberlistTests
         config.Transport = network.CreateTransport("my-node");
         
         // Act
-        var memberlist = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var memberlist = NSerf.Memberlist.Memberlist.Create(config);
         
         // Assert
         var localNode = memberlist.LocalNode;
@@ -84,7 +83,7 @@ public class MemberlistTests
         config.Transport = network.CreateTransport("solo-node");
         
         // Act
-        var memberlist = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var memberlist = NSerf.Memberlist.Memberlist.Create(config);
         
         // Assert
         memberlist.NumMembers().Should().Be(1, "only local node should be in the cluster");
@@ -104,7 +103,7 @@ public class MemberlistTests
         config.Transport = network.CreateTransport("healthy-node");
         
         // Act
-        var memberlist = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var memberlist = NSerf.Memberlist.Memberlist.Create(config);
         
         // Assert
         memberlist.GetHealthScore().Should().Be(0, "new node should be perfectly healthy");
@@ -123,7 +122,7 @@ public class MemberlistTests
         var network = new MockNetwork();
         config.Transport = network.CreateTransport("shutdown-node");
         
-        var memberlist = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var memberlist = NSerf.Memberlist.Memberlist.Create(config);
         
         // Act
         await memberlist.ShutdownAsync();

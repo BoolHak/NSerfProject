@@ -56,7 +56,7 @@ public class NetworkTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {

@@ -36,7 +36,7 @@ public class MemberlistApiTests
         var config = CreateTestConfig("test");
         config.Transport = network.CreateTransport("test");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -56,7 +56,7 @@ public class MemberlistApiTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -76,7 +76,7 @@ public class MemberlistApiTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -95,7 +95,7 @@ public class MemberlistApiTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -114,7 +114,7 @@ public class MemberlistApiTests
         var config = CreateTestConfig("mynode");
         config.Transport = network.CreateTransport("mynode");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -135,7 +135,7 @@ public class MemberlistApiTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -154,7 +154,7 @@ public class MemberlistApiTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         await m.ShutdownAsync();
         
@@ -169,7 +169,7 @@ public class MemberlistApiTests
         config.Transport = network.CreateTransport("node1");
         config.ProtocolVersion = 3;
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -188,7 +188,7 @@ public class MemberlistApiTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -212,7 +212,7 @@ public class MemberlistApiTests
         config.Transport = network.CreateTransport("node1");
         config.ProtocolVersion = 5;
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -231,7 +231,7 @@ public class MemberlistApiTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -270,7 +270,7 @@ public class MemberlistApiTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -291,7 +291,7 @@ public class MemberlistApiTests
         var config = CreateTestConfig("testnode");
         config.Transport = network.CreateTransport("testnode");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -311,7 +311,7 @@ public class MemberlistApiTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -335,7 +335,7 @@ public class MemberlistApiTests
         config.SuspicionMult = 10;
         config.ProbeInterval = TimeSpan.FromSeconds(5);
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -354,7 +354,7 @@ public class MemberlistApiTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -373,7 +373,7 @@ public class MemberlistApiTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {

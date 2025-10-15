@@ -36,7 +36,7 @@ public class ConflictTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m =  NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -74,7 +74,7 @@ public class ConflictTests
         var config = CreateTestConfig("localnode");
         config.Transport = network.CreateTransport("localnode");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -107,7 +107,7 @@ public class ConflictTests
         var config = CreateTestConfig("survivor");
         config.Transport = network.CreateTransport("survivor");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -140,7 +140,7 @@ public class ConflictTests
         var config = CreateTestConfig("node1");
         config.Transport = network.CreateTransport("node1");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -173,7 +173,7 @@ public class ConflictTests
         var config = CreateTestConfig("testnode");
         config.Transport = network.CreateTransport("testnode");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {
@@ -218,7 +218,7 @@ public class ConflictTests
         var config = CreateTestConfig("defender");
         config.Transport = network.CreateTransport("defender");
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
 
         try
         {

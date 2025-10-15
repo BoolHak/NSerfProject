@@ -43,7 +43,7 @@ public class UserMessageTests : IDisposable
         return config;
     }
     
-    private async Task<NSerf.Memberlist.Memberlist> CreateMemberlistAsync(MemberlistConfig config)
+    private NSerf.Memberlist.Memberlist CreateMemberlistAsync(MemberlistConfig config)
     {
         // Create real network transport
         var transportConfig = new NetTransportConfig
@@ -56,7 +56,7 @@ public class UserMessageTests : IDisposable
         var transport = NetTransport.Create(transportConfig);
         config.Transport = transport;
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
         _memberlists.Add(m);
         return m;
     }
@@ -70,10 +70,10 @@ public class UserMessageTests : IDisposable
         
         // Create two nodes
         var config1 = CreateTestConfig("node1");
-        var m1 = await CreateMemberlistAsync(config1);
+        var m1 =  CreateMemberlistAsync(config1);
         
         var config2 = CreateTestConfig("node2", testDelegate);
-        var m2 = await CreateMemberlistAsync(config2);
+        var m2 =  CreateMemberlistAsync(config2);
         
         // Join nodes
         var bindPort = m1._config.BindPort;

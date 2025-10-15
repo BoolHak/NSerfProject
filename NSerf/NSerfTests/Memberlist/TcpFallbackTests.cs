@@ -58,7 +58,7 @@ public class TcpFallbackTests : IAsyncLifetime
         return config;
     }
     
-    private async Task<NSerf.Memberlist.Memberlist> CreateMemberlistAsync(MemberlistConfig config)
+    private NSerf.Memberlist.Memberlist CreateMemberlistAsync(MemberlistConfig config)
     {
         // Create real network transport
         var transportConfig = new NetTransportConfig
@@ -71,7 +71,7 @@ public class TcpFallbackTests : IAsyncLifetime
         var transport = NetTransport.Create(transportConfig);
         config.Transport = transport;
         
-        var m = await NSerf.Memberlist.Memberlist.CreateAsync(config);
+        var m = NSerf.Memberlist.Memberlist.Create(config);
         _memberlists.Add(m);
         return m;
     }
@@ -82,7 +82,7 @@ public class TcpFallbackTests : IAsyncLifetime
         // Create first node with TCP fallback enabled
         var config1 = CreateTestConfig("node1");
         config1.DisableTcpPings = false; // Enable TCP fallback
-        var m1 = await CreateMemberlistAsync(config1);
+        var m1 =  CreateMemberlistAsync(config1);
         
         var bindPort = m1._config.BindPort;
         await Task.Delay(100);
@@ -90,7 +90,7 @@ public class TcpFallbackTests : IAsyncLifetime
         // Create second node with TCP fallback enabled
         var config2 = CreateTestConfig("node2");
         config2.DisableTcpPings = false; // Enable TCP fallback
-        var m2 = await CreateMemberlistAsync(config2);
+        var m2 = CreateMemberlistAsync(config2);
         
         await Task.Delay(100);
         
@@ -135,7 +135,7 @@ public class TcpFallbackTests : IAsyncLifetime
         // Create first node with TCP fallback disabled globally
         var config1 = CreateTestConfig("node1");
         config1.DisableTcpPings = true; // Disable TCP fallback
-        var m1 = await CreateMemberlistAsync(config1);
+        var m1 = CreateMemberlistAsync(config1);
         
         var bindPort = m1._config.BindPort;
         await Task.Delay(100);
@@ -143,7 +143,7 @@ public class TcpFallbackTests : IAsyncLifetime
         // Create second node with TCP fallback disabled
         var config2 = CreateTestConfig("node2");
         config2.DisableTcpPings = true; // Disable TCP fallback
-        var m2 = await CreateMemberlistAsync(config2);
+        var m2 = CreateMemberlistAsync(config2);
         
         await Task.Delay(100);
         
@@ -174,7 +174,7 @@ public class TcpFallbackTests : IAsyncLifetime
         config1.DisableTcpPings = false;
         // Disable TCP pings for node2 specifically
         config1.DisableTcpPingsForNode = (nodeName) => nodeName == "node2";
-        var m1 = await CreateMemberlistAsync(config1);
+        var m1 = CreateMemberlistAsync(config1);
         
         var bindPort = m1._config.BindPort;
         await Task.Delay(100);
@@ -182,7 +182,7 @@ public class TcpFallbackTests : IAsyncLifetime
         // Create second node
         var config2 = CreateTestConfig("node2");
         config2.DisableTcpPings = false;
-        var m2 = await CreateMemberlistAsync(config2);
+        var m2 = CreateMemberlistAsync(config2);
         
         await Task.Delay(100);
         
@@ -214,21 +214,21 @@ public class TcpFallbackTests : IAsyncLifetime
         
         var config1 = CreateTestConfig("node1");
         config1.DisableTcpPings = false;
-        var m1 = await CreateMemberlistAsync(config1);
+        var m1 = CreateMemberlistAsync(config1);
         
         var bindPort = m1._config.BindPort;
         await Task.Delay(100);
         
         var config2 = CreateTestConfig("node2");
         config2.DisableTcpPings = false;
-        var m2 = await CreateMemberlistAsync(config2);
+        var m2 = CreateMemberlistAsync(config2);
         
         await Task.Delay(100);
         
         // Join nodes
         var joinAddr = $"{m1._config.BindAddr}:{bindPort}";
         using var joinCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-        await m2.JoinAsync(new[] { joinAddr }, joinCts.Token);
+        await m2.JoinAsync([joinAddr], joinCts.Token);
         
         await Task.Delay(500);
         
@@ -260,7 +260,7 @@ public class TcpFallbackTests : IAsyncLifetime
         config1.DisableTcpPings = false;
         config1.ProbeInterval = TimeSpan.FromMilliseconds(50);
         config1.ProbeTimeout = TimeSpan.FromMilliseconds(200);
-        var m1 = await CreateMemberlistAsync(config1);
+        var m1 = CreateMemberlistAsync(config1);
         
         var bindPort = m1._config.BindPort;
         await Task.Delay(100);
@@ -269,7 +269,7 @@ public class TcpFallbackTests : IAsyncLifetime
         config2.DisableTcpPings = false;
         config2.ProbeInterval = TimeSpan.FromMilliseconds(50);
         config2.ProbeTimeout = TimeSpan.FromMilliseconds(200);
-        var m2 = await CreateMemberlistAsync(config2);
+        var m2 = CreateMemberlistAsync(config2);
         
         await Task.Delay(100);
         
