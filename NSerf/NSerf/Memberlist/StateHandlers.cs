@@ -11,10 +11,10 @@ using NSerf.Memberlist.State;
 namespace NSerf.Memberlist;
 
 /// <summary>
-/// Handles state transition messages for nodes (alive, suspect, dead).
-/// Ported from github.com/hashicorp/memberlist/state.go aliveNode, suspectNode, deadNode, mergeState functions.
+/// Handles state transitions for nodes in the memberlist (alive, suspect, dead).
+/// Corresponds to state.go in the Go implementation.
 /// </summary>
-internal class StateHandlers
+public class StateHandlers
 {
     private readonly Memberlist _memberlist;
     private readonly ILogger? _logger;
@@ -230,8 +230,14 @@ internal class StateHandlers
             // Check incarnation numbers
             bool isLocalNode = state.Node.Name == _memberlist._config.Name;
             
-            // Bail if incarnation is older and not about us or an update
-            if (alive.Incarnation <= state.Incarnation && !isLocalNode && !updatesNode)
+            // Bail if incarnation is older (strict less than)
+            if (alive.Incarnation < state.Incarnation && !isLocalNode && !updatesNode)
+            {
+                return;
+            }
+            
+            // Bail if equal incarnation and not a new node, not local, and not updating
+            if (alive.Incarnation == state.Incarnation && !isNew && !isLocalNode && !updatesNode)
             {
                 return;
             }
@@ -281,9 +287,12 @@ internal class StateHandlers
             }
             else
             {
-                // Not us, broadcast it
-                // TODO: Implement broadcast with notify
-                //_memberlist.EncodeBroadcastNotify(alive.Node, MessageType.Alive, alive, notify);
+                // Not us, broadcast it (unless in bootstrap mode)
+                if (!bootstrap)
+                {
+                    _memberlist.EncodeAndBroadcast(alive.Node, Messages.MessageType.Alive, alive);
+                }
+                notify?.TrySetResult(true); // Signal completion immediately for now
                 
                 // Update protocol versions
                 if (alive.Vsn != null && alive.Vsn.Length >= 6)
@@ -352,8 +361,7 @@ internal class StateHandlers
                 if (timerObj is Suspicion existingSuspicion && existingSuspicion.Confirm(suspect.From))
                 {
                     // New confirmation, re-broadcast
-                    // TODO: Implement broadcast
-                    //_memberlist.EncodeAndBroadcast(suspect.Node, MessageType.Suspect, suspect);
+                    _memberlist.EncodeAndBroadcast(suspect.Node, Messages.MessageType.Suspect, suspect);
                 }
                 return;
             }
@@ -373,8 +381,8 @@ internal class StateHandlers
             }
             else
             {
-                // TODO: Broadcast the suspicion
-                //_memberlist.EncodeAndBroadcast(suspect.Node, MessageType.Suspect, suspect);
+                // Broadcast the suspicion
+                _memberlist.EncodeAndBroadcast(suspect.Node, Messages.MessageType.Suspect, suspect);
             }
             
             // Update state
@@ -427,7 +435,7 @@ internal class StateHandlers
                 {
                     if (k > 0 && numConfirmations < k)
                     {
-                        // TODO: Emit degraded metric
+                        // Log degraded state - metrics can be added via delegate if needed
                         _logger?.LogDebug("Suspect timeout reached with fewer confirmations than expected: {Actual} < {Expected}",
                             numConfirmations, k);
                     }
@@ -451,17 +459,22 @@ internal class StateHandlers
     /// </summary>
     public void HandleDeadNode(Dead dead)
     {
+        Console.WriteLine($"[DEAD] HandleDeadNode for {dead.Node}, From={dead.From}, Inc={dead.Incarnation}");
         lock (_memberlist._nodeLock)
         {
             if (!_memberlist._nodeMap.TryGetValue(dead.Node, out var state))
             {
+                Console.WriteLine($"[DEAD] Node {dead.Node} not in nodeMap, ignoring");
                 // Never heard of this node, ignore
                 return;
             }
             
+            Console.WriteLine($"[DEAD] Found node {dead.Node}, current state={state.State}, current inc={state.Incarnation}");
+            
             // Ignore old incarnation
             if (dead.Incarnation < state.Incarnation)
             {
+                Console.WriteLine($"[DEAD] Old incarnation, ignoring");
                 return;
             }
             
@@ -477,12 +490,14 @@ internal class StateHandlers
             // Ignore if already dead or left
             if (state.State == NodeStateType.Dead || state.State == NodeStateType.Left)
             {
+                Console.WriteLine($"[DEAD] Node already {state.State}, ignoring");
                 return;
             }
             
             // Check if this is us
             if (state.Node.Name == _memberlist._config.Name)
             {
+                Console.WriteLine($"[DEAD] This is us, IsLeaving={_memberlist.IsLeaving}");
                 // If not leaving, refute
                 if (!_memberlist.IsLeaving)
                 {
@@ -491,14 +506,14 @@ internal class StateHandlers
                     return; // Don't mark ourselves dead
                 }
                 
-                // If leaving, broadcast and wait
-                // TODO: Implement broadcast with leave notification
-                //_memberlist.EncodeBroadcastNotify(dead.Node, MessageType.Dead, dead, leaveBroadcast);
+                // If leaving, broadcast dead message
+                _memberlist.EncodeAndBroadcast(dead.Node, Messages.MessageType.Dead, dead);
             }
             else
             {
-                // TODO: Broadcast the dead message
-                //_memberlist.EncodeAndBroadcast(dead.Node, MessageType.Dead, dead);
+                Console.WriteLine($"[DEAD] Broadcasting dead message");
+                // Broadcast the dead message
+                _memberlist.EncodeAndBroadcast(dead.Node, Messages.MessageType.Dead, dead);
             }
             
             // Update state
@@ -507,13 +522,16 @@ internal class StateHandlers
             // If the dead message was sent by the node itself, mark as left instead
             if (dead.Node == dead.From)
             {
+                Console.WriteLine($"[DEAD] Node==From, marking as Left");
                 state.State = NodeStateType.Left;
             }
             else
             {
+                Console.WriteLine($"[DEAD] Node!=From, marking as Dead");
                 state.State = NodeStateType.Dead;
             }
             state.StateChange = DateTimeOffset.UtcNow;
+            Console.WriteLine($"[DEAD] Updated state for {dead.Node} to {state.State}");
             
             // Notify event delegate
             if (_memberlist._config.Events != null)
@@ -555,8 +573,8 @@ internal class StateHandlers
             }
         };
         
-        // TODO: Implement broadcast
-        //_memberlist.EncodeAndBroadcast(nodeState.Node.Addr.ToString(), MessageType.Alive, alive);
+        // Broadcast the refutation
+        _memberlist.EncodeAndBroadcast(nodeState.Node.Name, Messages.MessageType.Alive, alive);
         
         _logger?.LogWarning("Refuted accusation for '{Node}' with incarnation {Inc}", nodeState.Node.Name, inc);
     }

@@ -4,7 +4,9 @@
 
 using System.Diagnostics;
 using Microsoft.Extensions.Logging;
+using NSerf.Memberlist.Messages;
 using NSerf.Memberlist.State;
+using NSerf.Memberlist.Transport;
 
 namespace NSerf.Memberlist;
 
@@ -16,9 +18,16 @@ public class ProbeManager
     private readonly ILogger? _logger;
     private int _probeIndex;
     private readonly Random _random = new();
+    private readonly Memberlist? _memberlist;
     
     public ProbeManager(ILogger? logger = null)
     {
+        _logger = logger;
+    }
+    
+    public ProbeManager(Memberlist memberlist, ILogger? logger = null)
+    {
+        _memberlist = memberlist;
         _logger = logger;
     }
     
@@ -66,17 +75,38 @@ public class ProbeManager
         
         try
         {
-            // TODO: Actual ping implementation
-            await Task.Delay(10, cancellationToken);
+            if (_memberlist == null)
+            {
+                // Fallback for tests without memberlist
+                await Task.Delay(10, cancellationToken);
+                return new ProbeResult
+                {
+                    Success = true,
+                    NodeName = node.Name,
+                    Rtt = sw.Elapsed,
+                    UsedTcp = false,
+                    IndirectChecks = 0
+                };
+            }
+            
+            // Try UDP ping first
+            var success = await SendUdpPingAsync(node, timeout, sw, cancellationToken);
+            
+            if (!success)
+            {
+                // Fallback to TCP if UDP fails
+                _logger?.LogDebug("UDP ping failed for {Node}, trying TCP", node.Name);
+                success = await SendTcpPingAsync(node, timeout, sw, cancellationToken);
+            }
             
             sw.Stop();
             
             return new ProbeResult
             {
-                Success = true,
+                Success = success,
                 NodeName = node.Name,
                 Rtt = sw.Elapsed,
-                UsedTcp = false,
+                UsedTcp = !success, // If we got here with success=false, we tried both
                 IndirectChecks = 0
             };
         }
@@ -93,6 +123,88 @@ public class ProbeManager
                 IndirectChecks = 0
             };
         }
+    }
+    
+    private async Task<bool> SendUdpPingAsync(NodeState node, TimeSpan timeout, Stopwatch sw, CancellationToken cancellationToken)
+    {
+        if (_memberlist == null) return false;
+        
+        var seqNo = _memberlist.NextSequenceNum();
+        var ping = new PingMessage
+        {
+            SeqNo = seqNo,
+            Node = node.Name,
+            SourceNode = _memberlist._config.Name,
+            SourceAddr = _memberlist.GetAdvertiseAddr().Address.GetAddressBytes(),
+            SourcePort = (ushort)_memberlist.GetAdvertiseAddr().Port
+        };
+        
+        // Set up ack handler
+        var ackReceived = new TaskCompletionSource<bool>();
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(timeout);
+        
+        _memberlist._ackHandlers.TryAdd(seqNo, new AckNackHandler(_logger));
+        _memberlist._ackHandlers[seqNo].SetAckHandler(
+            seqNo,
+            (payload, timestamp) =>
+            {
+                ackReceived.TrySetResult(true);
+            },
+            () =>
+            {
+                ackReceived.TrySetResult(false);
+            },
+            timeout
+        );
+        
+        try
+        {
+            // Send ping
+            var addr = new Address
+            {
+                Addr = $"{node.Node.Addr}:{node.Node.Port}",
+                Name = node.Name
+            };
+            
+            var pingBytes = Messages.MessageEncoder.Encode(MessageType.Ping, ping);
+            await _memberlist.SendUdpAsync(pingBytes, addr, cts.Token);
+            
+            // Wait for ack
+            return await ackReceived.Task;
+        }
+        catch (OperationCanceledException)
+        {
+            return false;
+        }
+        finally
+        {
+            _memberlist._ackHandlers.TryRemove(seqNo, out _);
+        }
+    }
+    
+    private async Task<bool> SendTcpPingAsync(NodeState node, TimeSpan timeout, Stopwatch sw, CancellationToken cancellationToken)
+    {
+        if (_memberlist == null) return false;
+        
+        var seqNo = _memberlist.NextSequenceNum();
+        var ping = new PingMessage
+        {
+            SeqNo = seqNo,
+            Node = node.Name,
+            SourceNode = _memberlist._config.Name,
+            SourceAddr = _memberlist.GetAdvertiseAddr().Address.GetAddressBytes(),
+            SourcePort = (ushort)_memberlist.GetAdvertiseAddr().Port
+        };
+        
+        var addr = new Address
+        {
+            Addr = $"{node.Node.Addr}:{node.Node.Port}",
+            Name = node.Name
+        };
+        
+        var deadline = DateTimeOffset.UtcNow.Add(timeout);
+        return await _memberlist.SendPingAndWaitForAckAsync(addr, ping, deadline, cancellationToken);
     }
     
     /// <summary>

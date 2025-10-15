@@ -330,6 +330,8 @@ public class NetTransport : INodeAwareTransport
         try
         {
             var host = Dns.GetHostEntry(Dns.GetHostName());
+            IPAddress? loopbackFallback = null;
+            
             foreach (var ip in host.AddressList)
             {
                 if (ip.AddressFamily == AddressFamily.InterNetwork)
@@ -342,7 +344,19 @@ public class NetTransport : INodeAwareTransport
                     {
                         return ip;
                     }
+                    
+                    // Save loopback address as fallback (127.x.x.x)
+                    if (bytes[0] == 127)
+                    {
+                        loopbackFallback = ip;
+                    }
                 }
+            }
+            
+            // If no private IP found, return loopback as fallback
+            if (loopbackFallback != null)
+            {
+                return loopbackFallback;
             }
         }
         catch
@@ -350,7 +364,8 @@ public class NetTransport : INodeAwareTransport
             // Ignore errors
         }
         
-        return null;
+        // Last resort: return 127.0.0.1
+        return IPAddress.Loopback;
     }
     
     public void Dispose()

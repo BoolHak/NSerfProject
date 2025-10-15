@@ -16,6 +16,7 @@ public class SwimProtocol
     private readonly MemberlistConfig _config;
     private readonly ProbeManager _probeManager;
     private readonly Awareness _awareness;
+    private readonly IndirectPing? _indirectPing;
     private readonly ILogger? _logger;
     
     public SwimProtocol(
@@ -27,6 +28,20 @@ public class SwimProtocol
         _config = config;
         _probeManager = probeManager;
         _awareness = awareness;
+        _logger = logger;
+    }
+    
+    public SwimProtocol(
+        MemberlistConfig config,
+        ProbeManager probeManager,
+        Awareness awareness,
+        IndirectPing indirectPing,
+        ILogger? logger = null)
+    {
+        _config = config;
+        _probeManager = probeManager;
+        _awareness = awareness;
+        _indirectPing = indirectPing;
         _logger = logger;
     }
     
@@ -77,12 +92,16 @@ public class SwimProtocol
         _logger?.LogDebug("Indirect probe of {Target} via {Count} nodes", 
             target.Name, indirectNodes.Count);
         
-        // TODO: Actually send indirect ping requests
-        await Task.Delay(10, cancellationToken);
+        bool success = false;
+        if (_indirectPing != null && indirectNodes.Count > 0)
+        {
+            // Use IndirectPing to send requests through intermediaries
+            success = await _indirectPing.IndirectPingAsync(target, indirectNodes, timeout, cancellationToken);
+        }
         
         return new ProbeResult
         {
-            Success = false,
+            Success = success,
             NodeName = target.Name,
             Rtt = timeout,
             UsedTcp = false,

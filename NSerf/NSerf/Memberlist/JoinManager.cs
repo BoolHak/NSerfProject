@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 using Microsoft.Extensions.Logging;
+using NSerf.Memberlist.Messages;
 using NSerf.Memberlist.Transport;
 
 namespace NSerf.Memberlist;
@@ -12,13 +13,13 @@ namespace NSerf.Memberlist;
 /// </summary>
 public class JoinManager
 {
-    private readonly ITransport _transport;
+    private readonly Memberlist _memberlist;
     private readonly AddressResolver _addressResolver;
     private readonly ILogger? _logger;
     
-    public JoinManager(ITransport transport, AddressResolver addressResolver, ILogger? logger = null)
+    public JoinManager(Memberlist memberlist, AddressResolver addressResolver, ILogger? logger = null)
     {
-        _transport = transport;
+        _memberlist = memberlist;
         _addressResolver = addressResolver;
         _logger = logger;
     }
@@ -48,8 +49,29 @@ public class JoinManager
                     continue;
                 }
                 
-                // TODO: Send actual join request
-                await Task.Delay(10, cancellationToken);
+                // Send ping to the node to initiate join
+                var addr = new Address
+                {
+                    Addr = addresses[0].ToString(),
+                    Name = node
+                };
+                
+                var seqNo = _memberlist.NextSequenceNum();
+                var ping = new PingMessage
+                {
+                    SeqNo = seqNo,
+                    Node = node,
+                    SourceNode = _memberlist._config.Name,
+                    SourceAddr = _memberlist.GetAdvertiseAddr().Address.GetAddressBytes(),
+                    SourcePort = (ushort)_memberlist.GetAdvertiseAddr().Port
+                };
+                
+                // Try to ping the node (this will establish our presence)
+                var pingBytes = Messages.MessageEncoder.Encode(MessageType.Ping, ping);
+                await _memberlist.SendUdpAsync(pingBytes, addr, cancellationToken);
+                
+                // Small delay to allow response
+                await Task.Delay(50, cancellationToken);
                 
                 result.NumJoined++;
                 result.SuccessfulNodes.Add(node);

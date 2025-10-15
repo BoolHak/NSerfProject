@@ -2,7 +2,9 @@
 // Copyright (c) HashiCorp, Inc.
 // SPDX-License-Identifier: MPL-2.0
 
+using FluentAssertions;
 using NSerf.Memberlist;
+using Xunit;
 
 namespace NSerfTests.Memberlist;
 
@@ -184,5 +186,50 @@ public class LabelHandlerTests
         
         // Assert
         overhead.Should().Be(257); // 2 header bytes + 255 label bytes
+    }
+    
+    [Fact]
+    public void RemoveLabelHeaderFromPacket_EmptyBuffer_ShouldReturnEmpty()
+    {
+        // Arrange
+        var buf = Array.Empty<byte>();
+        
+        // Act
+        var (newBuf, label) = LabelHandler.RemoveLabelHeaderFromPacket(buf);
+        
+        // Assert
+        newBuf.Should().BeSameAs(buf);
+        label.Should().BeEmpty();
+    }
+    
+    [Fact]
+    public void LabelRoundTrip_UnicodeLabel_ShouldPreserveEncoding()
+    {
+        // Arrange
+        var originalBuf = new byte[] { 1, 2, 3 };
+        var label = "测试-тест-🎉";
+        
+        // Act
+        var withLabel = LabelHandler.AddLabelHeaderToPacket(originalBuf, label);
+        var (restored, extractedLabel) = LabelHandler.RemoveLabelHeaderFromPacket(withLabel);
+        
+        // Assert
+        extractedLabel.Should().Be(label);
+        restored.Should().BeEquivalentTo(originalBuf);
+    }
+    
+    [Fact]
+    public void AddLabelHeaderToPacket_NullBuffer_ShouldCreateLabelOnly()
+    {
+        // Arrange
+        var label = "test";
+        
+        // Act
+        var result = LabelHandler.AddLabelHeaderToPacket(Array.Empty<byte>(), label);
+        
+        // Assert
+        result.Length.Should().Be(2 + label.Length);
+        result[0].Should().Be((byte)244); // hasLabelMsg
+        result[1].Should().Be((byte)label.Length);
     }
 }

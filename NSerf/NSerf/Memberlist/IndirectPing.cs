@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 using Microsoft.Extensions.Logging;
+using NSerf.Memberlist.Messages;
 using NSerf.Memberlist.State;
 using NSerf.Memberlist.Transport;
 
@@ -13,14 +14,12 @@ namespace NSerf.Memberlist;
 /// </summary>
 public class IndirectPing
 {
-    private readonly ITransport _transport;
-    private readonly SequenceGenerator _seqGen;
+    private readonly Memberlist _memberlist;
     private readonly ILogger? _logger;
     
-    public IndirectPing(ITransport transport, SequenceGenerator seqGen, ILogger? logger = null)
+    public IndirectPing(Memberlist memberlist, ILogger? logger = null)
     {
-        _transport = transport;
-        _seqGen = seqGen;
+        _memberlist = memberlist;
         _logger = logger;
     }
     
@@ -38,7 +37,7 @@ public class IndirectPing
             return false;
         }
         
-        var seqNo = _seqGen.NextSeqNo();
+        var seqNo = _memberlist.NextSequenceNum();
         _logger?.LogDebug("Indirect ping {SeqNo} to {Target} via {Count} nodes",
             seqNo, target.Name, intermediaries.Count);
         
@@ -59,9 +58,62 @@ public class IndirectPing
     {
         try
         {
-            // TODO: Send actual indirect ping request
-            await Task.Delay(10, cancellationToken);
-            return false;
+            // Create indirect ping message
+            var (addr, port) = _memberlist.GetAdvertiseAddr();
+            var indirectPing = new IndirectPingMessage
+            {
+                SeqNo = seqNo,
+                Target = target.Node.Addr.GetAddressBytes(),
+                Port = target.Node.Port,
+                Node = target.Name,
+                SourceAddr = addr.GetAddressBytes(),
+                SourcePort = (ushort)port,
+                SourceNode = _memberlist._config.Name
+            };
+            
+            // Set up ack handler to wait for response
+            var ackReceived = new TaskCompletionSource<bool>();
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cts.CancelAfter(timeout);
+            
+            var handler = new AckNackHandler(_logger);
+            _memberlist._ackHandlers.TryAdd(seqNo, handler);
+            handler.SetAckHandler(
+                seqNo,
+                (payload, timestamp) =>
+                {
+                    ackReceived.TrySetResult(true);
+                },
+                () =>
+                {
+                    ackReceived.TrySetResult(false);
+                },
+                timeout
+            );
+            
+            try
+            {
+                // Send indirect ping request to intermediary
+                var intermediaryAddr = new Address
+                {
+                    Addr = $"{intermediary.Node.Addr}:{intermediary.Node.Port}",
+                    Name = intermediary.Name
+                };
+                
+                var pingBytes = Messages.MessageEncoder.Encode(MessageType.IndirectPing, indirectPing);
+                await _memberlist.SendUdpAsync(pingBytes, intermediaryAddr, cts.Token);
+                
+                // Wait for ack
+                return await ackReceived.Task;
+            }
+            catch (OperationCanceledException)
+            {
+                return false;
+            }
+            finally
+            {
+                _memberlist._ackHandlers.TryRemove(seqNo, out _);
+            }
         }
         catch (Exception ex)
         {

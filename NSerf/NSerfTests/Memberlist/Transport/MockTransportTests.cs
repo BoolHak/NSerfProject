@@ -69,7 +69,7 @@ public class MockTransportTests
     }
     
     [Fact]
-    public async Task MockTransport_WriteToInvalidAddress_ShouldThrow()
+    public async Task MockTransport_WriteToInvalidAddress_ShouldSucceedSilently()
     {
         // Arrange
         var network = new MockNetwork();
@@ -78,12 +78,11 @@ public class MockTransportTests
         var testData = "Test"u8.ToArray();
         var invalidAddr = new Address { Addr = "invalid:9999", Name = string.Empty };
         
-        // Act
-        Func<Task> act = async () => await transport1.WriteToAddressAsync(testData, invalidAddr);
+        // Act - UDP behavior: writing to invalid address doesn't throw
+        var timestamp = await transport1.WriteToAddressAsync(testData, invalidAddr);
         
-        // Assert
-        await act.Should().ThrowAsync<InvalidOperationException>()
-            .WithMessage("*No route*");
+        // Assert - Should complete without exception (packet dropped silently like real UDP)
+        timestamp.Should().BeCloseTo(DateTimeOffset.UtcNow, TimeSpan.FromSeconds(1));
     }
     
     [Fact]

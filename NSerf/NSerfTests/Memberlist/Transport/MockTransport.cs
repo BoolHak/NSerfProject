@@ -85,12 +85,16 @@ public class MockTransport : INodeAwareTransport
     public async Task<DateTimeOffset> WriteToAddressAsync(byte[] buffer, Address addr, CancellationToken cancellationToken = default)
     {
         var dest = GetPeer(addr);
+        var now = DateTimeOffset.UtcNow;
+        
         if (dest == null)
         {
-            throw new InvalidOperationException($"No route to {addr}");
+            // UDP behavior: Silently drop packets to non-existent destinations
+            // This allows probes to timeout naturally instead of throwing exceptions
+            // Real UDP doesn't fail when sending to non-existent addresses
+            return now;
         }
         
-        var now = DateTimeOffset.UtcNow;
         var packet = new Packet
         {
             Buf = buffer.ToArray(), // Copy the buffer

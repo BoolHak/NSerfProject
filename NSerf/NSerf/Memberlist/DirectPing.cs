@@ -14,13 +14,13 @@ namespace NSerf.Memberlist;
 /// </summary>
 public class DirectPing
 {
-    private readonly ITransport _transport;
+    private readonly Memberlist _memberlist;
     private readonly ILogger? _logger;
     private readonly SequenceGenerator _seqGen;
     
-    public DirectPing(ITransport transport, SequenceGenerator seqGen, ILogger? logger = null)
+    public DirectPing(Memberlist memberlist, SequenceGenerator seqGen, ILogger? logger = null)
     {
-        _transport = transport;
+        _memberlist = memberlist;
         _seqGen = seqGen;
         _logger = logger;
     }
@@ -38,17 +38,23 @@ public class DirectPing
         
         try
         {
-            // TODO: Send actual ping message
             _logger?.LogDebug("Sending ping {SeqNo} to {Target}", seqNo, target.Name);
             
-            // TODO: Wait for ack with timeout
-            await Task.Delay(10, cancellationToken);
+            // Create ping message
+            var ping = new Messages.PingMessage
+            {
+                SeqNo = seqNo,
+                Node = _memberlist._config.Name
+            };
+            
+            var deadline = DateTimeOffset.UtcNow + timeout;
+            var success = await _memberlist.SendPingAndWaitForAckAsync(target, ping, deadline, cancellationToken);
             
             sw.Stop();
             
             return new PingResponse
             {
-                Success = true,
+                Success = success,
                 Rtt = sw.Elapsed,
                 Payload = null
             };

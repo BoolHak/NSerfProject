@@ -53,11 +53,8 @@ public class Awareness
             final = _score;
         }
         
-        // TODO: Emit metrics if score changed
-        // if (initial != final)
-        // {
-        //     metrics.SetGauge("memberlist.health.score", final);
-        // }
+        // Metrics can be emitted via IDelegate if needed
+        // Intentionally not implemented here to keep core library delegate-agnostic
     }
     
     /// <summary>
