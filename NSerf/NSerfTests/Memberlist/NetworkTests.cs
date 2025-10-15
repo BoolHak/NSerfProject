@@ -31,7 +31,7 @@ public class NetworkTests
     }
 
     [Fact]
-    public async Task MessageEncoder_CompoundMessage_CreatesCorrectly()
+    public void MessageEncoder_CompoundMessage_CreatesCorrectly()
     {
         var ping = new PingMessage
         {
@@ -70,7 +70,7 @@ public class NetworkTests
     }
 
     [Fact]
-    public async Task MessageEncoder_PingMessage_EncodesDecodes()
+    public void MessageEncoder_PingMessage_EncodesDecodes()
     {
         var ping = new PingMessage
         {
@@ -144,7 +144,7 @@ public class NetworkTests
     }
 
     [Fact]
-    public async Task MessageEncoder_MultipleTypes_EncodesCorrectly()
+    public void MessageEncoder_MultipleTypes_EncodesCorrectly()
     {
         var ping = new PingMessage { SeqNo = 1, Node = "test", SourceNode = "test", SourceAddr = new byte[4], SourcePort = 1000 };
         var encoded = MessageEncoder.Encode(MessageType.Ping, ping);
@@ -154,14 +154,14 @@ public class NetworkTests
     }
 
     [Fact]
-    public async Task CompoundMessage_Empty_HandlesGracefully()
+    public void CompoundMessage_Empty_HandlesGracefully()
     {
         var compound = MessageEncoder.MakeCompoundMessage(Array.Empty<byte[]>());
         compound.Should().NotBeEmpty();
     }
 
     [Fact]
-    public async Task CompoundMessage_Large_HandlesCorrectly()
+    public void CompoundMessage_Large_HandlesCorrectly()
     {
         var messages = new List<byte[]>();
         for (int i = 0; i < 100; i++)

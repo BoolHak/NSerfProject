@@ -2589,7 +2589,8 @@ public class StateTests
             try
             {
                 // Act - Join nodes
-                var joinAddr = $"{m1._config.BindAddr}:{m1._config.BindPort}";
+                var (advertiseAddr, advertisePort) = m1.GetAdvertiseAddr();
+                var joinAddr = $"{advertiseAddr}:{advertisePort}";
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
                 await m2.JoinAsync(new[] { joinAddr }, cts.Token);
                 

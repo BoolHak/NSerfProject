@@ -28,18 +28,16 @@ public class AckNackHandler
         var handler = new AckHandler
         {
             AckFn = ackFn,
-            NackFn = nackFn
-        };
-        
-        // Set timeout timer
-        handler.Timer = new Timer(_ =>
-        {
-            if (_handlers.TryRemove(seqNo, out var h))
+            NackFn = nackFn,
+            Timer = new Timer(_ =>
             {
-                h.NackFn?.Invoke();
-                h.Dispose();
-            }
-        }, null, timeout, Timeout.InfiniteTimeSpan);
+                if (_handlers.TryRemove(seqNo, out var h))
+                {
+                    h.NackFn?.Invoke();
+                    h.Dispose();
+                }
+            }, null, timeout, Timeout.InfiniteTimeSpan)
+        };
         
         _handlers[seqNo] = handler;
     }
