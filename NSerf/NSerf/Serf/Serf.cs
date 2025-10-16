@@ -225,6 +225,110 @@ public class Serf : IDisposable, IAsyncDisposable
         return null;
     }
 
+    /// <summary>
+    /// DefaultQueryTimeout returns the default timeout value for a query.
+    /// Computed as GossipInterval * QueryTimeoutMult * log(N+1)
+    /// </summary>
+    public TimeSpan DefaultQueryTimeout()
+    {
+        // TODO: Phase 9 - Get actual member count from memberlist
+        // For now, use a reasonable default
+        int n = 1; // Will be: Memberlist.NumMembers()
+        var timeout = Config.MemberlistConfig?.GossipInterval ?? TimeSpan.FromMilliseconds(500);
+        timeout *= Config.QueryTimeoutMult;
+        timeout *= Math.Ceiling(Math.Log10(n + 1));
+        return timeout;
+    }
+
+    /// <summary>
+    /// DefaultQueryParams is used to return the default query parameters.
+    /// </summary>
+    public QueryParam DefaultQueryParams()
+    {
+        return new QueryParam
+        {
+            FilterNodes = null,
+            FilterTags = null,
+            RequestAck = false,
+            Timeout = DefaultQueryTimeout()
+        };
+    }
+
+    /// <summary>
+    /// ShouldProcessQuery checks if a query should be processed given a set of filters.
+    /// </summary>
+    public bool ShouldProcessQuery(List<byte[]> filters)
+    {
+        foreach (var filter in filters)
+        {
+            if (filter.Length == 0) continue;
+
+            var filterType = (FilterType)filter[0];
+
+            switch (filterType)
+            {
+                case FilterType.Node:
+                    // Decode the filter
+                    string[] nodes;
+                    try
+                    {
+                        var slice = new byte[filter.Length - 1];
+                        Array.Copy(filter, 1, slice, 0, filter.Length - 1);
+                        nodes = MessagePackSerializer.Deserialize<string[]>(slice);
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger?.LogWarning("[Serf] Failed to decode filterNodeType: {Error}", ex.Message);
+                        return false;
+                    }
+
+                    // Check if we are being targeted
+                    if (!nodes.Contains(Config.NodeName))
+                    {
+                        return false;
+                    }
+                    break;
+
+                case FilterType.Tag:
+                    // Decode the filter
+                    FilterTag filt;
+                    try
+                    {
+                        var slice = new byte[filter.Length - 1];
+                        Array.Copy(filter, 1, slice, 0, filter.Length - 1);
+                        filt = MessagePackSerializer.Deserialize<FilterTag>(slice);
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger?.LogWarning("[Serf] Failed to decode filterTagType: {Error}", ex.Message);
+                        return false;
+                    }
+
+                    // Check if we match this regex
+                    var tagValue = Config.Tags.GetValueOrDefault(filt.Tag, string.Empty);
+                    try
+                    {
+                        if (!System.Text.RegularExpressions.Regex.IsMatch(tagValue, filt.Expr))
+                        {
+                            return false;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger?.LogWarning("[Serf] Failed to compile filter regex ({Expr}): {Error}", filt.Expr, ex.Message);
+                        return false;
+                    }
+                    break;
+
+                default:
+                    Logger?.LogWarning("[Serf] Query has unrecognized filter type: {Type}", filter[0]);
+                    return false;
+            }
+        }
+
+        return true;
+    }
+
     internal byte[] EncodeMessage(MessageType messageType, object message)
     {
         try
