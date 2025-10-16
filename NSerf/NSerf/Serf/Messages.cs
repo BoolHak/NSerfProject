@@ -349,15 +349,61 @@ public class FilterTag
 
 /// <summary>
 /// RelayHeader is used to store the end destination of a relayed message.
+/// Matches Go's relayHeader structure with net.UDPAddr.
 /// </summary>
 [MessagePackObject]
 public class RelayHeader
 {
+    /// <summary>
+    /// Destination address as IP bytes and port.
+    /// Stored as a UDPAddr-like structure to match Go serialization.
+    /// </summary>
     [Key(0)]
-    public IPEndPoint DestAddr { get; set; } = new(IPAddress.None, 0);
+    public UdpAddr DestAddr { get; set; } = new();
 
     [Key(1)]
     public string DestName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Converts to IPEndPoint for convenience.
+    /// </summary>
+    public IPEndPoint ToIPEndPoint()
+    {
+        var ip = new IPAddress(DestAddr.IP);
+        return new IPEndPoint(ip, DestAddr.Port);
+    }
+
+    /// <summary>
+    /// Creates RelayHeader from IPEndPoint.
+    /// </summary>
+    public static RelayHeader FromIPEndPoint(IPEndPoint endpoint, string destName)
+    {
+        return new RelayHeader
+        {
+            DestAddr = new UdpAddr
+            {
+                IP = endpoint.Address.GetAddressBytes(),
+                Port = endpoint.Port
+            },
+            DestName = destName
+        };
+    }
+}
+
+/// <summary>
+/// UdpAddr represents a UDP address to match Go's net.UDPAddr structure.
+/// </summary>
+[MessagePackObject]
+public class UdpAddr
+{
+    [Key(0)]
+    public byte[] IP { get; set; } = Array.Empty<byte>();
+
+    [Key(1)]
+    public int Port { get; set; }
+
+    [Key(2)]
+    public string? Zone { get; set; } // IPv6 zone
 }
 
 /// <summary>
@@ -402,11 +448,7 @@ public static class MessageCodec
         ms.WriteByte((byte)MessageType.Relay);
         
         // Serialize relay header
-        var header = new RelayHeader
-        {
-            DestAddr = destAddr,
-            DestName = nodeName
-        };
+        var header = RelayHeader.FromIPEndPoint(destAddr, nodeName);
         MessagePackSerializer.Serialize(ms, header, _standardOptions);
         
         // Write actual message type
