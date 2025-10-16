@@ -21,7 +21,7 @@ public class VersionInfo
     /// </summary>
     public byte[] ToByteArray()
     {
-        return new[] { ProtocolMin, ProtocolMax, ProtocolCur, DelegateMin, DelegateMax, DelegateCur };
+        return [ProtocolMin, ProtocolMax, ProtocolCur, DelegateMin, DelegateMax, DelegateCur];
     }
     
     /// <summary>
