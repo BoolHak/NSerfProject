@@ -214,12 +214,6 @@ public class Config
     /// </summary>
     public string? SnapshotPath { get; set; }
 
-    /// <summary>
-    /// RejoinAfterLeave controls our interaction with the snapshot file.
-    /// When set to false (default), a leave causes a Serf to not rejoin
-    /// the cluster until an explicit join is received.
-    /// </summary>
-    public bool RejoinAfterLeave { get; set; } = false;
 
     /// <summary>
     /// EnableNameConflictResolution controls if Serf will actively attempt
@@ -256,6 +250,14 @@ public class Config
     /// WARNING: this should ONLY be used in tests
     /// </summary>
     internal Func<MessageType, bool>? MessageDropper { get; set; }
+
+    /// <summary>
+    /// Helper method to check if a message should be dropped.
+    /// </summary>
+    internal bool ShouldDropMessage(MessageType messageType)
+    {
+        return MessageDropper?.Invoke(messageType) ?? false;
+    }
 
     /// <summary>
     /// ReconnectTimeoutOverride is an optional interface which when present allows

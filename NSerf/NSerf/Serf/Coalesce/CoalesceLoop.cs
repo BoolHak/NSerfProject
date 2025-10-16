@@ -99,9 +99,23 @@ internal static class CoalesceLoop
                     // Wait for first task to complete (simulates select)
                     var completed = await Task.WhenAny(waitTasks);
 
-                    // Check shutdown - flush before exiting
+                    // Check shutdown - but first drain any pending events before flushing
                     if (shutdownToken.IsCancellationRequested)
                     {
+                        // Drain any events that are already in the channel before shutdown
+                        while (inCh.TryRead(out var pendingEvent))
+                        {
+                            if (coalescer.Handle(pendingEvent))
+                            {
+                                coalescer.Coalesce(pendingEvent);
+                            }
+                            else
+                            {
+                                // Pass through non-coalesceable events
+                                try { await outCh.WriteAsync(pendingEvent); } catch { }
+                            }
+                        }
+                        
                         shutdown = true;
                         break; // Will flush in FLUSH section below
                     }

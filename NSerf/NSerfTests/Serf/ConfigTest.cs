@@ -159,7 +159,6 @@ public class ConfigTest
         var config = Config.DefaultConfig();
 
         // Assert
-        config.RejoinAfterLeave.Should().BeFalse("default is not to rejoin after leave");
         config.EnableNameConflictResolution.Should().BeTrue("name conflict resolution enabled by default");
         config.DisableCoordinates.Should().BeFalse("coordinates enabled by default");
         config.ValidateNodeNames.Should().BeFalse("node name validation disabled by default");
