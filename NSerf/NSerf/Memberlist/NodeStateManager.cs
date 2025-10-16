@@ -69,14 +69,13 @@ public static class NodeStateManager
     {
         int n = nodes.Count;
         var kNodes = new List<Node>(k);
-        var random = new Random();
         
         // Probe up to 3*n times, with large n this is not necessary
         // since k << n, but with small n we want search to be exhaustive
         for (int i = 0; i < 3 * n && kNodes.Count < k; i++)
         {
-            // Get random node state
-            int idx = random.Next(n);
+            // Get random node state using shared Random.Shared (thread-safe in .NET 6+)
+            int idx = Random.Shared.Next(n);
             var state = nodes[idx];
             
             // Give the filter a shot at it

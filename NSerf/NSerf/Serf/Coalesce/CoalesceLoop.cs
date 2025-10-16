@@ -99,11 +99,11 @@ internal static class CoalesceLoop
                     // Wait for first task to complete (simulates select)
                     var completed = await Task.WhenAny(waitTasks);
 
-                    // Check shutdown
+                    // Check shutdown - flush before exiting
                     if (shutdownToken.IsCancellationRequested)
                     {
                         shutdown = true;
-                        break;
+                        break; // Will flush in FLUSH section below
                     }
 
                     // Check if quantum timer was cancelled (fired)
@@ -149,8 +149,15 @@ internal static class CoalesceLoop
                     }
                 }
 
-                // FLUSH: Flush the coalesced events
-                coalescer.Flush(outCh);
+                // FLUSH: Flush the coalesced events (including on shutdown)
+                try
+                {
+                    coalescer.Flush(outCh);
+                }
+                catch (ChannelClosedException)
+                {
+                    // Channel may be closed during shutdown, which is acceptable
+                }
             }
             finally
             {
