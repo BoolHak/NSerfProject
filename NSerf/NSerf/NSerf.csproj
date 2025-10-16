@@ -9,6 +9,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="NSerfTests" />
+  </ItemGroup>
+
+  <ItemGroup>
     
     <PackageReference Include="MessagePack" Version="3.1.4" />
     
