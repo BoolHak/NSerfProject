@@ -1,11 +1,12 @@
 // Copyright (c) BoolHak, Inc.
 // SPDX-License-Identifier: MPL-2.0
+// Ported from: github.com/hashicorp/serf/serf/event.go
 
 namespace NSerf.Serf.Events;
 
 /// <summary>
-/// Event related to member changes (join, leave, fail, etc.).
-/// Minimal implementation for Phase 0 - will be expanded in Phase 3.
+/// MemberEvent is the struct used for member related events.
+/// Because Serf coalesces events, an event may contain multiple members.
 /// </summary>
 public class MemberEvent : Event
 {
@@ -26,6 +27,7 @@ public class MemberEvent : Event
 
     /// <summary>
     /// String representation of this event.
+    /// Throws InvalidOperationException for invalid event types (matches Go's panic behavior).
     /// </summary>
     public override string ToString() => Type switch
     {
@@ -34,6 +36,6 @@ public class MemberEvent : Event
         Events.EventType.MemberFailed => "member-failed",
         Events.EventType.MemberUpdate => "member-update",
         Events.EventType.MemberReap => "member-reap",
-        _ => "unknown-member-event"
+        _ => throw new InvalidOperationException($"unknown event type: {(int)Type}")
     };
 }

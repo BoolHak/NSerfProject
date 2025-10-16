@@ -1,14 +1,20 @@
 // Copyright (c) BoolHak, Inc.
 // SPDX-License-Identifier: MPL-2.0
+// Ported from: github.com/hashicorp/serf/serf/event.go
 
 namespace NSerf.Serf.Events;
 
 /// <summary>
-/// User-defined event.
-/// Minimal implementation for Phase 0 - will be expanded in Phase 3.
+/// UserEvent is the struct used for events that are triggered
+/// by the user and are not related to members.
 /// </summary>
 public class UserEvent : Event
 {
+    /// <summary>
+    /// Lamport time when the event occurred.
+    /// </summary>
+    public LamportTime LTime { get; set; }
+
     /// <summary>
     /// Name of the user event.
     /// </summary>
