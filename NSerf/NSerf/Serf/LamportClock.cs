@@ -2,14 +2,18 @@
 // SPDX-License-Identifier: MPL-2.0
 // Ported from: github.com/hashicorp/serf/serf/lamport.go
 
+using MessagePack;
+
 namespace NSerf.Serf;
 
 /// <summary>
 /// LamportTime is the value of a Lamport Clock.
 /// Represents a logical timestamp in a distributed system.
 /// </summary>
-public readonly struct LamportTime : IEquatable<LamportTime>, IComparable<LamportTime>
+[MessagePackObject(AllowPrivate = true)]
+public readonly partial struct LamportTime : IEquatable<LamportTime>, IComparable<LamportTime>
 {
+    [Key(0)]
     private readonly ulong _value;
 
     public LamportTime(ulong value)
