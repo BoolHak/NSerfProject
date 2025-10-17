@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using NSerf.Memberlist;
 using NSerf.Serf.Events;
 using MessagePack;
+using System.Threading.Channels;
 
 namespace NSerf.Serf;
 
@@ -43,12 +44,12 @@ public partial class Serf : IDisposable, IAsyncDisposable
     internal List<MemberInfo> LeftMembers { get; private set; }
     internal Dictionary<LamportTime, UserEventCollection> EventBuffer { get; private set; }
     internal Dictionary<LamportTime, QueryCollection> QueryBuffer { get; private set; }
-    
+
     // Event configuration
     internal bool EventJoinIgnore { get; set; }
     internal LamportTime EventMinTime { get; set; }
     internal LamportTime QueryMinTime { get; set; }
-    
+
     // Query tracking - maps LTime to QueryResponse
     private readonly Dictionary<LamportTime, QueryResponse> _queryResponses = new();
     private readonly Random _queryRandom = new();
@@ -56,6 +57,10 @@ public partial class Serf : IDisposable, IAsyncDisposable
     // Memberlist integration
     internal Memberlist.Memberlist? Memberlist { get; private set; }
     private Memberlist.Delegates.IEventDelegate? _eventDelegate;
+
+    // Snapshot integration
+    internal Snapshotter? Snapshotter { get; private set; }
+    private ChannelWriter<Event>? _snapshotInCh;
 
     // Locks - Thread-safety for concurrent access
     // Lock Ordering Pattern (from DeepWiki analysis):
@@ -107,7 +112,9 @@ public partial class Serf : IDisposable, IAsyncDisposable
     }
 
     /// <summary>
-    /// Returns all known members in the cluster.
+    /// Returns all known members in the cluster, including failed and left nodes.
+    /// Matches Go's behavior: returns from Serf's own tracking (MemberStates),
+    /// not from memberlist which filters out dead/left nodes.
     /// Thread-safe read operation using read lock.
     /// </summary>
     public Member[] Members()
@@ -115,39 +122,52 @@ public partial class Serf : IDisposable, IAsyncDisposable
         return WithReadLock(_memberLock, () =>
         {
             var members = new List<Member>();
-            
-            // Get members from memberlist
+
+            // Get all nodes from memberlist first (includes all states)
+            var memberlistNodes = new Dictionary<string, Memberlist.State.NodeState>();
             if (Memberlist != null)
             {
-                var nodes = Memberlist.Members();
-                foreach (var node in nodes)
+                lock (Memberlist._nodeLock)
                 {
-                    // Decode tags from metadata
-                    var tags = TagEncoder.DecodeTags(node.Meta);
-                    
-                    // Look up member status from our tracking
-                    var status = MemberStates.TryGetValue(node.Name, out var info) 
-                        ? info.Status 
-                        : MemberStatus.Alive;
-                    
+                    foreach (var node in Memberlist._nodes)
+                    {
+                        memberlistNodes[node.Name] = node;
+                    }
+                }
+            }
+
+            // Return from Serf's own MemberStates
+            // This matches Go's behavior where Members() returns from s.members map
+            foreach (var kvp in MemberStates)
+            {
+                var memberInfo = kvp.Value;
+
+                // If we have a stored Member object (from HandleNodeLeave), use it
+                if (memberInfo.Member != null)
+                {
+                    members.Add(memberInfo.Member);
+                }
+                else if (memberlistNodes.TryGetValue(kvp.Key, out var node))
+                {
+                    // Construct from memberlist node
                     var member = new Member
                     {
                         Name = node.Name,
-                        Addr = node.Addr,
-                        Port = node.Port,
-                        Tags = tags,
-                        Status = status,
-                        ProtocolMin = node.PMin,
-                        ProtocolMax = node.PMax,
-                        ProtocolCur = node.PCur,
-                        DelegateMin = node.DMin,
-                        DelegateMax = node.DMax,
-                        DelegateCur = node.DCur
+                        Addr = node.Node.Addr,
+                        Port = node.Node.Port,
+                        Tags = DecodeTags(node.Node.Meta),
+                        Status = memberInfo.Status,
+                        ProtocolMin = node.Node.PMin,
+                        ProtocolMax = node.Node.PMax,
+                        ProtocolCur = node.Node.PCur,
+                        DelegateMin = node.Node.DMin,
+                        DelegateMax = node.Node.DMax,
+                        DelegateCur = node.Node.DCur
                     };
                     members.Add(member);
                 }
             }
-            
+
             return members.ToArray();
         });
     }
@@ -163,21 +183,57 @@ public partial class Serf : IDisposable, IAsyncDisposable
             var members = new List<Member>();
             foreach (var kvp in MemberStates)
             {
-                // Convert MemberInfo to Member
-                var member = new Member
+                // Return the actual stored Member object with current data
+                var memberInfo = kvp.Value;
+                if (memberInfo.Member != null && memberInfo.Status == statusFilter)
                 {
-                    Name = kvp.Key,
-                    Status = MemberStatus.Alive, // TODO: Track actual status
-                    Tags = new Dictionary<string, string>()
-                };
-                
-                if (member.Status == statusFilter)
-                {
-                    members.Add(member);
+                    // Update the Member's status to match current state
+                    memberInfo.Member.Status = memberInfo.Status;
+                    members.Add(memberInfo.Member);
                 }
             }
             return members.ToArray();
         });
+    }
+
+    // ========== Helper Methods ==========
+
+    /// <summary>
+    /// Emits an event to both the Snapshotter and the user's EventCh.
+    /// This mimics Go's behavior where events are sent to both channels.
+    /// </summary>
+    private void EmitEvent(Event evt)
+    {
+        Logger?.LogInformation("[Serf/EmitEvent] Emitting {EventType}, _snapshotInCh is {IsNull}",
+            evt.GetType().Name, _snapshotInCh == null ? "NULL" : "SET");
+
+        // Send to snapshotter's input channel (if configured)
+        if (_snapshotInCh != null)
+        {
+            try
+            {
+                var written = _snapshotInCh.TryWrite(evt);
+                Logger?.LogInformation("[Serf/EmitEvent] Wrote to snapshotter: {Success}, Type: {Type}", written, evt.GetType().Name);
+            }
+            catch (Exception ex)
+            {
+                Logger?.LogError(ex, "[Serf/EmitEvent] Failed to emit event to snapshotter");
+            }
+        }
+
+        // Send to user's event channel (if configured)
+        if (Config.EventCh != null)
+        {
+            try
+            {
+                Config.EventCh.TryWrite(evt);
+                Logger?.LogTrace("[Serf/EmitEvent] Emitted event to EventCh: {Type}", evt.GetType().Name);
+            }
+            catch (Exception ex)
+            {
+                Logger?.LogError(ex, "[Serf/EmitEvent] Failed to emit event to EventCh");
+            }
+        }
     }
 
     // ========== Phase 9.1: Lifecycle Methods ==========
@@ -186,7 +242,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
     /// Creates a new Serf instance with the given configuration.
     /// Maps to: Go's Create() function
     /// </summary>
-    public static Task<Serf> CreateAsync(Config config)
+    public static async Task<Serf> CreateAsync(Config config)
     {
         if (config == null)
             throw new ArgumentNullException(nameof(config));
@@ -217,17 +273,63 @@ public partial class Serf : IDisposable, IAsyncDisposable
         serf.EventClock.Increment();
         serf.QueryClock.Increment();
 
+        // Phase 9.8: Setup snapshot if path is configured
+        List<PreviousNode>? previousNodes = null;
+        if (!string.IsNullOrEmpty(config.SnapshotPath))
+        {
+            serf.Logger?.LogInformation("[Serf/Snapshot] Initializing snapshotter at path: {Path}", config.SnapshotPath);
+
+            var snapshotResult = await Snapshotter.NewSnapshotterAsync(
+                path: config.SnapshotPath,
+                minCompactSize: config.MinSnapshotSize,
+                rejoinAfterLeave: config.RejoinAfterLeave,
+                logger: serf.Logger,
+                clock: serf.Clock,
+                outCh: config.EventCh,
+                shutdownToken: serf._shutdownCts.Token);
+
+            var inCh = snapshotResult.InCh;
+            var snapshotter = snapshotResult.Snap;
+
+            serf.Snapshotter = snapshotter;
+            serf._snapshotInCh = inCh;
+
+            serf.Logger?.LogInformation("[Serf/Snapshot] ✓ Snapshotter created successfully for node {NodeName}", config.NodeName);
+            serf.Logger?.LogInformation("[Serf/Snapshot] ✓ _snapshotInCh is {Status}", serf._snapshotInCh == null ? "NULL (ERROR!)" : "READY");
+
+            // Restore clock values from snapshot
+            serf.Clock.Witness(snapshotter.LastClock);
+            serf.EventClock.Witness(snapshotter.LastEventClock);
+            serf.QueryClock.Witness(snapshotter.LastQueryClock);
+
+            serf.Logger?.LogInformation("[Serf/Snapshot] Clock restored - Clock: {Clock}, EventClock: {EventClock}, QueryClock: {QueryClock}",
+                snapshotter.LastClock, snapshotter.LastEventClock, snapshotter.LastQueryClock);
+
+            // Get previous nodes for auto-rejoin
+            previousNodes = snapshotter.AliveNodes();
+
+            serf.Logger?.LogInformation("[Serf/Snapshot] Loaded {Count} previous nodes from snapshot", previousNodes.Count);
+            foreach (var node in previousNodes)
+            {
+                serf.Logger?.LogInformation("[Serf/Snapshot] - Previous node: {Name} at {Addr}", node.Name, node.Addr);
+            }
+        }
+        else
+        {
+            serf.Logger?.LogInformation("[Serf/Snapshot] No snapshot path configured for node {NodeName}", config.NodeName);
+        }
+
         // Phase 9.2: Initialize memberlist with delegates
         if (config.MemberlistConfig != null)
         {
             // Create event delegate that routes to Serf for membership events
             serf._eventDelegate = new SerfEventDelegate(serf);
             config.MemberlistConfig.Events = serf._eventDelegate;
-            
+
             // Create main delegate for gossip messages (GetBroadcasts, NotifyMsg, etc.)
             var serfDelegate = new Delegate(serf);
             config.MemberlistConfig.Delegate = serfDelegate;
-            
+
             // Initialize transport if not provided
             if (config.MemberlistConfig.Transport == null)
             {
@@ -239,16 +341,32 @@ public partial class Serf : IDisposable, IAsyncDisposable
                 };
                 config.MemberlistConfig.Transport = NSerf.Memberlist.Transport.NetTransport.Create(transportConfig);
             }
-            
+
             // Create memberlist
             serf.Memberlist = NSerf.Memberlist.Memberlist.Create(config.MemberlistConfig);
-            
-            // Add local node to members list
+
+            // Add local node to members list with full Member object
             // The memberlist will have the local node, so we need to track it in Serf's Members
+            var localNode = serf.Memberlist.LocalNode;
             var localMember = new MemberInfo
             {
                 Name = config.NodeName,
-                StatusLTime = 0
+                StatusLTime = 0,
+                Status = MemberStatus.Alive,
+                Member = new Member
+                {
+                    Name = localNode.Name,
+                    Addr = localNode.Addr,
+                    Port = localNode.Port,
+                    Tags = serf.DecodeTags(localNode.Meta),
+                    Status = MemberStatus.Alive,
+                    ProtocolMin = localNode.PMin,
+                    ProtocolMax = localNode.PMax,
+                    ProtocolCur = localNode.PCur,
+                    DelegateMin = localNode.DMin,
+                    DelegateMax = localNode.DMax,
+                    DelegateCur = localNode.DCur
+                }
             };
             serf.MemberStates[config.NodeName] = localMember;
         }
@@ -256,7 +374,45 @@ public partial class Serf : IDisposable, IAsyncDisposable
         // Phase 9.4: Start background tasks (reaper and reconnect)
         serf.StartBackgroundTasks();
 
-        return Task.FromResult(serf);
+        // Phase 9.8: Auto-rejoin from snapshot if we have previous nodes
+        if (previousNodes != null && previousNodes.Count > 0)
+        {
+            serf.Logger?.LogInformation("[Serf/AutoRejoin] Starting auto-rejoin task for {Count} nodes", previousNodes.Count);
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    // Give memberlist more time to fully initialize
+                    serf.Logger?.LogInformation("[Serf/AutoRejoin] Waiting 500ms for memberlist initialization...");
+                    await Task.Delay(500);
+
+                    var addrs = previousNodes.Select(n => n.Addr).ToArray();
+                    serf.Logger?.LogInformation("[Serf/AutoRejoin] Attempting to join {Count} addresses: [{Addrs}]",
+                        addrs.Length, string.Join(", ", addrs));
+
+                    var joined = await serf.JoinAsync(addrs, ignoreOld: true);
+                    serf.Logger?.LogInformation("[Serf/AutoRejoin] Auto-rejoin completed, successfully joined {Joined}/{Total} nodes",
+                        joined, addrs.Length);
+
+                    if (joined == 0)
+                    {
+                        serf.Logger?.LogWarning("[Serf/AutoRejoin] Failed to join any nodes during auto-rejoin");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    serf.Logger?.LogError(ex, "[Serf/AutoRejoin] Exception during auto-rejoin");
+                }
+            });
+        }
+        else
+        {
+            serf.Logger?.LogInformation("[Serf/AutoRejoin] No previous nodes to auto-rejoin (previousNodes: {IsNull}, Count: {Count})",
+                previousNodes == null ? "null" : "not null", previousNodes?.Count ?? 0);
+        }
+
+        return serf;
     }
 
     /// <summary>
@@ -462,6 +618,12 @@ public partial class Serf : IDisposable, IAsyncDisposable
 
             _state = SerfState.SerfLeaving;
 
+            // Notify snapshotter about the leave (Phase 9.8)
+            if (Snapshotter != null)
+            {
+                await Snapshotter.LeaveAsync();
+            }
+
             // Broadcast leave intent to cluster
             var leaveMsg = new MessageLeave
             {
@@ -539,7 +701,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
                 Logger?.LogDebug(ex, "[Serf] Reap task shutdown");
             }
         }
-        
+
         if (_reconnectTask != null)
         {
             try
@@ -578,7 +740,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
     /// <param name="nodeName">Name of the node to remove</param>
     /// <param name="prune">If true, also prune from snapshot</param>
     /// <returns>True if node was removed, false if not found</returns>
-    public Task<bool> RemoveFailedNodeAsync(string nodeName, bool prune = false)
+    public async Task<bool> RemoveFailedNodeAsync(string nodeName, bool prune = false)
     {
         if (string.IsNullOrEmpty(nodeName))
             throw new ArgumentException("Node name cannot be null or empty", nameof(nodeName));
@@ -589,28 +751,29 @@ public partial class Serf : IDisposable, IAsyncDisposable
             throw new InvalidOperationException("Cannot remove local node");
         }
 
-        return Task.FromResult(WithWriteLock(_memberLock, () =>
+        // Force leave - broadcast a leave message for the node
+        var leaveMsg = new MessageLeave
         {
-            // Check if node exists
-            if (!MemberStates.ContainsKey(nodeName))
-            {
-                return false;
-            }
+            LTime = Clock.Increment(),
+            Node = nodeName,
+            Prune = prune
+        };
 
-            // TODO Phase 9.3+: Check node status (should be failed)
-            
-            // Remove from member states
-            MemberStates.Remove(nodeName);
+        // Handle locally first
+        HandleNodeLeaveIntent(leaveMsg);
 
-            // TODO Phase 9.3+: If prune, remove from snapshot
-            if (prune)
-            {
-                Logger?.LogInformation("[Serf] Pruned failed node: {NodeName}", nodeName);
-            }
+        // Broadcast to cluster if we have other alive members
+        if (Memberlist != null && Memberlist.NumMembers() > 1)
+        {
+            var encoded = EncodeMessage(MessageType.Leave, leaveMsg);
+            Broadcasts.QueueBytes(encoded);
 
-            Logger?.LogInformation("[Serf] Removed failed node: {NodeName}", nodeName);
-            return true;
-        }));
+            // Wait for broadcast with timeout
+            await Task.Delay(Config.BroadcastTimeout);
+        }
+
+        Logger?.LogInformation("[Serf] Removed failed node: {NodeName}", nodeName);
+        return true;
     }
 
     // ========== Methods called by Delegate ==========
@@ -646,15 +809,40 @@ public partial class Serf : IDisposable, IAsyncDisposable
 
         WithWriteLock(_memberLock, () =>
         {
-            // Mark member as leaving if it exists
+            // Mark member as leaving/left if it exists
             if (MemberStates.TryGetValue(leave.Node, out var memberInfo))
             {
                 // Only update if this is newer than current status
                 if (leave.LTime > memberInfo.StatusLTime)
                 {
-                    memberInfo.Status = MemberStatus.Leaving;
-                    memberInfo.StatusLTime = leave.LTime;
-                    Logger?.LogDebug("[Serf] Member {Node} marked as leaving", leave.Node);
+                    // If node is currently Failed, transition to Left (for RemoveFailedNode)
+                    // Otherwise mark as Leaving (for graceful leave)
+                    if (memberInfo.Status == MemberStatus.Failed)
+                    {
+                        memberInfo.Status = MemberStatus.Left;
+                        memberInfo.StatusLTime = leave.LTime;
+
+                        // Move from FailedMembers to LeftMembers
+                        FailedMembers.RemoveAll(m => m.Name == leave.Node);
+                        if (!LeftMembers.Any(m => m.Name == leave.Node))
+                        {
+                            LeftMembers.Add(memberInfo);
+                        }
+
+                        Logger?.LogInformation("[Serf] Failed member {Node} marked as left", leave.Node);
+                    }
+                    else
+                    {
+                        memberInfo.Status = MemberStatus.Leaving;
+                        memberInfo.StatusLTime = leave.LTime;
+                        Logger?.LogDebug("[Serf] Member {Node} marked as leaving", leave.Node);
+                    }
+
+                    // Update the stored Member object if it exists
+                    if (memberInfo.Member != null)
+                    {
+                        memberInfo.Member.Status = memberInfo.Status;
+                    }
                 }
             }
             else
@@ -710,7 +898,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
                 // Check for duplicate
                 foreach (var previous in seen.Events)
                 {
-                    if (previous.Name == userEvent.Name && 
+                    if (previous.Name == userEvent.Name &&
                         previous.Payload.SequenceEqual(userEvent.Payload))
                     {
                         // Already seen this event
@@ -779,29 +967,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
 
         WithWriteLock(_memberLock, () =>
         {
-            // Update or create member state
-            if (!MemberStates.TryGetValue(node.Name, out var memberInfo))
-            {
-                memberInfo = new MemberInfo
-                {
-                    Name = node.Name,
-                    StatusLTime = Clock.Time()
-                };
-                MemberStates[node.Name] = memberInfo;
-                Logger?.LogInformation("[Serf] Member joined: {Name} at {Address}:{Port}", 
-                    node.Name, node.Addr, node.Port);
-            }
-            else
-            {
-                // Update existing member (rejoin)
-                memberInfo.StatusLTime = Clock.Time();
-                Logger?.LogInformation("[Serf] Member rejoined: {Name}", node.Name);
-            }
-        });
-
-        // Emit join event if EventCh is configured
-        if (Config.EventCh != null)
-        {
+            // Create the full member object
             var member = new Member
             {
                 Name = node.Name,
@@ -817,22 +983,55 @@ public partial class Serf : IDisposable, IAsyncDisposable
                 DelegateCur = node.DCur
             };
 
-            var memberEvent = new MemberEvent
+            // Update or create member state
+            if (!MemberStates.TryGetValue(node.Name, out var memberInfo))
             {
-                Type = EventType.MemberJoin,
-                Members = new List<Member> { member }
-            };
+                memberInfo = new MemberInfo
+                {
+                    Name = node.Name,
+                    StatusLTime = Clock.Time(),
+                    Status = MemberStatus.Alive,
+                    Member = member
+                };
+                MemberStates[node.Name] = memberInfo;
+                Logger?.LogInformation("[Serf/Join] NEW member joined: {Name} at {Address}:{Port} (Total members: {Count})",
+                    node.Name, node.Addr, node.Port, MemberStates.Count);
+            }
+            else
+            {
+                // Update existing member (rejoin)
+                var oldStatus = memberInfo.Status;
+                memberInfo.StatusLTime = Clock.Time();
+                memberInfo.Status = MemberStatus.Alive;
+                memberInfo.Member = member;
+                Logger?.LogInformation("[Serf/Join] Member rejoined: {Name} (Old status: {OldStatus}, Total members: {Count})",
+                    node.Name, oldStatus, MemberStates.Count);
+            }
+        });
 
-            try
-            {
-                Config.EventCh.TryWrite(memberEvent);
-                Logger?.LogTrace("[Serf] Emitted join event for: {Name}", node.Name);
-            }
-            catch (Exception ex)
-            {
-                Logger?.LogError(ex, "[Serf] Failed to emit join event for: {Name}", node.Name);
-            }
-        }
+        // Emit join event to both Snapshotter and EventCh
+        var member = new Member
+        {
+            Name = node.Name,
+            Addr = node.Addr,
+            Port = node.Port,
+            Tags = DecodeTags(node.Meta),
+            Status = MemberStatus.Alive,
+            ProtocolMin = node.PMin,
+            ProtocolMax = node.PMax,
+            ProtocolCur = node.PCur,
+            DelegateMin = node.DMin,
+            DelegateMax = node.DMax,
+            DelegateCur = node.DCur
+        };
+
+        var memberEvent = new MemberEvent
+        {
+            Type = EventType.MemberJoin,
+            Members = new List<Member> { member }
+        };
+
+        EmitEvent(memberEvent);
     }
 
     internal void HandleNodeLeave(Memberlist.State.Node? node)
@@ -856,7 +1055,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
         // and Dead for actual failure
         var eventType = EventType.MemberLeave;
         var memberStatus = MemberStatus.Left;
-        
+
         // Check the node's state from memberlist
         if (node.State == NSerf.Memberlist.State.NodeStateType.Dead)
         {
@@ -881,7 +1080,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
                     memberInfo.StatusLTime = Clock.Time();
                     memberInfo.Status = memberStatus;
                     memberInfo.LeaveTime = DateTimeOffset.UtcNow;
-                    
+
                     // Store the full member info for reaper and reconnect
                     memberInfo.Member = new Member
                     {
@@ -907,8 +1106,8 @@ public partial class Serf : IDisposable, IAsyncDisposable
                     {
                         LeftMembers.Add(memberInfo);
                     }
-                    
-                    Logger?.LogInformation("[Serf] Member {Status}: {Name}", 
+
+                    Logger?.LogInformation("[Serf] Member {Status}: {Name}",
                         eventType == EventType.MemberFailed ? "failed" : "left", node.Name);
                 }
             });
@@ -919,40 +1118,29 @@ public partial class Serf : IDisposable, IAsyncDisposable
             return;
         }
 
-        // Emit event if EventCh is configured
-        if (Config.EventCh != null)
+        // Emit event to both Snapshotter and EventCh
+        var member = new Member
         {
-            var member = new Member
-            {
-                Name = node.Name,
-                Addr = node.Addr,
-                Port = node.Port,
-                Tags = DecodeTags(node.Meta),
-                Status = memberStatus,
-                ProtocolMin = node.PMin,
-                ProtocolMax = node.PMax,
-                ProtocolCur = node.PCur,
-                DelegateMin = node.DMin,
-                DelegateMax = node.DMax,
-                DelegateCur = node.DCur
-            };
+            Name = node.Name,
+            Addr = node.Addr,
+            Port = node.Port,
+            Tags = DecodeTags(node.Meta),
+            Status = memberStatus,
+            ProtocolMin = node.PMin,
+            ProtocolMax = node.PMax,
+            ProtocolCur = node.PCur,
+            DelegateMin = node.DMin,
+            DelegateMax = node.DMax,
+            DelegateCur = node.DCur
+        };
 
-            var memberEvent = new MemberEvent
-            {
-                Type = eventType,
-                Members = new List<Member> { member }
-            };
+        var memberEvent = new MemberEvent
+        {
+            Type = eventType,
+            Members = new List<Member> { member }
+        };
 
-            try
-            {
-                Config.EventCh.TryWrite(memberEvent);
-                Logger?.LogTrace("[Serf] Emitted {EventType} event for: {Name}", eventType, node.Name);
-            }
-            catch (Exception ex)
-            {
-                Logger?.LogError(ex, "[Serf] Failed to emit {EventType} event for: {Name}", eventType, node.Name);
-            }
-        }
+        EmitEvent(memberEvent);
     }
 
     internal void HandleNodeUpdate(Memberlist.State.Node? node)
@@ -965,49 +1153,50 @@ public partial class Serf : IDisposable, IAsyncDisposable
 
         Logger?.LogDebug("[Serf] HandleNodeUpdate: {Name}", node.Name);
 
+        Member? updatedMember = null;
+        
         WithWriteLock(_memberLock, () =>
         {
             // Update member metadata if it exists
             if (MemberStates.TryGetValue(node.Name, out var memberInfo))
             {
+                // Update the stored Member object with new data from node
+                if (memberInfo.Member != null)
+                {
+                    memberInfo.Member.Addr = node.Addr;
+                    memberInfo.Member.Port = node.Port;
+                    memberInfo.Member.Tags = DecodeTags(node.Meta);
+                    memberInfo.Member.ProtocolMin = node.PMin;
+                    memberInfo.Member.ProtocolMax = node.PMax;
+                    memberInfo.Member.ProtocolCur = node.PCur;
+                    memberInfo.Member.DelegateMin = node.DMin;
+                    memberInfo.Member.DelegateMax = node.DMax;
+                    memberInfo.Member.DelegateCur = node.DCur;
+                    
+                    updatedMember = memberInfo.Member;
+                }
+                
                 memberInfo.StatusLTime = Clock.Time();
-                Logger?.LogInformation("[Serf] Member updated: {Name}", node.Name);
+                Logger?.LogInformation("[Serf] Member updated: {Name}, Tags: {Tags}", 
+                    node.Name, string.Join(", ", DecodeTags(node.Meta).Select(kvp => $"{kvp.Key}={kvp.Value}")));
+            }
+            else
+            {
+                // Member doesn't exist yet - ignore the update
+                Logger?.LogWarning("[Serf] HandleNodeUpdate: Member {Name} not found in MemberStates", node.Name);
             }
         });
 
-        // Emit update event if EventCh is configured
-        if (Config.EventCh != null)
+        // Emit update event if we successfully updated a member
+        if (updatedMember != null)
         {
-            var member = new Member
-            {
-                Name = node.Name,
-                Addr = node.Addr,
-                Port = node.Port,
-                Tags = DecodeTags(node.Meta),
-                Status = MemberStatus.Alive,
-                ProtocolMin = node.PMin,
-                ProtocolMax = node.PMax,
-                ProtocolCur = node.PCur,
-                DelegateMin = node.DMin,
-                DelegateMax = node.DMax,
-                DelegateCur = node.DCur
-            };
-
             var memberEvent = new MemberEvent
             {
                 Type = EventType.MemberUpdate,
-                Members = new List<Member> { member }
+                Members = new List<Member> { updatedMember }
             };
 
-            try
-            {
-                Config.EventCh.TryWrite(memberEvent);
-                Logger?.LogTrace("[Serf] Emitted update event for: {Name}", node.Name);
-            }
-            catch (Exception ex)
-            {
-                Logger?.LogError(ex, "[Serf] Failed to emit update event for: {Name}", node.Name);
-            }
+            EmitEvent(memberEvent);
         }
     }
 
@@ -1019,7 +1208,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
             Logger?.LogWarning("[Serf] HandleNodeConflict called with null node(s)");
             return;
         }
-        Logger?.LogWarning("[Serf] HandleNodeConflict: {Existing} conflicts with {Other}", 
+        Logger?.LogWarning("[Serf] HandleNodeConflict: {Existing} conflicts with {Other}",
             existing.Name, other.Name);
     }
 
@@ -1033,7 +1222,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
     internal void UpdateCoordinate(string nodeName, Coordinate.Coordinate coordinate, TimeSpan rtt)
     {
         // Stub - to be fully implemented in Phase 9
-        Logger?.LogTrace("[Serf] UpdateCoordinate for {Node}, RTT: {RTT}ms", 
+        Logger?.LogTrace("[Serf] UpdateCoordinate for {Node}, RTT: {RTT}ms",
             nodeName, rtt.TotalMilliseconds);
     }
 
@@ -1107,7 +1296,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
     }
 
     // Lock management helpers - Use try-finally pattern (C# equivalent of Go's defer)
-    
+
     /// <summary>
     /// Executes an action while holding a read lock. Ensures lock is released.
     /// Pattern: C# try-finally equivalent of Go's defer lock.RUnlock()
@@ -1250,6 +1439,19 @@ public partial class Serf : IDisposable, IAsyncDisposable
     /// </summary>
     public void Dispose()
     {
+        // Dispose Snapshotter to flush buffered writes (ignore if already disposed)
+        if (Snapshotter != null)
+        {
+            try
+            {
+                Snapshotter.Dispose();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Already disposed, ignore
+            }
+        }
+
         _memberLock?.Dispose();
         _eventLock?.Dispose();
         _queryLock?.Dispose();

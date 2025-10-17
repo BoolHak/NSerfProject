@@ -195,8 +195,15 @@ public class Config
     public int QuerySizeLimit { get; set; } = 1024;
 
     /// <summary>
-    /// MemberlistConfig is the memberlist configuration that Serf will
-    /// use to do the underlying membership management and gossip.
+    /// UserEventSizeLimit is the maximum byte size limit of a user event.
+    /// Set to 9216 bytes by default (9KB), which is byte aligned
+    /// </summary>
+    public int UserEventSizeLimit { get; set; } = 9 * 1024;
+
+    /// <summary>
+    /// The memberlist configuration that Serf will use to do the
+    /// underlying membership management and gossip. Some fields are
+    /// overridden from the given ProtocolVersion.
     /// </summary>
     public MemberlistConfig? MemberlistConfig { get; set; }
 
@@ -214,6 +221,18 @@ public class Config
     /// </summary>
     public string? SnapshotPath { get; set; }
 
+    /// <summary>
+    /// MinSnapshotSize is the minimum size threshold for snapshot compaction.
+    /// Defaults to 128KB.
+    /// </summary>
+    public int MinSnapshotSize { get; set; } = 128 * 1024;
+
+    /// <summary>
+    /// RejoinAfterLeave controls if Serf will ignore a previous leave and
+    /// rejoin the cluster. By default this is false, preventing nodes from
+    /// rejoining after leaving.
+    /// </summary>
+    public bool RejoinAfterLeave { get; set; } = false;
 
     /// <summary>
     /// EnableNameConflictResolution controls if Serf will actively attempt
@@ -238,11 +257,6 @@ public class Config
     /// and conditionally abort the merge.
     /// </summary>
     public IMergeDelegate? Merge { get; set; }
-
-    /// <summary>
-    /// UserEventSizeLimit is maximum byte size limit of user event `name` + `payload` in bytes.
-    /// </summary>
-    public int UserEventSizeLimit { get; set; } = 512;
 
     /// <summary>
     /// MessageDropper is a callback used for selectively ignoring inbound

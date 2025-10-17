@@ -1405,7 +1405,13 @@ public class Memberlist : IDisposable, IAsyncDisposable
             };
         }
 
-        // Step 5b: Broadcast the update to cluster
+        // Step 5b: Notify event delegate about local update (so Serf sees the new tags)
+        if (_config.Events != null && localState != null)
+        {
+            _config.Events.NotifyUpdate(localState.Node);
+        }
+
+        // Step 5c: Broadcast the update to cluster
         EncodeAndBroadcast(_config.Name, Messages.MessageType.Alive, alive);
 
         // Step 6: Wait briefly to allow broadcast to be queued

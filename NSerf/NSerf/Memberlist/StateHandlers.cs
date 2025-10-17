@@ -529,10 +529,12 @@ public class StateHandlers
             if (dead.Node == dead.From)
             {
                 state.State = NodeStateType.Left;
+                state.Node.State = NodeStateType.Left; // CRITICAL: Update Node.State too
             }
             else
             {
                 state.State = NodeStateType.Dead;
+                state.Node.State = NodeStateType.Dead; // CRITICAL: Update Node.State too
             }
             state.StateChange = DateTimeOffset.UtcNow;
 
