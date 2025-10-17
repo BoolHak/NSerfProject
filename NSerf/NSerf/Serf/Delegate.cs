@@ -218,7 +218,7 @@ internal class Delegate : IDelegate
             var pushPull = new MessagePushPull
             {
                 LTime = _serf.Clock.Time(),
-                StatusLTimes = new Dictionary<string, LamportTime>(_serf.Members.Count),
+                StatusLTimes = new Dictionary<string, LamportTime>(_serf.MemberStates.Count),
                 LeftMembers = new List<string>(_serf.LeftMembers.Count),
                 EventLTime = _serf.EventClock.Time(),
                 Events = _serf.EventBuffer.Values.ToList(),
@@ -226,7 +226,7 @@ internal class Delegate : IDelegate
             };
 
             // Add all the join LTimes
-            foreach (var (name, member) in _serf.Members)
+            foreach (var (name, member) in _serf.MemberStates)
             {
                 pushPull.StatusLTimes[name] = member.StatusLTime;
             }

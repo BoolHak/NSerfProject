@@ -284,10 +284,10 @@ public class InternalStructuresTest
     public void SerfState_AllValues_ShouldHaveCorrectStringRepresentation()
     {
         // Arrange & Act & Assert
-        SerfState.Alive.ToStateString().Should().Be("alive");
-        SerfState.Leaving.ToStateString().Should().Be("leaving");
-        SerfState.Left.ToStateString().Should().Be("left");
-        SerfState.Shutdown.ToStateString().Should().Be("shutdown");
+        SerfState.SerfAlive.ToStateString().Should().Be("alive");
+        SerfState.SerfLeaving.ToStateString().Should().Be("leaving");
+        SerfState.SerfLeft.ToStateString().Should().Be("left");
+        SerfState.SerfShutdown.ToStateString().Should().Be("shutdown");
     }
 
     [Fact]

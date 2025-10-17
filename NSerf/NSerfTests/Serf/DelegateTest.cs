@@ -133,11 +133,12 @@ public class DelegateTest
         var currentQueryLTime = serf.QueryClock.Time();
 
         // Add a test member
-        serf.Members["test-node"] = new MemberInfo
+        var testMember = new MemberInfo
         {
             Name = "test-node",
             StatusLTime = 5
         };
+        serf.MemberStates[testMember.Name] = testMember;
 
         // Act
         var stateBytes = delegateObj.LocalState(join: false);

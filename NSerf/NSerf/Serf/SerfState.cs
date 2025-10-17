@@ -13,22 +13,22 @@ public enum SerfState
     /// <summary>
     /// Serf is alive and operating normally.
     /// </summary>
-    Alive = 0,
+    SerfAlive = 0,
 
     /// <summary>
     /// Serf is in the process of leaving the cluster.
     /// </summary>
-    Leaving = 1,
+    SerfLeaving = 1,
 
     /// <summary>
     /// Serf has left the cluster gracefully.
     /// </summary>
-    Left = 2,
+    SerfLeft = 2,
 
     /// <summary>
     /// Serf has been shut down.
     /// </summary>
-    Shutdown = 3
+    SerfShutdown = 3
 }
 
 /// <summary>
@@ -43,10 +43,10 @@ public static class SerfStateExtensions
     {
         return state switch
         {
-            SerfState.Alive => "alive",
-            SerfState.Leaving => "leaving",
-            SerfState.Left => "left",
-            SerfState.Shutdown => "shutdown",
+            SerfState.SerfAlive => "alive",
+            SerfState.SerfLeaving => "leaving",
+            SerfState.SerfLeft => "left",
+            SerfState.SerfShutdown => "shutdown",
             _ => "unknown"
         };
     }

@@ -1203,7 +1203,8 @@ public class Memberlist : IDisposable, IAsyncDisposable
             }
 
             // Check if we should skip broadcasting our own messages based on config
-            if (node == _config.Name && _config.DeadNodeReclaimTime == TimeSpan.Zero)
+            // EXCEPTION: Always broadcast Dead messages for graceful leave, even if reclaim time is 0
+            if (node == _config.Name && _config.DeadNodeReclaimTime == TimeSpan.Zero && msgType != MessageType.Dead)
             {
                 // Don't broadcast our own state changes if reclaim time is 0
                 _logger?.LogDebug("Skipping broadcast for local node {Node} (reclaim time is 0)", node);
