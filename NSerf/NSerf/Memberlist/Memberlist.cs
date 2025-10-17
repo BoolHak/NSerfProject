@@ -674,6 +674,60 @@ public class Memberlist : IDisposable, IAsyncDisposable
     }
 
     /// <summary>
+    /// Combines memberlist's internal broadcasts with delegate broadcasts.
+    /// Mirrors Go's getBroadcasts() function that frames user messages.
+    /// 
+    /// Thread Safety: This method is thread-safe and can be called concurrently.
+    /// - _broadcasts.GetBroadcasts() is thread-safe (TransmitLimitedQueue has internal locking)
+    /// - _config.Delegate is read-only after initialization
+    /// - Delegate.GetBroadcasts() must be thread-safe per IDelegate contract
+    /// - All other operations use local variables (thread-local)
+    /// 
+    /// This matches the thread safety guarantees of Go's memberlist.getBroadcasts().
+    /// </summary>
+    /// <param name="overhead">Per-message overhead in bytes</param>
+    /// <param name="limit">Total byte limit for all messages</param>
+    /// <returns>List of broadcast messages, with user messages framed with MessageType.User byte</returns>
+    private List<byte[]> GetBroadcasts(int overhead, int limit)
+    {
+        // Get memberlist messages first
+        var toSend = _broadcasts.GetBroadcasts(overhead, limit);
+
+        // Check if the user has a delegate with broadcasts
+        var d = _config.Delegate;
+        if (d != null)
+        {
+            // Determine the bytes used already
+            int bytesUsed = 0;
+            foreach (var msg in toSend)
+            {
+                bytesUsed += msg.Length + overhead;
+            }
+
+            // Check space remaining for user messages
+            int avail = limit - bytesUsed;
+            const int userMsgOverhead = 1; // Frame overhead for user messages
+            if (avail > overhead + userMsgOverhead)
+            {
+                var userMsgs = d.GetBroadcasts(overhead + userMsgOverhead, avail);
+
+                // Frame each user message with User type byte
+                foreach (var msg in userMsgs)
+                {
+                    var buf = new byte[1 + msg.Length];
+                    buf[0] = (byte)Messages.MessageType.User; // Frame with User message type
+                    Array.Copy(msg, 0, buf, 1, msg.Length);
+                    toSend.Add(buf);
+                }
+
+                _logger?.LogDebug("[MEMBERLIST] Added {Count} user delegate broadcasts", userMsgs.Count);
+            }
+        }
+
+        return toSend;
+    }
+
+    /// <summary>
     /// Gossip is invoked every GossipInterval to broadcast our gossip messages
     /// to a few random nodes.
     /// </summary>
@@ -718,8 +772,8 @@ public class Memberlist : IDisposable, IAsyncDisposable
 
         foreach (var node in kNodes)
         {
-            // Get pending broadcasts
-            var msgs = _broadcasts.GetBroadcasts(Messages.MessageConstants.CompoundOverhead, bytesAvail);
+            // Get pending broadcasts (including delegate broadcasts)
+            var msgs = GetBroadcasts(Messages.MessageConstants.CompoundOverhead, bytesAvail);
             if (msgs.Count == 0)
             {
                 _logger?.LogDebug("[GOSSIP] No more broadcasts to send");

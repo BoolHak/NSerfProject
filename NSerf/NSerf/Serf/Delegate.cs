@@ -165,6 +165,8 @@ internal class Delegate : IDelegate
     /// </summary>
     public List<byte[]> GetBroadcasts(int overhead, int limit)
     {
+        _serf.Logger?.LogInformation("[Serf.Delegate] *** GetBroadcasts called with overhead={Overhead}, limit={Limit} ***", overhead, limit);
+        
         // Get regular broadcasts
         var msgs = _serf.Broadcasts.GetBroadcasts(overhead, limit);
 
@@ -193,6 +195,7 @@ internal class Delegate : IDelegate
         var eventMsgs = _serf.EventBroadcasts.GetBroadcasts(overhead, limit - bytesUsed);
         if (eventMsgs.Count > 0)
         {
+            _serf.Logger?.LogInformation("[Serf.Delegate] *** Retrieved {Count} event broadcasts ***", eventMsgs.Count);
             foreach (var m in eventMsgs)
             {
                 bytesUsed += m.Length + overhead;
@@ -201,6 +204,7 @@ internal class Delegate : IDelegate
             msgs.AddRange(eventMsgs);
         }
 
+        _serf.Logger?.LogTrace("[Serf.Delegate] GetBroadcasts returning {Count} total messages", msgs.Count);
         return msgs;
     }
 

@@ -187,12 +187,16 @@ public partial class Serf : IDisposable, IAsyncDisposable
         serf.EventClock.Increment();
         serf.QueryClock.Increment();
 
-        // Phase 9.2: Initialize memberlist with event delegate
+        // Phase 9.2: Initialize memberlist with delegates
         if (config.MemberlistConfig != null)
         {
-            // Create event delegate that routes to Serf
+            // Create event delegate that routes to Serf for membership events
             serf._eventDelegate = new SerfEventDelegate(serf);
             config.MemberlistConfig.Events = serf._eventDelegate;
+            
+            // Create main delegate for gossip messages (GetBroadcasts, NotifyMsg, etc.)
+            var serfDelegate = new Delegate(serf);
+            config.MemberlistConfig.Delegate = serfDelegate;
             
             // Initialize transport if not provided
             if (config.MemberlistConfig.Transport == null)
@@ -278,6 +282,75 @@ public partial class Serf : IDisposable, IAsyncDisposable
         // TODO Phase 9.2+: Broadcast tag update to cluster
 
         await Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Broadcasts a custom user event with a given name and payload.
+    /// Returns an error if the configured size limit is exceeded.
+    /// If coalesce is enabled, nodes are allowed to coalesce this event.
+    /// Maps to: Go's UserEvent() method
+    /// </summary>
+    /// <param name="name">Name of the user event</param>
+    /// <param name="payload">Event payload data</param>
+    /// <param name="coalesce">If true, allow event coalescing</param>
+    /// <returns>Task that completes when event is queued for broadcast</returns>
+    public Task UserEventAsync(string name, byte[] payload, bool coalesce)
+    {
+        if (string.IsNullOrEmpty(name))
+            throw new ArgumentException("Event name cannot be null or empty", nameof(name));
+        if (payload == null)
+            throw new ArgumentNullException(nameof(payload));
+
+        var payloadSizeBeforeEncoding = name.Length + payload.Length;
+
+        // Check size before encoding to prevent needless encoding
+        if (payloadSizeBeforeEncoding > Config.UserEventSizeLimit)
+        {
+            throw new InvalidOperationException(
+                $"User event exceeds configured limit of {Config.UserEventSizeLimit} bytes before encoding");
+        }
+
+        if (payloadSizeBeforeEncoding > UserEventSizeLimit)
+        {
+            throw new InvalidOperationException(
+                $"User event exceeds sane limit of {UserEventSizeLimit} bytes before encoding");
+        }
+
+        // Create a message
+        var msg = new MessageUserEvent
+        {
+            LTime = EventClock.Time(),
+            Name = name,
+            Payload = payload,
+            CC = coalesce
+        };
+
+        // Start broadcasting the event
+        var raw = EncodeMessage(MessageType.UserEvent, msg);
+
+        // Check the size after encoding
+        if (raw.Length > Config.UserEventSizeLimit)
+        {
+            throw new InvalidOperationException(
+                $"Encoded user event exceeds configured limit of {Config.UserEventSizeLimit} bytes after encoding");
+        }
+
+        if (raw.Length > UserEventSizeLimit)
+        {
+            throw new InvalidOperationException(
+                $"Encoded user event exceeds reasonable limit of {UserEventSizeLimit} bytes after encoding");
+        }
+
+        EventClock.Increment();
+
+        // Process update locally
+        HandleUserEvent(msg);
+
+        // Queue for broadcast
+        Logger?.LogInformation("[Serf] *** Queuing user event '{Name}' ({Size} bytes) for broadcast ***", name, raw.Length);
+        EventBroadcasts.QueueBytes(raw);
+
+        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -577,9 +650,80 @@ public partial class Serf : IDisposable, IAsyncDisposable
 
     internal bool HandleUserEvent(MessageUserEvent userEvent)
     {
-        // Stub - to be fully implemented in Phase 9
-        Logger?.LogDebug("[Serf] HandleUserEvent: {Name} at LTime {LTime}", userEvent.Name, userEvent.LTime);
-        return false; // No rebroadcast for now
+        // Witness a potentially newer time
+        EventClock.Witness(userEvent.LTime);
+
+        return WithWriteLock(_eventLock, () =>
+        {
+            // Ignore if it is before our minimum event time
+            if (userEvent.LTime < EventMinTime)
+            {
+                return false;
+            }
+
+            // Check if this message is too old
+            var curTime = EventClock.Time();
+            var bufferSize = (ulong)Config.EventBuffer;
+            if (curTime > bufferSize && userEvent.LTime < (curTime - bufferSize))
+            {
+                Logger?.LogWarning(
+                    "[Serf] Received old event {Name} from time {LTime} (current: {CurTime})",
+                    userEvent.Name, userEvent.LTime, curTime);
+                return false;
+            }
+
+            // Check if we've already seen this event
+            if (EventBuffer.TryGetValue(userEvent.LTime, out var seen))
+            {
+                // Check for duplicate
+                foreach (var previous in seen.Events)
+                {
+                    if (previous.Name == userEvent.Name && 
+                        previous.Payload.SequenceEqual(userEvent.Payload))
+                    {
+                        // Already seen this event
+                        return false;
+                    }
+                }
+            }
+            else
+            {
+                // Create new collection for this LTime
+                seen = new UserEventCollection { LTime = userEvent.LTime };
+                EventBuffer[userEvent.LTime] = seen;
+            }
+
+            // Add to recent events
+            seen.Events.Add(new UserEventData
+            {
+                Name = userEvent.Name,
+                Payload = userEvent.Payload
+            });
+
+            // Send to EventCh if configured
+            if (Config.EventCh != null)
+            {
+                var evt = new Events.UserEvent
+                {
+                    LTime = userEvent.LTime,
+                    Name = userEvent.Name,
+                    Payload = userEvent.Payload,
+                    Coalesce = userEvent.CC
+                };
+
+                try
+                {
+                    Config.EventCh.TryWrite(evt);
+                    Logger?.LogTrace("[Serf] Emitted UserEvent: {Name} at LTime {LTime}", userEvent.Name, userEvent.LTime);
+                }
+                catch (Exception ex)
+                {
+                    Logger?.LogError(ex, "[Serf] Failed to emit UserEvent: {Name}", userEvent.Name);
+                }
+            }
+
+            return true; // Rebroadcast this event
+        });
     }
 
     internal bool HandleQuery(MessageQuery query)
