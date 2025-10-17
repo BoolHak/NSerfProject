@@ -13,7 +13,7 @@ namespace NSerf.Serf;
 /// Main Serf class for cluster membership and coordination.
 /// Partial implementation supporting Delegate operations - will be fully implemented in Phase 9.
 /// </summary>
-public class Serf : IDisposable, IAsyncDisposable
+public partial class Serf : IDisposable, IAsyncDisposable
 {
     // Protocol version constants (from Go serf.go)
     public const byte ProtocolVersionMin = 2;
@@ -39,6 +39,7 @@ public class Serf : IDisposable, IAsyncDisposable
 
     // Member state - internal tracking
     internal Dictionary<string, MemberInfo> MemberStates { get; private set; }
+    internal List<MemberInfo> FailedMembers { get; private set; }
     internal List<MemberInfo> LeftMembers { get; private set; }
     internal Dictionary<LamportTime, UserEventCollection> EventBuffer { get; private set; }
     
@@ -80,6 +81,7 @@ public class Serf : IDisposable, IAsyncDisposable
         QueryBroadcasts = new BroadcastQueue(new TransmitLimitedQueue());
 
         MemberStates = new Dictionary<string, MemberInfo>();
+        FailedMembers = new List<MemberInfo>();
         LeftMembers = new List<MemberInfo>();
         EventBuffer = new Dictionary<LamportTime, UserEventCollection>();
 
@@ -216,6 +218,9 @@ public class Serf : IDisposable, IAsyncDisposable
             };
             serf.MemberStates[config.NodeName] = localMember;
         }
+
+        // Phase 9.4: Start background tasks (reaper and reconnect)
+        serf.StartBackgroundTasks();
 
         return Task.FromResult(serf);
     }
@@ -416,6 +421,31 @@ public class Serf : IDisposable, IAsyncDisposable
             _state = SerfState.SerfShutdown;
             return Task.CompletedTask;
         });
+
+        // Wait for background tasks to complete
+        if (_reapTask != null)
+        {
+            try
+            {
+                await _reapTask;
+            }
+            catch (Exception ex)
+            {
+                Logger?.LogDebug(ex, "[Serf] Reap task shutdown");
+            }
+        }
+        
+        if (_reconnectTask != null)
+        {
+            try
+            {
+                await _reconnectTask;
+            }
+            catch (Exception ex)
+            {
+                Logger?.LogDebug(ex, "[Serf] Reconnect task shutdown");
+            }
+        }
 
         // Shutdown memberlist AFTER state transition to prevent race conditions
         if (Memberlist != null)
@@ -684,6 +714,35 @@ public class Serf : IDisposable, IAsyncDisposable
                 if (MemberStates.TryGetValue(node.Name, out var memberInfo))
                 {
                     memberInfo.StatusLTime = Clock.Time();
+                    memberInfo.Status = memberStatus;
+                    memberInfo.LeaveTime = DateTimeOffset.UtcNow;
+                    
+                    // Store the full member info for reaper and reconnect
+                    memberInfo.Member = new Member
+                    {
+                        Name = node.Name,
+                        Addr = node.Addr,
+                        Port = node.Port,
+                        Tags = DecodeTags(node.Meta),
+                        Status = memberStatus,
+                        ProtocolMin = node.PMin,
+                        ProtocolMax = node.PMax,
+                        ProtocolCur = node.PCur,
+                        DelegateMin = node.DMin,
+                        DelegateMax = node.DMax,
+                        DelegateCur = node.DCur
+                    };
+
+                    // Add to appropriate list for reaper
+                    if (memberStatus == MemberStatus.Failed)
+                    {
+                        FailedMembers.Add(memberInfo);
+                    }
+                    else if (memberStatus == MemberStatus.Left)
+                    {
+                        LeftMembers.Add(memberInfo);
+                    }
+                    
                     Logger?.LogInformation("[Serf] Member {Status}: {Name}", 
                         eventType == EventType.MemberFailed ? "failed" : "left", node.Name);
                 }
@@ -1128,4 +1187,6 @@ internal class MemberInfo
     public string Name { get; set; } = string.Empty;
     public LamportTime StatusLTime { get; set; }
     public MemberStatus Status { get; set; } = MemberStatus.Alive;
+    public DateTimeOffset LeaveTime { get; set; }
+    public Member Member { get; set; } = new Member();
 }

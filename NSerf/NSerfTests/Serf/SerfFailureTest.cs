@@ -79,11 +79,9 @@ public class SerfFailureTest
         // Shutdown s2 to simulate failure (without graceful leave)
         await s2.ShutdownAsync();
 
-        // Wait for failure detection to trigger
-        // Note: The Go test waits for member count to drop to 1, but that requires the reaper
-        // background task to remove failed members, which isn't implemented yet (future phase)
-        // For now, we wait for enough probe cycles for failure to be detected
-        await Task.Delay(TimeSpan.FromSeconds(2)); // Multiple probe intervals
+        // Wait for s1 to detect the failure and reap the node (member count drops to 1)
+        // With ReapInterval=1s, ReconnectTimeout=1μs, this should happen quickly
+        await TestHelpers.WaitUntilNumNodesAsync(1, TimeSpan.FromSeconds(5), s1);
 
         // Collect all events
         var events = new List<Event>();
@@ -92,15 +90,19 @@ public class SerfFailureTest
             events.Add(evt);
         }
 
-        // Assert - Should have: Join event when s2 joined
+        // Assert - Should have: Join, Failed/Leave, and Reap events
         events.Should().Contain(e => e.EventType() == EventType.MemberJoin, 
             "s1 should receive a join event when s2 joins");
         
-        // NOTE: MemberFailed event requires memberlist failure detection to trigger NotifyLeave
-        // with State=Dead. This test documents the expected behavior, but failure detection
-        // via probes may not always trigger within test timeout. The critical bug fixes
-        // (broadcast blocking and Node.State detection) are verified by other passing tests.
-        // TODO: Implement reaper background task and revisit this test in Phase 9.4+
+        // Note: Due to timing, shutdown without leave can be detected as either:
+        // - MemberFailed (if detected via probe failures)
+        // - MemberLeave (if memberlist processes node's own dead message)
+        // Both are valid - the important thing is the reaper works (MemberReap below)
+        events.Should().Contain(e => e.EventType() == EventType.MemberFailed || e.EventType() == EventType.MemberLeave,
+            "s1 should receive a failed or leave event when s2 shuts down");
+        
+        events.Should().Contain(e => e.EventType() == EventType.MemberReap,
+            "s1 should receive a reap event after the member is removed by the reaper");
 
         await s1.ShutdownAsync();
     }
