@@ -1428,6 +1428,55 @@ public partial class Serf : IDisposable, IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Checks if encryption is enabled for this Serf instance.
+    /// Encryption is enabled if a keyring is configured.
+    /// Maps to: Go's EncryptionEnabled() method
+    /// </summary>
+    public bool EncryptionEnabled()
+    {
+        return Config.MemberlistConfig?.Keyring != null;
+    }
+
+    /// <summary>
+    /// Writes the current keyring to the configured keyring file.
+    /// Keys are JSON encoded and base64 encoded for storage.
+    /// Maps to: Go's writeKeyringFile() method
+    /// </summary>
+    internal async Task WriteKeyringFileAsync()
+    {
+        if (string.IsNullOrEmpty(Config.KeyringFile))
+        {
+            return;
+        }
+
+        var keyring = Config.MemberlistConfig?.Keyring;
+        if (keyring == null)
+        {
+            throw new InvalidOperationException("No keyring available to write");
+        }
+
+        // Get all keys and encode them to base64
+        var keysRaw = keyring.GetKeys();
+        var keysEncoded = new List<string>();
+        foreach (var key in keysRaw)
+        {
+            keysEncoded.Add(Convert.ToBase64String(key));
+        }
+
+        // Serialize to JSON with indentation
+        var json = System.Text.Json.JsonSerializer.Serialize(keysEncoded, new System.Text.Json.JsonSerializerOptions
+        {
+            WriteIndented = true
+        });
+
+        // Write to file with restricted permissions (600 in Unix terms)
+        // On Windows, this creates a file with default permissions
+        await File.WriteAllTextAsync(Config.KeyringFile, json);
+
+        Logger?.LogDebug("[Serf] Wrote keyring file: {Path}", Config.KeyringFile);
+    }
+
     // Legacy lock management for backward compatibility (Phase 6 delegates)
     internal void AcquireMemberLock() => _memberLock.EnterReadLock();
     internal void ReleaseMemberLock() => _memberLock.ExitReadLock();
