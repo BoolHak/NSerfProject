@@ -42,10 +42,16 @@ public partial class Serf : IDisposable, IAsyncDisposable
     internal List<MemberInfo> FailedMembers { get; private set; }
     internal List<MemberInfo> LeftMembers { get; private set; }
     internal Dictionary<LamportTime, UserEventCollection> EventBuffer { get; private set; }
+    internal Dictionary<LamportTime, QueryCollection> QueryBuffer { get; private set; }
     
     // Event configuration
     internal bool EventJoinIgnore { get; set; }
     internal LamportTime EventMinTime { get; set; }
+    internal LamportTime QueryMinTime { get; set; }
+    
+    // Query tracking - maps LTime to QueryResponse
+    private readonly Dictionary<LamportTime, QueryResponse> _queryResponses = new();
+    private readonly Random _queryRandom = new();
 
     // Memberlist integration
     internal Memberlist.Memberlist? Memberlist { get; private set; }
@@ -84,9 +90,11 @@ public partial class Serf : IDisposable, IAsyncDisposable
         FailedMembers = new List<MemberInfo>();
         LeftMembers = new List<MemberInfo>();
         EventBuffer = new Dictionary<LamportTime, UserEventCollection>();
+        QueryBuffer = new Dictionary<LamportTime, QueryCollection>();
 
         EventJoinIgnore = false;
         EventMinTime = 0;
+        QueryMinTime = 0;
     }
 
     /// <summary>
@@ -107,17 +115,39 @@ public partial class Serf : IDisposable, IAsyncDisposable
         return WithReadLock(_memberLock, () =>
         {
             var members = new List<Member>();
-            foreach (var kvp in MemberStates)
+            
+            // Get members from memberlist
+            if (Memberlist != null)
             {
-                // Convert MemberInfo to Member
-                var member = new Member
+                var nodes = Memberlist.Members();
+                foreach (var node in nodes)
                 {
-                    Name = kvp.Key,
-                    Status = MemberStatus.Alive, // TODO: Track actual status
-                    Tags = new Dictionary<string, string>()
-                };
-                members.Add(member);
+                    // Decode tags from metadata
+                    var tags = TagEncoder.DecodeTags(node.Meta);
+                    
+                    // Look up member status from our tracking
+                    var status = MemberStates.TryGetValue(node.Name, out var info) 
+                        ? info.Status 
+                        : MemberStatus.Alive;
+                    
+                    var member = new Member
+                    {
+                        Name = node.Name,
+                        Addr = node.Addr,
+                        Port = node.Port,
+                        Tags = tags,
+                        Status = status,
+                        ProtocolMin = node.PMin,
+                        ProtocolMax = node.PMax,
+                        ProtocolCur = node.PCur,
+                        DelegateMin = node.DMin,
+                        DelegateMax = node.DMax,
+                        DelegateCur = node.DCur
+                    };
+                    members.Add(member);
+                }
             }
+            
             return members.ToArray();
         });
     }
@@ -268,7 +298,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
     }
 
     /// <summary>
-    /// Updates the tags for the local member and broadcasts the change.
+    /// Updates the tags for the local member and broadcasts the change to the cluster.
     /// Maps to: Go's SetTags() method
     /// </summary>
     public async Task SetTagsAsync(Dictionary<string, string> tags)
@@ -276,12 +306,14 @@ public partial class Serf : IDisposable, IAsyncDisposable
         if (tags == null)
             throw new ArgumentNullException(nameof(tags));
 
-        // Update config tags
+        // Update the configuration
         Config.Tags = new Dictionary<string, string>(tags);
 
-        // TODO Phase 9.2+: Broadcast tag update to cluster
-
-        await Task.CompletedTask;
+        // Broadcast the tag update to the cluster via memberlist
+        if (Memberlist != null)
+        {
+            await Memberlist.UpdateNodeAsync(Config.BroadcastTimeout);
+        }
     }
 
     /// <summary>
@@ -726,18 +758,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
         });
     }
 
-    internal bool HandleQuery(MessageQuery query)
-    {
-        // Stub - to be fully implemented in Phase 9
-        Logger?.LogDebug("[Serf] HandleQuery: {Name}", query.Name);
-        return false; // No rebroadcast for now
-    }
-
-    internal void HandleQueryResponse(MessageQueryResponse response)
-    {
-        // Stub - to be fully implemented in Phase 9
-        Logger?.LogDebug("[Serf] HandleQueryResponse from: {From}", response.From);
-    }
+    // HandleQuery and HandleQueryResponse are now implemented in Query.cs
 
     internal void HandleNodeJoin(Memberlist.State.Node? node)
     {
@@ -1066,81 +1087,6 @@ public partial class Serf : IDisposable, IAsyncDisposable
             RequestAck = false,
             Timeout = DefaultQueryTimeout()
         };
-    }
-
-    /// <summary>
-    /// ShouldProcessQuery checks if a query should be processed given a set of filters.
-    /// </summary>
-    public bool ShouldProcessQuery(List<byte[]> filters)
-    {
-        foreach (var filter in filters)
-        {
-            if (filter.Length == 0) continue;
-
-            var filterType = (FilterType)filter[0];
-
-            switch (filterType)
-            {
-                case FilterType.Node:
-                    // Decode the filter
-                    string[] nodes;
-                    try
-                    {
-                        var slice = new byte[filter.Length - 1];
-                        Array.Copy(filter, 1, slice, 0, filter.Length - 1);
-                        nodes = MessagePackSerializer.Deserialize<string[]>(slice);
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger?.LogWarning("[Serf] Failed to decode filterNodeType: {Error}", ex.Message);
-                        return false;
-                    }
-
-                    // Check if we are being targeted
-                    if (!nodes.Contains(Config.NodeName))
-                    {
-                        return false;
-                    }
-                    break;
-
-                case FilterType.Tag:
-                    // Decode the filter
-                    FilterTag filt;
-                    try
-                    {
-                        var slice = new byte[filter.Length - 1];
-                        Array.Copy(filter, 1, slice, 0, filter.Length - 1);
-                        filt = MessagePackSerializer.Deserialize<FilterTag>(slice);
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger?.LogWarning("[Serf] Failed to decode filterTagType: {Error}", ex.Message);
-                        return false;
-                    }
-
-                    // Check if we match this regex
-                    var tagValue = Config.Tags.GetValueOrDefault(filt.Tag, string.Empty);
-                    try
-                    {
-                        if (!System.Text.RegularExpressions.Regex.IsMatch(tagValue, filt.Expr))
-                        {
-                            return false;
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger?.LogWarning("[Serf] Failed to compile filter regex ({Expr}): {Error}", filt.Expr, ex.Message);
-                        return false;
-                    }
-                    break;
-
-                default:
-                    Logger?.LogWarning("[Serf] Query has unrecognized filter type: {Type}", filter[0]);
-                    return false;
-            }
-        }
-
-        return true;
     }
 
     internal byte[] EncodeMessage(MessageType messageType, object message)
