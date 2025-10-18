@@ -2,12 +2,15 @@
 // SPDX-License-Identifier: MPL-2.0
 // Ported from: github.com/hashicorp/serf/coordinate/coordinate.go
 
+using MessagePack;
+
 namespace NSerf.Coordinate;
 
 /// <summary>
 /// Coordinate is a specialized structure for holding network coordinates for the
 /// Vivaldi-based coordinate mapping algorithm. All values in here are in units of seconds.
 /// </summary>
+[MessagePackObject]
 public class Coordinate
 {
     /// <summary>
@@ -15,12 +18,14 @@ public class Coordinate
     /// with the other fields to provide an overall distance estimate. The
     /// units here are seconds.
     /// </summary>
+    [Key(0)]
     public double[] Vec { get; set; } = Array.Empty<double>();
 
     /// <summary>
     /// Error reflects the confidence in the given coordinate and is updated
     /// dynamically by the Vivaldi Client. This is dimensionless.
     /// </summary>
+    [Key(1)]
     public double Error { get; set; }
 
     /// <summary>
@@ -28,12 +33,14 @@ public class Coordinate
     /// observations from all other nodes over a fixed window and is updated
     /// dynamically by the Vivaldi Client. The units here are seconds.
     /// </summary>
+    [Key(2)]
     public double Adjustment { get; set; }
 
     /// <summary>
     /// Height is a distance offset that accounts for non-Euclidean effects
     /// which model the access links from nodes to the core Internet.
     /// </summary>
+    [Key(3)]
     public double Height { get; set; }
 
     // Constants

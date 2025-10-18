@@ -62,6 +62,9 @@ public partial class Serf : IDisposable, IAsyncDisposable
     internal Snapshotter? Snapshotter { get; private set; }
     private ChannelWriter<Event>? _snapshotInCh;
 
+    // Coordinate client for Vivaldi network coordinates
+    private Coordinate.CoordinateClient? _coordClient;
+
     // Locks - Thread-safety for concurrent access
     // Lock Ordering Pattern (from DeepWiki analysis):
     // - No strict global order, but acquire lock at start of handler
@@ -366,6 +369,19 @@ public partial class Serf : IDisposable, IAsyncDisposable
             serf.Logger?.LogInformation("[Serf/Snapshot] No snapshot path configured for node {NodeName}", config.NodeName);
         }
 
+        // Initialize coordinate client if coordinates are enabled
+        if (!config.DisableCoordinates)
+        {
+            serf.Logger?.LogInformation("[Serf/Coordinates] Initializing coordinate client");
+            var coordConfig = Coordinate.CoordinateConfig.DefaultConfig();
+            serf._coordClient = new Coordinate.CoordinateClient(coordConfig);
+            serf.Logger?.LogInformation("[Serf/Coordinates] ✓ Coordinate client initialized");
+        }
+        else
+        {
+            serf.Logger?.LogInformation("[Serf/Coordinates] Coordinates disabled per configuration");
+        }
+
         // Phase 9.2: Initialize memberlist with delegates
         if (config.MemberlistConfig != null)
         {
@@ -376,6 +392,14 @@ public partial class Serf : IDisposable, IAsyncDisposable
             // Create main delegate for gossip messages (GetBroadcasts, NotifyMsg, etc.)
             var serfDelegate = new Delegate(serf);
             config.MemberlistConfig.Delegate = serfDelegate;
+
+            // Setup PingDelegate for coordinate updates if coordinates are enabled
+            if (!config.DisableCoordinates)
+            {
+                var pingDelegate = new PingDelegate(serf);
+                config.MemberlistConfig.Ping = pingDelegate;
+                serf.Logger?.LogInformation("[Serf/Coordinates] ✓ PingDelegate configured for RTT tracking");
+            }
 
             // Initialize transport if not provided
             if (config.MemberlistConfig.Transport == null)
@@ -1270,16 +1294,36 @@ public partial class Serf : IDisposable, IAsyncDisposable
 
     internal Coordinate.Coordinate GetCoordinate()
     {
-        // Stub - returns a default coordinate until Phase 9
-        // Coordinate system was implemented in Phase 5
-        return new Coordinate.Coordinate();
+        // If coordinates are disabled or client not initialized, return default coordinate
+        if (Config.DisableCoordinates || _coordClient == null)
+        {
+            return new Coordinate.Coordinate();
+        }
+
+        // Get coordinate from client (returns a copy, so thread-safe)
+        return _coordClient.GetCoordinate();
     }
 
     internal void UpdateCoordinate(string nodeName, Coordinate.Coordinate coordinate, TimeSpan rtt)
     {
-        // Stub - to be fully implemented in Phase 9
-        Logger?.LogTrace("[Serf] UpdateCoordinate for {Node}, RTT: {RTT}ms",
-            nodeName, rtt.TotalMilliseconds);
+        // Early return if coordinates are disabled or client not initialized
+        if (Config.DisableCoordinates || _coordClient == null)
+        {
+            return;
+        }
+
+        try
+        {
+            // Update coordinate based on the observation
+            var updated = _coordClient.Update(nodeName, coordinate, rtt);
+            
+            Logger?.LogTrace("[Serf] Updated coordinate for {Node}, RTT: {RTT}ms, New position: {Vec}",
+                nodeName, rtt.TotalMilliseconds, string.Join(",", updated.Vec.Select(v => v.ToString("F4"))));
+        }
+        catch (Exception ex)
+        {
+            Logger?.LogError(ex, "[Serf] Failed to update coordinate for {Node}", nodeName);
+        }
     }
 
     internal string? ValidateNodeName(string nodeName)

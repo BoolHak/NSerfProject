@@ -369,4 +369,64 @@ public class SerfJoinLeaveTest
 
         await s1.ShutdownAsync();
     }
+
+    /// <summary>
+    /// Test: Join should trigger a broadcast of join intent
+    /// Maps to: Go serf.go broadcastJoin() invocation on successful join
+    /// </summary>
+    [Fact]
+    public async Task Serf_Join_ShouldBroadcastJoinIntent()
+    {
+        // Arrange
+        var config1 = new Config
+        {
+            NodeName = "node1",
+            MemberlistConfig = new MemberlistConfig
+            {
+                Name = "node1",
+                BindAddr = "127.0.0.1",
+                BindPort = 0
+            }
+        };
+
+        var config2 = new Config
+        {
+            NodeName = "node2",
+            MemberlistConfig = new MemberlistConfig
+            {
+                Name = "node2",
+                BindAddr = "127.0.0.1",
+                BindPort = 0
+            }
+        };
+
+        using var s1 = await NSerf.Serf.Serf.CreateAsync(config1);
+        using var s2 = await NSerf.Serf.Serf.CreateAsync(config2);
+
+        // Get initial broadcast queue count
+        var initialBroadcasts = s2.Broadcasts.Count;
+
+        // Act - s2 joins s1
+        var s1Addr = $"127.0.0.1:{config1.MemberlistConfig.BindPort}";
+        var numJoined = await s2.JoinAsync(new[] { s1Addr }, ignoreOld: false);
+
+        // Assert - Join should succeed
+        numJoined.Should().BeGreaterThan(0, "join should succeed");
+
+        // Wait briefly for broadcast to be queued
+        await Task.Delay(100);
+
+        // Verify broadcast queue increased (join intent was broadcast)
+        var finalBroadcasts = s2.Broadcasts.Count;
+        finalBroadcasts.Should().BeGreaterThan(initialBroadcasts, 
+            "join broadcast should be queued after successful join");
+
+        // Verify both nodes see each other
+        await Task.Delay(500); // Allow time for convergence
+        s1.NumMembers().Should().Be(2, "s1 should see both members");
+        s2.NumMembers().Should().Be(2, "s2 should see both members");
+
+        await s1.ShutdownAsync();
+        await s2.ShutdownAsync();
+    }
 }
