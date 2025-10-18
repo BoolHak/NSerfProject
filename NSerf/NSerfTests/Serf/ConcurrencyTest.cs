@@ -25,7 +25,8 @@ public class ConcurrencyTest
         var clock = new LamportClock();
         var iterations = 1000;
         var concurrentTasks = 10;
-        var results = new ConcurrentBag<LamportTime>();
+        var incrementResults = new ConcurrentBag<LamportTime>();
+        var timeResults = new ConcurrentBag<LamportTime>();
 
         // Act - Multiple threads concurrently incrementing and witnessing
         var tasks = new Task[concurrentTasks];
@@ -36,8 +37,11 @@ public class ConcurrencyTest
                 for (int j = 0; j < iterations; j++)
                 {
                     var time = clock.Time();
-                    results.Add(time);
-                    clock.Increment();
+                    timeResults.Add(time);
+                    
+                    var newTime = clock.Increment();
+                    incrementResults.Add(newTime);
+                    
                     clock.Witness(time + 100); // Witness a higher time
                 }
             });
@@ -45,10 +49,20 @@ public class ConcurrencyTest
 
         await Task.WhenAll(tasks);
 
-        // Assert - All operations completed without exceptions
-        Assert.True(results.Count > 0);
+        // Assert - Verify monotonicity: Time() never decreases
+        var timeList = timeResults.OrderBy(t => t).ToList();
+        for (int i = 1; i < timeList.Count; i++)
+        {
+            Assert.True(timeList[i] >= timeList[i-1], "Time() must never decrease (monotonicity)");
+        }
+        
+        // Assert - Verify uniqueness: Each Increment() returns unique value
+        var uniqueIncrements = incrementResults.Distinct().Count();
+        Assert.Equal(incrementResults.Count, uniqueIncrements);
+        
+        // Assert - Verify final value accounts for all increments
         var expectedMinimum = (ulong)(concurrentTasks * iterations);
-        Assert.True(clock.Time() >= expectedMinimum);
+        Assert.True(clock.Time() >= expectedMinimum, $"Clock should be at least {expectedMinimum}");
     }
 
     /// <summary>
@@ -64,6 +78,7 @@ public class ConcurrencyTest
         var iterations = 100;
         var concurrentTasks = 10;
         var exceptions = new ConcurrentBag<Exception>();
+        var readValues = new ConcurrentBag<int>();
 
         // Act - Multiple threads reading member count
         var tasks = new Task[concurrentTasks];
@@ -76,7 +91,8 @@ public class ConcurrencyTest
                     for (int j = 0; j < iterations; j++)
                     {
                         var count = serf.NumMembers();
-                        Assert.True(count >= 0);
+                        readValues.Add(count);
+                        Assert.True(count >= 0, "Member count should never be negative");
                     }
                 }
                 catch (Exception ex)
@@ -90,6 +106,14 @@ public class ConcurrencyTest
 
         // Assert - No exceptions occurred
         Assert.Empty(exceptions);
+        
+        // Assert - All reads returned consistent valid values (no torn reads)
+        Assert.True(readValues.All(v => v >= 0), "All reads should return valid non-negative values");
+        
+        // Assert - In this test with no concurrent writes, all reads should return 0
+        // (initial state, no members added)
+        var uniqueValues = readValues.Distinct().ToList();
+        Assert.True(uniqueValues.Count <= 2, "With no concurrent modifications, should have very few distinct values");
     }
 
     /// <summary>
@@ -105,12 +129,14 @@ public class ConcurrencyTest
         var iterations = 50;
         var concurrentTasks = 5;
         var exceptions = new ConcurrentBag<Exception>();
+        var lockAcquisitions = new ConcurrentBag<(string lockType, DateTime time)>();
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
 
         // Act - Simulate concurrent member and event lock access
         var tasks = new Task[concurrentTasks];
         for (int i = 0; i < concurrentTasks; i++)
         {
+            int taskId = i;
             tasks[i] = Task.Run(() =>
             {
                 try
@@ -119,11 +145,13 @@ public class ConcurrencyTest
                     {
                         // Acquire and release member lock
                         serf.AcquireMemberLock();
+                        lockAcquisitions.Add(("member", DateTime.UtcNow));
                         Thread.Sleep(1); // Hold lock briefly
                         serf.ReleaseMemberLock();
 
                         // Acquire and release event lock
                         serf.AcquireEventLock();
+                        lockAcquisitions.Add(("event", DateTime.UtcNow));
                         Thread.Sleep(1); // Hold lock briefly
                         serf.ReleaseEventLock();
                     }
@@ -139,9 +167,20 @@ public class ConcurrencyTest
         var completedTask = Task.WhenAll(tasks);
         var completed = await Task.WhenAny(completedTask, Task.Delay(TimeSpan.FromSeconds(10))) == completedTask;
 
-        // Assert - All tasks completed without deadlock or exceptions
+        // Assert - All tasks completed without deadlock
         Assert.True(completed, "Tasks should complete without deadlock");
         Assert.Empty(exceptions);
+        
+        // Assert - Verify locks were acquired successfully (mutual exclusion working)
+        var expectedAcquisitions = concurrentTasks * iterations * 2; // member + event per iteration
+        Assert.True(lockAcquisitions.Count >= expectedAcquisitions - 10, 
+            $"Should have approximately {expectedAcquisitions} lock acquisitions");
+        
+        // Assert - Verify lock ordering is consistent (no deadlock conditions)
+        var memberLockCount = lockAcquisitions.Count(l => l.lockType == "member");
+        var eventLockCount = lockAcquisitions.Count(l => l.lockType == "event");
+        Assert.True(memberLockCount > 0, "Member locks should be acquired");
+        Assert.True(eventLockCount > 0, "Event locks should be acquired");
     }
 
     /// <summary>

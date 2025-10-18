@@ -165,8 +165,31 @@ public class DelegateTest
         // Verify left members list exists
         pushPull.LeftMembers.Should().NotBeNull();
         
-        // TODO: Phase 9 - Add assertions to verify events were serialized
-        // Should verify: EventBuffer events are included in push/pull state
+        // Verify events are included in serialization
+        // Add a test event to EventBuffer
+        var testEvent = new UserEventCollection
+        {
+            LTime = 100,
+            Events = new List<UserEventData>
+            {
+                new UserEventData { Name = "test-event", Payload = new byte[] { 1, 2, 3 } }
+            }
+        };
+        serf.EventBuffer[100] = testEvent;
+        
+        // Serialize again with event
+        var stateWithEvent = delegateObj.LocalState(join: false);
+        var pushPullWithEvent = MessagePackSerializer.Deserialize<MessagePushPull>(stateWithEvent.AsMemory(1));
+        
+        // Verify EventBuffer events are included in push/pull state
+        pushPullWithEvent.Events.Should().NotBeNull("Events should be serialized");
+        pushPullWithEvent.Events.Should().Contain(e => e.LTime == 100, 
+            "EventBuffer events should be included in serialized state");
+        
+        var serializedEvent = pushPullWithEvent.Events.First(e => e.LTime == 100);
+        serializedEvent.Events.Should().ContainSingle("should have one event");
+        serializedEvent.Events[0].Name.Should().Be("test-event");
+        serializedEvent.Events[0].Payload.Should().Equal(new byte[] { 1, 2, 3 });
     }
 
     [Fact]
@@ -224,8 +247,24 @@ public class DelegateTest
         serf.EventClock.Time().Should().BeGreaterOrEqualTo(49, "should witness EventLTime - 1");
         serf.QueryClock.Time().Should().BeGreaterOrEqualTo(99, "should witness QueryLTime - 1");
         
-        // TODO: Phase 9 - Add assertions to verify member state was merged
-        // Should verify: StatusLTimes were applied, LeftMembers were processed, Events were queued
+        // Verify StatusLTimes were applied to member states
+        // "test" should be processed as join intent
+        serf.MemberStates.Should().ContainKey("test", "StatusLTime for 'test' should create/update member");
+        serf.MemberStates["test"].StatusLTime.Should().Be(20, "StatusLTime should be applied");
+        
+        // Verify LeftMembers were processed
+        // "foo" is in LeftMembers, so it should be marked as leaving/left
+        serf.MemberStates.Should().ContainKey("foo", "LeftMember 'foo' should be processed");
+        serf.MemberStates["foo"].Status.Should().BeOneOf(MemberStatus.Leaving, MemberStatus.Left);
+        // foo should be marked as Leaving or Left
+        
+        // Verify Events were queued to EventBuffer
+        // Event with LTime=45 should be added to EventBuffer
+        serf.EventBuffer.Should().ContainKey(45, "Event should be queued to EventBuffer");
+        var queuedEvent = serf.EventBuffer[45];
+        queuedEvent.Events.Should().ContainSingle("should have one event");
+        queuedEvent.Events[0].Name.Should().Be("test-event", "event name should match");
+        queuedEvent.Events[0].Payload.Should().Equal(Array.Empty<byte>(), "event payload should match");
     }
 
     [Fact]
@@ -289,25 +328,43 @@ public class DelegateTest
         var config = new Config { NodeName = "test-node", Tags = new Dictionary<string, string>() };
         var serf = new NSerf.Serf.Serf(config);
         var delegateObj = new SerfDelegate(serf);
+        
+        // Add the node first so leave intent can be processed
+        serf.MemberStates["leaving-node"] = new MemberInfo
+        {
+            Name = "leaving-node",
+            Status = MemberStatus.Alive,
+            StatusLTime = 5,
+            Member = new Member { Name = "leaving-node", Status = MemberStatus.Alive }
+        };
 
         var leaveMsg = new MessageLeave
         {
             LTime = 10,
-            Node = "test-node"
+            Node = "leaving-node"
         };
 
         var payload = MessagePackSerializer.Serialize(leaveMsg);
         var buffer = new byte[payload.Length + 1];
         buffer[0] = (byte)MessageType.Leave;
         Array.Copy(payload, 0, buffer, 1, payload.Length);
+        
+        var initialClockTime = serf.Clock.Time();
 
-        // Act - Should not throw
+        // Act
         delegateObj.NotifyMsg(buffer);
 
-        // Assert - Handler was called (logged in stub)
+        // Assert - Verify HandleNodeLeaveIntent was called
+        // 1. Clock should have witnessed the LTime
+        serf.Clock.Time().Should().BeGreaterOrEqualTo(10, "clock should witness LTime from leave message");
+        serf.Clock.Time().Should().BeGreaterThan(initialClockTime, "clock should have advanced");
         
-        // TODO: Phase 9 - Add assertions to verify leave message was processed
-        // Should verify: HandleNodeLeaveIntent was called with correct parameters
+        // 2. Member status should be updated to Leaving
+        serf.MemberStates.Should().ContainKey("leaving-node");
+        serf.MemberStates["leaving-node"].Status.Should().Be(MemberStatus.Leaving, 
+            "member should be marked as Leaving after leave intent");
+        serf.MemberStates["leaving-node"].StatusLTime.Should().Be(10, 
+            "StatusLTime should be updated to leave message LTime");
     }
 
     [Fact]
@@ -317,11 +374,20 @@ public class DelegateTest
         var config = new Config { NodeName = "test-node", Tags = new Dictionary<string, string>() };
         var serf = new NSerf.Serf.Serf(config);
         var delegateObj = new SerfDelegate(serf);
+        
+        var initialClockTime = serf.Clock.Time();
+        var initialMemberCount = serf.MemberStates.Count;
 
-        // Act - Should not throw
+        // Act
         delegateObj.NotifyMsg(Array.Empty<byte>());
 
-        // Assert - No changes should occur
-        serf.Clock.Time().Should().Be(0);
+        // Assert - Verify no handlers were called, no state changes
+        // 1. Clock should not change
+        serf.Clock.Time().Should().Be(initialClockTime, "clock should not change with empty buffer");
+        
+        // 2. No members added or changed
+        serf.MemberStates.Count.Should().Be(initialMemberCount, "member count should not change");
+        
+        // Empty buffer should be handled gracefully without throwing
     }
 }

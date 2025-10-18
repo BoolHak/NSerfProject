@@ -40,8 +40,24 @@ public class MemberlistApiTests
 
         try
         {
+            // Verify memberlist was properly initialized
             m.Should().NotBeNull();
+            
+            // Verify local node is configured correctly
             m.LocalNode.Name.Should().Be("test");
+            m.LocalNode.Addr.Should().NotBeNull("local node should have address");
+            m.LocalNode.State.Should().Be(NodeStateType.Alive, "local node should be alive");
+            
+            // Verify memberlist has only self
+            m.NumMembers().Should().Be(1, "newly created memberlist should have only self");
+            m.EstNumNodes().Should().Be(1, "estimated nodes should be 1");
+            
+            // Verify initial health score is 0
+            m.GetHealthScore().Should().Be(0, "initial health score should be 0");
+            
+            // Verify broadcast queue is initialized
+            m._broadcasts.Should().NotBeNull();
+            m._broadcasts.NumQueued().Should().Be(0, "initial broadcast queue should be empty");
         }
         finally
         {
@@ -155,10 +171,19 @@ public class MemberlistApiTests
         config.Transport = network.CreateTransport("node1");
         
         var m = NSerf.Memberlist.Memberlist.Create(config);
+        
+        // Verify initial state before shutdown
+        m.NumMembers().Should().Be(1, "should have 1 member before shutdown");
 
+        // First shutdown
         await m.ShutdownAsync();
         
-        await m.ShutdownAsync();
+        // Second shutdown should be idempotent (no throw, no errors)
+        var act = async () => await m.ShutdownAsync();
+        await act.Should().NotThrowAsync("second shutdown should be idempotent");
+        
+        // Third shutdown to further verify idempotency
+        await act.Should().NotThrowAsync("third shutdown should also be idempotent");
     }
 
     [Fact]
@@ -339,7 +364,17 @@ public class MemberlistApiTests
 
         try
         {
+            // Verify memberlist was created
             m.Should().NotBeNull();
+            
+            // Verify custom config values are stored and accessible
+            m._config.SuspicionMult.Should().Be(10, "custom SuspicionMult should be applied");
+            m._config.ProbeInterval.Should().Be(TimeSpan.FromSeconds(5), "custom ProbeInterval should be applied");
+            m._config.Name.Should().Be("custom", "custom name should be applied");
+            
+            // Verify memberlist is functional with custom config
+            m.NumMembers().Should().Be(1, "memberlist should be functional");
+            m.LocalNode.Name.Should().Be("custom");
         }
         finally
         {

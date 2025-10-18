@@ -3,8 +3,10 @@
 // Ported from: github.com/hashicorp/serf/serf/conflict_delegate.go
 
 using FluentAssertions;
+using Microsoft.Extensions.Logging;
 using NSerf.Memberlist.State;
 using NSerf.Serf;
+using System.Collections.Concurrent;
 using System.Net;
 using Xunit;
 
@@ -19,14 +21,34 @@ namespace NSerfTests.Serf;
 /// </summary>
 public class ConflictDelegateTest
 {
+    /// <summary>
+    /// Simple test logger that captures log messages for verification.
+    /// </summary>
+    private class TestLogger : ILogger
+    {
+        public ConcurrentBag<(LogLevel level, string message)> Messages { get; } = new();
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state,
+            Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            var message = formatter(state, exception);
+            Messages.Add((logLevel, message));
+        }
+    }
     [Fact]
     public void NotifyConflict_ShouldCallSerfHandleNodeConflict()
     {
         // Arrange
+        var logger = new TestLogger();
         var config = new Config
         {
             NodeName = "test-node",
-            Tags = new Dictionary<string, string>()
+            Tags = new Dictionary<string, string>(),
+            Logger = logger
         };
         var serf = new NSerf.Serf.Serf(config);
         var conflictDelegate = new ConflictDelegate(serf);
@@ -47,12 +69,17 @@ public class ConflictDelegateTest
             Meta = Array.Empty<byte>()
         };
 
-        // Act & Assert - Should not throw and handle conflict gracefully
-        var act = () => conflictDelegate.NotifyConflict(existingNode, otherNode);
-        act.Should().NotThrow("ConflictDelegate should forward conflict notifications without errors");
+        // Act
+        conflictDelegate.NotifyConflict(existingNode, otherNode);
         
-        // TODO: Phase 9 - Add assertions to verify conflict resolution behavior
-        // Should verify: conflict was logged, appropriate action was taken (e.g., node rejected)
+        // Assert - Should log warning about conflict (not local node)
+        var warningLogs = logger.Messages.Where(m => m.level == LogLevel.Warning).ToList();
+        warningLogs.Should().ContainSingle("should log one warning about name conflict");
+        
+        var warningMessage = warningLogs[0].message;
+        warningMessage.Should().Contain("conflicted-node", "should mention the conflicted node name");
+        warningMessage.Should().Contain("127.0.0.1", "should mention first node address");
+        warningMessage.Should().Contain("127.0.0.2", "should mention second node address");
     }
 
     [Fact]
@@ -68,10 +95,13 @@ public class ConflictDelegateTest
     public void NotifyConflict_WithSameNameDifferentAddress_ShouldHandle()
     {
         // Arrange
+        var logger = new TestLogger();
         var config = new Config
         {
             NodeName = "test-node",
-            Tags = new Dictionary<string, string>()
+            Tags = new Dictionary<string, string>(),
+            Logger = logger,
+            EnableNameConflictResolution = false // Disable resolution for simple test
         };
         var serf = new NSerf.Serf.Serf(config);
         var conflictDelegate = new ConflictDelegate(serf);
@@ -92,24 +122,29 @@ public class ConflictDelegateTest
             Meta = new byte[] { 4, 5, 6 }
         };
 
-        // Act - Should handle name conflict
-        var act = () => conflictDelegate.NotifyConflict(existingNode, otherNode);
+        // Act
+        conflictDelegate.NotifyConflict(existingNode, otherNode);
 
-        // Assert - Should not throw
-        act.Should().NotThrow();
+        // Assert - Should log warning (not error since it's not local node)
+        var warningLogs = logger.Messages.Where(m => m.level == LogLevel.Warning).ToList();
+        warningLogs.Should().ContainSingle("should log warning about duplicate name");
         
-        // TODO: Phase 9 - Add assertions to verify which node was kept/rejected
-        // Should verify: conflict resolution policy was applied correctly
+        var warningMessage = warningLogs[0].message;
+        warningMessage.Should().Contain("duplicate", "should mention the duplicate node name");
+        warningMessage.Should().Contain("10.0.0.1", "should mention first address");
+        warningMessage.Should().Contain("10.0.0.2", "should mention second address");
     }
 
     [Fact]
     public void NotifyConflict_WithNullExisting_ShouldNotCrash()
     {
         // Arrange
+        var logger = new TestLogger();
         var config = new Config
         {
             NodeName = "test-node",
-            Tags = new Dictionary<string, string>()
+            Tags = new Dictionary<string, string>(),
+            Logger = logger
         };
         var serf = new NSerf.Serf.Serf(config);
         var conflictDelegate = new ConflictDelegate(serf);
@@ -122,19 +157,37 @@ public class ConflictDelegateTest
             Meta = Array.Empty<byte>()
         };
 
-        // Act & Assert - Should handle null gracefully (Serf logs warning but doesn't crash)
+        // Act
         var act = () => conflictDelegate.NotifyConflict(null!, otherNode);
-        act.Should().NotThrow("Serf should handle null nodes in conflict gracefully");
+        
+        // Assert - Should handle null gracefully without throwing
+        act.Should().NotThrow("Serf should handle null nodes gracefully");
+        
+        // Verify error or warning was logged for null input
+        var errorOrWarningLogs = logger.Messages
+            .Where(m => m.level == LogLevel.Error || m.level == LogLevel.Warning)
+            .ToList();
+        
+        // Should either log error/warning or handle silently
+        // (Implementation specific - Go logs warning for unexpected conditions)
+        if (errorOrWarningLogs.Any())
+        {
+            errorOrWarningLogs.Should().Contain(m => 
+                m.message.Contains("null") || m.message.Contains("conflict"),
+                "should log about null node if logging occurs");
+        }
     }
 
     [Fact]
     public void NotifyConflict_WithNullOther_ShouldNotCrash()
     {
         // Arrange
+        var logger = new TestLogger();
         var config = new Config
         {
             NodeName = "test-node",
-            Tags = new Dictionary<string, string>()
+            Tags = new Dictionary<string, string>(),
+            Logger = logger
         };
         var serf = new NSerf.Serf.Serf(config);
         var conflictDelegate = new ConflictDelegate(serf);
@@ -147,19 +200,36 @@ public class ConflictDelegateTest
             Meta = Array.Empty<byte>()
         };
 
-        // Act & Assert - Should handle null gracefully
+        // Act
         var act = () => conflictDelegate.NotifyConflict(existingNode, null!);
-        act.Should().NotThrow("Serf should handle null nodes in conflict gracefully");
+        
+        // Assert - Should handle null gracefully without throwing
+        act.Should().NotThrow("Serf should handle null nodes gracefully");
+        
+        // Verify error or warning was logged for null input
+        var errorOrWarningLogs = logger.Messages
+            .Where(m => m.level == LogLevel.Error || m.level == LogLevel.Warning)
+            .ToList();
+        
+        // Should either log error/warning or handle silently
+        if (errorOrWarningLogs.Any())
+        {
+            errorOrWarningLogs.Should().Contain(m => 
+                m.message.Contains("null") || m.message.Contains("conflict"),
+                "should log about null node if logging occurs");
+        }
     }
 
     [Fact]
     public void NotifyConflict_MultipleConflicts_ShouldHandleSequentially()
     {
         // Arrange
+        var logger = new TestLogger();
         var config = new Config
         {
             NodeName = "test-node",
-            Tags = new Dictionary<string, string>()
+            Tags = new Dictionary<string, string>(),
+            Logger = logger
         };
         var serf = new NSerf.Serf.Serf(config);
         var conflictDelegate = new ConflictDelegate(serf);
@@ -173,14 +243,22 @@ public class ConflictDelegateTest
              new Node { Name = "node2", Addr = IPAddress.Parse("10.0.0.4"), Port = 8000, Meta = Array.Empty<byte>() })
         };
 
-        // Act & Assert - Should handle multiple conflicts without errors
-        var act = () =>
+        // Act
+        foreach (var (existing, other) in conflicts)
         {
-            foreach (var (existing, other) in conflicts)
-            {
-                conflictDelegate.NotifyConflict(existing, other);
-            }
-        };
-        act.Should().NotThrow("ConflictDelegate should handle multiple sequential conflicts");
+            conflictDelegate.NotifyConflict(existing, other);
+        }
+
+        // Assert - Should log warning for each conflict
+        var warningLogs = logger.Messages.Where(m => m.level == LogLevel.Warning).ToList();
+        warningLogs.Should().HaveCount(2, "should log one warning per conflict");
+        
+        // Verify both conflicts were logged
+        warningLogs.Should().Contain(m => m.message.Contains("node1"), "should log node1 conflict");
+        warningLogs.Should().Contain(m => m.message.Contains("node2"), "should log node2 conflict");
+        
+        // Verify conflicts are processed in order (messages contain addresses in order)
+        warningLogs[0].message.Should().Contain("10.0.0.1", "first conflict should mention first address");
+        warningLogs[1].message.Should().Contain("10.0.0.3", "second conflict should mention second address");
     }
 }

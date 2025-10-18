@@ -5,7 +5,9 @@
 using FluentAssertions;
 using NSerf.Memberlist.State;
 using NSerf.Serf;
+using NSerf.Serf.Events;
 using System.Net;
+using System.Threading.Channels;
 using Xunit;
 
 namespace NSerfTests.Serf;
@@ -20,13 +22,15 @@ namespace NSerfTests.Serf;
 public class EventDelegateTest
 {
     [Fact]
-    public void NotifyJoin_ShouldCallSerfHandleNodeJoin()
+    public async Task NotifyJoin_ShouldCallSerfHandleNodeJoin()
     {
         // Arrange
+        var (eventWriter, eventReader) = TestHelpers.CreateTestEventChannel();
         var config = new Config
         {
             NodeName = "test-node",
-            Tags = new Dictionary<string, string>()
+            Tags = new Dictionary<string, string>(),
+            EventCh = eventWriter
         };
         var serf = new NSerf.Serf.Serf(config);
         var eventDelegate = new EventDelegate(serf);
@@ -39,26 +43,39 @@ public class EventDelegateTest
             Meta = Array.Empty<byte>()
         };
 
-        // Act & Assert - Should not throw and handle gracefully
-        var act = () => eventDelegate.NotifyJoin(node);
-        act.Should().NotThrow("EventDelegate should forward join notifications without errors");
+        // Act
+        eventDelegate.NotifyJoin(node);
         
-        // TODO: Phase 9 - Add assertions to verify Serf member state was updated
-        // Should verify: node was added to Serf.Members, MemberJoin event was emitted
+        // Assert - Verify node was added to member states
+        serf.MemberStates.Should().ContainKey("joining-node", "node should be added to member states");
+        var memberInfo = serf.MemberStates["joining-node"];
+        memberInfo.Status.Should().Be(MemberStatus.Alive, "node should have Alive status");
+        memberInfo.Name.Should().Be("joining-node");
+        memberInfo.Member.Addr.Should().Be(IPAddress.Parse("127.0.0.1"));
+        memberInfo.Member.Port.Should().Be(8000);
+        
+        // Verify MemberEvent was emitted
+        await TestHelpers.WaitForConditionAsync(
+            () => eventReader.TryRead(out var evt) && evt is MemberEvent me && me.Type == EventType.MemberJoin,
+            TimeSpan.FromSeconds(1),
+            "MemberEvent with MemberJoin should be emitted");
     }
 
     [Fact]
-    public void NotifyLeave_ShouldCallSerfHandleNodeLeave()
+    public async Task NotifyLeave_ShouldCallSerfHandleNodeLeave()
     {
         // Arrange
+        var (eventWriter, eventReader) = TestHelpers.CreateTestEventChannel();
         var config = new Config
         {
             NodeName = "test-node",
-            Tags = new Dictionary<string, string>()
+            Tags = new Dictionary<string, string>(),
+            EventCh = eventWriter
         };
         var serf = new NSerf.Serf.Serf(config);
         var eventDelegate = new EventDelegate(serf);
 
+        // First join the node so it can leave
         var node = new Node
         {
             Name = "leaving-node",
@@ -66,41 +83,85 @@ public class EventDelegateTest
             Port = 8000,
             Meta = Array.Empty<byte>()
         };
-
-        // Act & Assert - Should not throw and handle gracefully
-        var act = () => eventDelegate.NotifyLeave(node);
-        act.Should().NotThrow("EventDelegate should forward leave notifications without errors");
+        eventDelegate.NotifyJoin(node);
         
-        // TODO: Phase 9 - Add assertions to verify Serf member state was updated
-        // Should verify: node was marked as left, MemberLeave event was emitted
+        // Drain join event
+        await eventReader.WaitToReadAsync();
+        eventReader.TryRead(out _);
+
+        // Act
+        eventDelegate.NotifyLeave(node);
+        
+        // Assert - Verify node status changed
+        serf.MemberStates.Should().ContainKey("leaving-node");
+        var memberInfo = serf.MemberStates["leaving-node"];
+        memberInfo.Status.Should().BeOneOf(MemberStatus.Left, MemberStatus.Failed);
+        // Node should have Left or Failed status after leave
+        
+        // Verify node was added to left or failed members list
+        var isInLeftOrFailed = serf.LeftMembers.Any(m => m.Name == "leaving-node") ||
+                               serf.FailedMembers.Any(m => m.Name == "leaving-node");
+        isInLeftOrFailed.Should().BeTrue("node should be in left or failed members list");
+        
+        // Verify appropriate MemberEvent was emitted
+        await TestHelpers.WaitForConditionAsync(
+            () => eventReader.TryRead(out var evt) && evt is MemberEvent,
+            TimeSpan.FromSeconds(1),
+            "MemberEvent should be emitted for leave");
     }
 
     [Fact]
-    public void NotifyUpdate_ShouldCallSerfHandleNodeUpdate()
+    public async Task NotifyUpdate_ShouldCallSerfHandleNodeUpdate()
     {
         // Arrange
+        var (eventWriter, eventReader) = TestHelpers.CreateTestEventChannel();
         var config = new Config
         {
             NodeName = "test-node",
-            Tags = new Dictionary<string, string>()
+            Tags = new Dictionary<string, string>(),
+            EventCh = eventWriter
         };
         var serf = new NSerf.Serf.Serf(config);
         var eventDelegate = new EventDelegate(serf);
 
-        var node = new Node
+        // First join the node so it can be updated
+        var initialNode = new Node
         {
             Name = "updated-node",
             Addr = IPAddress.Parse("127.0.0.1"),
             Port = 8000,
-            Meta = new byte[] { 1, 2, 3 }
+            Meta = Array.Empty<byte>()
+        };
+        eventDelegate.NotifyJoin(initialNode);
+        
+        // Drain join event
+        await eventReader.WaitToReadAsync();
+        eventReader.TryRead(out _);
+        
+        // Now update with new metadata
+        var updatedNode = new Node
+        {
+            Name = "updated-node",
+            Addr = IPAddress.Parse("127.0.0.2"), // Different address
+            Port = 8001, // Different port
+            Meta = new byte[] { 1, 2, 3 } // New metadata
         };
 
-        // Act & Assert - Should not throw and handle gracefully
-        var act = () => eventDelegate.NotifyUpdate(node);
-        act.Should().NotThrow("EventDelegate should forward update notifications without errors");
+        // Act
+        eventDelegate.NotifyUpdate(updatedNode);
         
-        // TODO: Phase 9 - Add assertions to verify Serf member metadata was updated
-        // Should verify: node metadata was updated, MemberUpdate event was emitted
+        // Assert - Verify node properties were updated
+        serf.MemberStates.Should().ContainKey("updated-node");
+        var memberInfo = serf.MemberStates["updated-node"];
+        memberInfo.Member.Addr.Should().Be(IPAddress.Parse("127.0.0.2"), "address should be updated");
+        memberInfo.Member.Port.Should().Be(8001, "port should be updated");
+        memberInfo.Member.Tags.Should().NotBeNull("tags should be updated from metadata");
+        
+        // Verify MemberEvent with MemberUpdate was emitted
+        await TestHelpers.WaitForConditionAsync(
+            () => eventReader.TryRead(out var evt) && evt is MemberEvent me && me.Type == EventType.MemberUpdate,
+            TimeSpan.FromSeconds(1),
+            "MemberEvent with MemberUpdate should be emitted");
     }
 
     [Fact]
@@ -123,10 +184,17 @@ public class EventDelegateTest
         };
         var serf = new NSerf.Serf.Serf(config);
         var eventDelegate = new EventDelegate(serf);
+        
+        var initialCount = serf.MemberStates.Count;
 
-        // Act & Assert - Should handle null gracefully (Serf logs warning but doesn't crash)
+        // Act
         var act = () => eventDelegate.NotifyJoin(null!);
+        
+        // Assert - Should handle null gracefully without throwing
         act.Should().NotThrow("Serf should handle null nodes gracefully");
+        
+        // Verify no state changes occurred
+        serf.MemberStates.Count.Should().Be(initialCount, "member count should not change with null input");
     }
 
     [Fact]
@@ -140,10 +208,17 @@ public class EventDelegateTest
         };
         var serf = new NSerf.Serf.Serf(config);
         var eventDelegate = new EventDelegate(serf);
+        
+        var initialCount = serf.MemberStates.Count;
 
-        // Act & Assert - Should handle null gracefully
+        // Act
         var act = () => eventDelegate.NotifyLeave(null!);
+        
+        // Assert - Should handle null gracefully without throwing
         act.Should().NotThrow("Serf should handle null nodes gracefully");
+        
+        // Verify no state changes occurred
+        serf.MemberStates.Count.Should().Be(initialCount, "member count should not change with null input");
     }
 
     [Fact]
@@ -157,20 +232,29 @@ public class EventDelegateTest
         };
         var serf = new NSerf.Serf.Serf(config);
         var eventDelegate = new EventDelegate(serf);
+        
+        var initialCount = serf.MemberStates.Count;
 
-        // Act & Assert - Should handle null gracefully
+        // Act
         var act = () => eventDelegate.NotifyUpdate(null!);
+        
+        // Assert - Should handle null gracefully without throwing
         act.Should().NotThrow("Serf should handle null nodes gracefully");
+        
+        // Verify no state changes occurred
+        serf.MemberStates.Count.Should().Be(initialCount, "member count should not change with null input");
     }
 
     [Fact]
-    public void NotifyJoin_MultipleNodes_ShouldHandleSequentially()
+    public async Task NotifyJoin_MultipleNodes_ShouldHandleSequentially()
     {
         // Arrange
+        var (eventWriter, eventReader) = TestHelpers.CreateTestEventChannel();
         var config = new Config
         {
             NodeName = "test-node",
-            Tags = new Dictionary<string, string>()
+            Tags = new Dictionary<string, string>(),
+            EventCh = eventWriter
         };
         var serf = new NSerf.Serf.Serf(config);
         var eventDelegate = new EventDelegate(serf);
@@ -182,25 +266,44 @@ public class EventDelegateTest
             new Node { Name = "node3", Addr = IPAddress.Parse("127.0.0.1"), Port = 8003, Meta = Array.Empty<byte>() }
         };
 
-        // Act & Assert - Should handle multiple nodes without errors
-        var act = () =>
+        // Act
+        foreach (var node in nodes)
         {
-            foreach (var node in nodes)
-            {
-                eventDelegate.NotifyJoin(node);
-            }
-        };
-        act.Should().NotThrow("EventDelegate should handle multiple sequential joins");
+            eventDelegate.NotifyJoin(node);
+        }
+        
+        // Wait for events to be processed
+        await Task.Delay(100);
+
+        // Assert - Verify all 3 nodes were added
+        serf.MemberStates.Should().ContainKey("node1", "node1 should be added");
+        serf.MemberStates.Should().ContainKey("node2", "node2 should be added");
+        serf.MemberStates.Should().ContainKey("node3", "node3 should be added");
+        
+        // Verify all have Alive status
+        serf.MemberStates["node1"].Status.Should().Be(MemberStatus.Alive);
+        serf.MemberStates["node2"].Status.Should().Be(MemberStatus.Alive);
+        serf.MemberStates["node3"].Status.Should().Be(MemberStatus.Alive);
+        
+        // Verify 3 MemberEvent messages were emitted
+        var eventCount = 0;
+        while (eventReader.TryRead(out var evt) && evt is MemberEvent me && me.Type == EventType.MemberJoin)
+        {
+            eventCount++;
+        }
+        eventCount.Should().Be(3, "should emit 3 join events");
     }
 
     [Fact]
-    public void NotifyLeave_MultipleNodes_ShouldHandleSequentially()
+    public async Task NotifyLeave_MultipleNodes_ShouldHandleSequentially()
     {
         // Arrange
+        var (eventWriter, eventReader) = TestHelpers.CreateTestEventChannel();
         var config = new Config
         {
             NodeName = "test-node",
-            Tags = new Dictionary<string, string>()
+            Tags = new Dictionary<string, string>(),
+            EventCh = eventWriter
         };
         var serf = new NSerf.Serf.Serf(config);
         var eventDelegate = new EventDelegate(serf);
@@ -210,15 +313,43 @@ public class EventDelegateTest
             new Node { Name = "node1", Addr = IPAddress.Parse("127.0.0.1"), Port = 8001, Meta = Array.Empty<byte>() },
             new Node { Name = "node2", Addr = IPAddress.Parse("127.0.0.1"), Port = 8002, Meta = Array.Empty<byte>() }
         };
-
-        // Act & Assert - Should handle multiple nodes without errors
-        var act = () =>
+        
+        // First join both nodes
+        foreach (var node in nodes)
         {
-            foreach (var node in nodes)
-            {
-                eventDelegate.NotifyLeave(node);
-            }
-        };
-        act.Should().NotThrow("EventDelegate should handle multiple sequential leaves");
+            eventDelegate.NotifyJoin(node);
+        }
+        
+        // Drain join events
+        await Task.Delay(100);
+        while (eventReader.TryRead(out _)) { }
+
+        // Act - Leave both nodes
+        foreach (var node in nodes)
+        {
+            eventDelegate.NotifyLeave(node);
+        }
+        
+        // Wait for events to be processed
+        await Task.Delay(100);
+
+        // Assert - Verify both nodes have left/failed status
+        serf.MemberStates["node1"].Status.Should().BeOneOf(MemberStatus.Left, MemberStatus.Failed);
+        serf.MemberStates["node2"].Status.Should().BeOneOf(MemberStatus.Left, MemberStatus.Failed);
+        
+        // Verify both are in left or failed members lists
+        var node1InList = serf.LeftMembers.Any(m => m.Name == "node1") || serf.FailedMembers.Any(m => m.Name == "node1");
+        var node2InList = serf.LeftMembers.Any(m => m.Name == "node2") || serf.FailedMembers.Any(m => m.Name == "node2");
+        
+        node1InList.Should().BeTrue("node1 should be in left/failed list");
+        node2InList.Should().BeTrue("node2 should be in left/failed list");
+        
+        // Verify 2 MemberEvent messages were emitted
+        var eventCount = 0;
+        while (eventReader.TryRead(out var evt) && evt is MemberEvent)
+        {
+            eventCount++;
+        }
+        eventCount.Should().Be(2, "should emit 2 leave/failed events");
     }
 }
