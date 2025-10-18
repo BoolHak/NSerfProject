@@ -3,6 +3,8 @@
 // Ported from: github.com/hashicorp/serf/serf/event.go
 
 using Microsoft.Extensions.Logging;
+using System.Net;
+using System.Linq;
 using Address = NSerf.Memberlist.Transport.Address;
 
 namespace NSerf.Serf.Events;
@@ -143,11 +145,51 @@ public class Query : Event
             throw;
         }
 
-        // TODO: Relay the response through up to relayFactor other nodes (Go line 185-188)
-        // This requires Serf.RelayResponse() which will be implemented later
+        // Relay the response through up to relayFactor other nodes (Go line 185-188)
         if (RelayFactor > 0)
         {
-            SerfInstance.Logger?.LogDebug("[Query] Relaying through {RelayFactor} nodes not yet implemented", RelayFactor);
+            try
+            {
+                // Destination for the relayed message is the original requester
+                var destAddrStr = System.Text.Encoding.UTF8.GetString(Addr);
+                var destIp = IPAddress.Parse(destAddrStr);
+                var destEp = new IPEndPoint(destIp, Port);
+
+                // Encode relay message payload (inner: [Relay][header][QueryResponseType][resp])
+                var relayPayload = MessageCodec.EncodeRelayMessage(MessageType.QueryResponse, destEp, SourceNodeName ?? string.Empty, resp);
+
+                // Wrap as Memberlist.User for transport layer
+                var relayPacket = new byte[1 + relayPayload.Length];
+                relayPacket[0] = (byte)NSerf.Memberlist.Messages.MessageType.User;
+                Array.Copy(relayPayload, 0, relayPacket, 1, relayPayload.Length);
+
+                // Choose up to RelayFactor alive peers excluding local node
+                var localName = SerfInstance.Config.NodeName;
+                var candidates = SerfInstance.Members()
+                    .Where(m => m.Status == MemberStatus.Alive && m.Name != localName)
+                    .ToList();
+
+                if (candidates.Count > 0)
+                {
+                    var selected = QueryHelpers.KRandomMembers(Math.Min((int)RelayFactor, candidates.Count), candidates);
+                    foreach (var m in selected)
+                    {
+                        var relayAddr = new Address
+                        {
+                            Addr = $"{m.Addr}:{m.Port}",
+                            Name = m.Name
+                        };
+
+                        // Fire-and-forget relay send
+                        _ = SerfInstance.Memberlist!.SendToAddress(relayAddr, relayPacket, CancellationToken.None);
+                        SerfInstance.Logger?.LogDebug("[Query] Relayed response via peer {Peer} to {Dest}", m.Name, destEp);
+                    }
+                }
+            }
+            catch (Exception rex)
+            {
+                SerfInstance.Logger?.LogWarning(rex, "[Query] Relay forwarding encountered an error");
+            }
         }
 
         // Clear the deadline - responses sent

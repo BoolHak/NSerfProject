@@ -5,6 +5,7 @@
 using System.Threading.Tasks;
 using FluentAssertions;
 using NSerf.Serf;
+using NSerf.Memberlist.Configuration;
 using Xunit;
 
 namespace NSerfTests.Serf;
@@ -34,6 +35,59 @@ public class QueryInfrastructureTest
 
         // TODO: Phase 9 - With actual memberlist, verify exact calculation:
         // timeout = GossipInterval * QueryTimeoutMult * log10(N+1)
+    }
+
+    [Fact]
+    public async Task DefaultQueryTimeout_FormulaParity_ShouldMatchGo()
+    {
+        // Arrange: two-node cluster with known GossipInterval and QueryTimeoutMult
+        var mlc1 = new MemberlistConfig
+        {
+            Name = "node1",
+            BindAddr = "127.0.0.1",
+            BindPort = 0,
+            GossipInterval = TimeSpan.FromMilliseconds(200),
+            RetransmitMult = 3
+        };
+        var mlc2 = new MemberlistConfig
+        {
+            Name = "node2",
+            BindAddr = "127.0.0.1",
+            BindPort = 0,
+            GossipInterval = TimeSpan.FromMilliseconds(200),
+            RetransmitMult = 3
+        };
+
+        var c1 = new Config { NodeName = "node1", MemberlistConfig = mlc1, QueryTimeoutMult = 16 };
+        var c2 = new Config { NodeName = "node2", MemberlistConfig = mlc2, QueryTimeoutMult = 16 };
+
+        using var s1 = await NSerf.Serf.Serf.CreateAsync(c1);
+        using var s2 = await NSerf.Serf.Serf.CreateAsync(c2);
+
+        // Act: s2 joins s1
+        var s1Addr = $"127.0.0.1:{mlc1.BindPort}";
+        var joined = await s2.JoinAsync(new[] { s1Addr }, ignoreOld: false);
+        joined.Should().BeGreaterThan(0);
+
+        // Wait for cluster to stabilize
+        await Task.Delay(800);
+        s1.NumMembers().Should().Be(2);
+
+        // Compute expected timeout: GossipInterval * QueryTimeoutMult * ceil(log10(N+1))
+        int n = s1.NumMembers();
+        var gossip = mlc1.GossipInterval;
+        int mult = c1.QueryTimeoutMult;
+        int factor = (int)Math.Ceiling(Math.Log10(n + 1));
+        if (factor <= 0) factor = 1;
+        var expectedTicks = gossip.Ticks * mult * factor;
+        var expected = new TimeSpan(expectedTicks);
+
+        // Assert
+        var actual = s1.DefaultQueryTimeout();
+        actual.Should().Be(expected);
+
+        await s1.ShutdownAsync();
+        await s2.ShutdownAsync();
     }
 
     [Fact]

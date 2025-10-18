@@ -6,6 +6,8 @@ using MessagePack;
 using Microsoft.Extensions.Logging;
 using NSerf.Memberlist;
 using NSerf.Memberlist.Delegates;
+using NSerf.Memberlist.Transport;
+using System.Threading.Tasks;
 
 namespace NSerf.Serf;
 
@@ -124,7 +126,8 @@ internal class Delegate : IDelegate
                 break;
 
             case MessageType.Relay:
-                HandleRelayMessage(message[1..]);
+                // Synchronously wait for relay forwarding to complete
+                HandleRelayMessage(message[1..].ToArray()).GetAwaiter().GetResult();
                 break;
 
             default:
@@ -145,22 +148,41 @@ internal class Delegate : IDelegate
     /// <summary>
     /// Handles relay messages which forward messages to specific destination nodes.
     /// </summary>
-    private void HandleRelayMessage(ReadOnlySpan<byte> payload)
+    private async Task HandleRelayMessage(byte[] payload)
     {
         try
         {
             // Decode the relay header
-            var header = MessagePackSerializer.Deserialize<RelayHeader>(payload.ToArray());
+            var header = MessagePackSerializer.Deserialize<RelayHeader>(payload);
 
-            // The remaining contents are the message itself
+            // The remaining contents are the message itself: [Serf MessageType][MessagePack payload]
             var headerSize = MessagePackSerializer.Serialize(header).Length;
-            var raw = payload[headerSize..].ToArray();
+            var inner = payload[headerSize..].ToArray();
 
-            _serf.Logger?.LogDebug("[Serf] Relaying response to addr: {Addr}", header.DestAddr);
+            // Sanity: need at least 1 byte for Serf message type
+            if (inner.Length == 0)
+            {
+                _serf.Logger?.LogWarning("[Serf] Relay payload missing inner message type");
+                return;
+            }
 
-            // Forward the message - will be fully implemented with Memberlist integration
-            // For now, just log
-            _serf.Logger?.LogWarning("[Serf] Relay forwarding not yet fully implemented");
+            // Wrap the inner payload as a Memberlist User message
+            var forwardBuf = new byte[1 + inner.Length];
+            forwardBuf[0] = (byte)NSerf.Memberlist.Messages.MessageType.User;
+            Array.Copy(inner, 0, forwardBuf, 1, inner.Length);
+
+            // Build destination Address from relay header
+            var destIp = new System.Net.IPAddress(header.DestAddr.IP);
+            var dest = new Address
+            {
+                Addr = $"{destIp}:{header.DestAddr.Port}",
+                Name = header.DestName
+            };
+
+            _serf.Logger?.LogDebug("[Serf] Relaying message to {Addr} (name={Name})", dest.Addr, dest.Name);
+
+            // Forward to destination and await completion
+            await _serf.Memberlist!.SendToAddress(dest, forwardBuf);
         }
         catch (Exception ex)
         {

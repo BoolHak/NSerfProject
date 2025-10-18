@@ -103,6 +103,32 @@ public partial class Serf : IDisposable, IAsyncDisposable
     }
 
     /// <summary>
+    /// BroadcastJoin broadcasts a new join intent with a given clock value.
+    /// Used on join or to refute an older leave intent. Cannot be called with member lock held.
+    /// </summary>
+    internal void BroadcastJoin(LamportTime ltime)
+    {
+        // Construct message to update our lamport clock
+        var msg = new MessageJoin
+        {
+            LTime = ltime,
+            Node = Config.NodeName
+        };
+
+        // Witness clock and update local intent
+        Clock.Witness(ltime);
+
+        HandleNodeJoinIntent(msg);
+
+        // Start broadcasting the update
+        var raw = EncodeMessage(MessageType.Join, msg);
+        if (raw.Length > 0)
+        {
+            Broadcasts.QueueBytes(raw);
+        }
+    }
+
+    /// <summary>
     /// Returns the number of members known to this Serf instance.
     /// Thread-safe read operation using read lock.
     /// </summary>
@@ -603,8 +629,15 @@ public partial class Serf : IDisposable, IAsyncDisposable
                 // If we joined any nodes, broadcast the join message
                 if (numJoined > 0)
                 {
-                    // TODO Phase 9.3+: Implement broadcastJoin
-                    Logger?.LogInformation("[Serf] Successfully joined {NumNodes} nodes", numJoined);
+                    try
+                    {
+                        BroadcastJoin(Clock.Time());
+                        Logger?.LogInformation("[Serf] Successfully joined {NumNodes} nodes", numJoined);
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger?.LogWarning(ex, "[Serf] Failed to broadcast join intent after join");
+                    }
                 }
 
                 if (error != null && numJoined == 0)
@@ -1278,13 +1311,20 @@ public partial class Serf : IDisposable, IAsyncDisposable
     /// </summary>
     public TimeSpan DefaultQueryTimeout()
     {
-        // TODO: Phase 9 - Get actual member count from memberlist
-        // For now, use a reasonable default
-        int n = 1; // Will be: Memberlist.NumMembers()
-        var timeout = Config.MemberlistConfig?.GossipInterval ?? TimeSpan.FromMilliseconds(500);
-        timeout *= Config.QueryTimeoutMult;
-        timeout *= Math.Ceiling(Math.Log10(n + 1));
-        return timeout;
+        // Determine current cluster size N
+        int n = Memberlist?.NumMembers() ?? 1;
+
+        // Base gossip interval and multiplier
+        var gossip = Config.MemberlistConfig?.GossipInterval ?? TimeSpan.FromMilliseconds(500);
+        int mult = Config.QueryTimeoutMult;
+
+        // Factor = ceil(log10(N+1)), minimum 1
+        int factor = (int)Math.Ceiling(Math.Log10(n + 1));
+        if (factor <= 0) factor = 1;
+
+        // Compute as ticks to avoid TimeSpan arithmetic limitations
+        long ticks = gossip.Ticks * mult * factor;
+        return new TimeSpan(ticks);
     }
 
     /// <summary>

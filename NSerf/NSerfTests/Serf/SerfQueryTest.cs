@@ -169,6 +169,106 @@ public class SerfQueryTest
     }
 
     /// <summary>
+    /// TestSerf_Query_Relay - Verifies that responses are relayed via peers when RelayFactor > 0
+    /// Ported from: serf/serf/query.go relayResponse and event.go Query.Respond
+    /// Expectation: Origin node receives duplicate responses (direct + relayed)
+    /// </summary>
+    [Fact]
+    public async Task Serf_Query_Relay_ShouldDuplicateResponsesViaPeer()
+    {
+        // Arrange - Create 3 nodes
+        var eventCh = Channel.CreateUnbounded<Event>();
+        var config1 = new Config
+        {
+            NodeName = "node1",
+            EventCh = eventCh.Writer,
+            MemberlistConfig = new MemberlistConfig { Name = "node1", BindAddr = "127.0.0.1", BindPort = 0 }
+        };
+        var config2 = new Config
+        {
+            NodeName = "node2",
+            MemberlistConfig = new MemberlistConfig { Name = "node2", BindAddr = "127.0.0.1", BindPort = 0 }
+        };
+        var config3 = new Config
+        {
+            NodeName = "node3",
+            MemberlistConfig = new MemberlistConfig { Name = "node3", BindAddr = "127.0.0.1", BindPort = 0 }
+        };
+
+        using var serf1 = await NSerf.Serf.Serf.CreateAsync(config1);
+        using var serf2 = await NSerf.Serf.Serf.CreateAsync(config2);
+        using var serf3 = await NSerf.Serf.Serf.CreateAsync(config3);
+
+        // node1 will respond once to the query
+        var cts = new CancellationTokenSource();
+        _ = Task.Run(async () =>
+        {
+            await foreach (var evt in eventCh.Reader.ReadAllAsync(cts.Token))
+            {
+                if (evt is Query query && query.Name == "relay-test")
+                {
+                    await query.RespondAsync(System.Text.Encoding.UTF8.GetBytes("r"));
+                    break;
+                }
+            }
+        }, cts.Token);
+
+        // Form cluster: node2 and node3 join node1
+        var port1 = serf1.Memberlist!.LocalNode.Port;
+        await serf2.JoinAsync(new[] { $"127.0.0.1:{port1}" }, false);
+        await Task.Delay(300);
+        await serf3.JoinAsync(new[] { $"127.0.0.1:{port1}" }, false);
+        await Task.Delay(1000);
+        serf1.NumMembers().Should().Be(3);
+        serf2.NumMembers().Should().Be(3);
+        serf3.NumMembers().Should().Be(3);
+
+        // Act - Query from node2 with RelayFactor=1 (expect duplicate delivery via a peer)
+        var qp = serf2.DefaultQueryParams();
+        qp.RelayFactor = 1;
+        qp.RequestAck = false; // focus on responses
+
+        var resp = await serf2.QueryAsync("relay-test", System.Text.Encoding.UTF8.GetBytes("x"), qp);
+
+        // Allow propagation and async handlers
+        await Task.Delay(500);
+
+        // Assert - read two responses from node1 (direct + relayed via node3)
+        var responses = new List<NodeResponse>();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+
+        try
+        {
+            while (!timeout.IsCancellationRequested && responses.Count < 2)
+            {
+                // Prefer immediate read if available
+                if (resp.ResponseCh.TryRead(out var r))
+                {
+                    responses.Add(r);
+                    continue;
+                }
+                // Otherwise await one
+                var next = await resp.ResponseCh.ReadAsync(timeout.Token);
+                responses.Add(next);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // ignore
+        }
+
+        // We expect 2 responses total from the same sender due to relay duplication
+        responses.Should().HaveCountGreaterOrEqualTo(2, "RelayFactor should cause duplicate responses via peer");
+        responses.All(r => r.From == "node1").Should().BeTrue("both responses should originate from node1");
+
+        // Cleanup
+        cts.Cancel();
+        await serf1.ShutdownAsync();
+        await serf2.ShutdownAsync();
+        await serf3.ShutdownAsync();
+    }
+
+    /// <summary>
     /// TestSerf_Query_Filter - Node and tag filtering
     /// Ported from: serf_test.go TestSerf_Query_Filter lines 2121-2244
     /// </summary>
