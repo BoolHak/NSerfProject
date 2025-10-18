@@ -58,6 +58,9 @@ internal class Delegate : IDelegate
         BroadcastQueue? rebroadcastQueue = _serf.Broadcasts;
         var messageType = (MessageType)message[0];
 
+        // DEBUG: Log the message type we're processing
+        Console.WriteLine($"[DELEGATE] NotifyMsg: type={messageType} ({(byte)messageType}), length={message.Length}");
+
         // Check if message should be dropped (for testing)
         if (_serf.Config.ShouldDropMessage(messageType))
         {
@@ -96,9 +99,12 @@ internal class Delegate : IDelegate
                 break;
 
             case MessageType.Query:
+                Console.WriteLine($"[DELEGATE] Processing Query case");
                 var query = DecodeMessage<MessageQuery>(message[1..]);
+                Console.WriteLine($"[DELEGATE] Query decoded: {(query != null ? "SUCCESS" : "NULL")}");
                 if (query != null)
                 {
+                    Console.WriteLine($"[DELEGATE] Query name: {query.Name}, Flags: {query.Flags}");
                     _serf.Logger?.LogDebug("[Serf] messageQueryType: {Name}", query.Name);
                     rebroadcast = _serf.HandleQuery(query);
                     rebroadcastQueue = _serf.QueryBroadcasts;
@@ -106,9 +112,12 @@ internal class Delegate : IDelegate
                 break;
 
             case MessageType.QueryResponse:
+                Console.WriteLine($"[DELEGATE] Processing QueryResponse case");
                 var resp = DecodeMessage<MessageQueryResponse>(message[1..]);
+                Console.WriteLine($"[DELEGATE] QueryResponse decoded: {(resp != null ? "SUCCESS" : "NULL")}");
                 if (resp != null)
                 {
+                    Console.WriteLine($"[DELEGATE] QueryResponse from: {resp.From}, ID: {resp.ID}, Flags: {resp.Flags}");
                     _serf.Logger?.LogDebug("[Serf] messageQueryResponseType: {From}", resp.From);
                     _serf.HandleQueryResponse(resp);
                 }

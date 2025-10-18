@@ -94,18 +94,30 @@ public class QueryResponse
     /// </summary>
     public async Task SendResponse(NodeResponse nr)
     {
+        Console.WriteLine($"[SENDRESPONSE] ENTER: from={nr.From}, payload size={nr.Payload.Length}");
+        
         lock (_closeLock)
         {
-            if (_closed) return;
+            if (_closed)
+            {
+                Console.WriteLine($"[SENDRESPONSE] FAILED: channel closed");
+                return;
+            }
         }
 
+        Console.WriteLine($"[SENDRESPONSE] Waiting to write to channel...");
         if (await _respCh.Writer.WaitToWriteAsync())
         {
             await _respCh.Writer.WriteAsync(nr);
+            Console.WriteLine($"[SENDRESPONSE] SUCCESS: wrote response from {nr.From} to channel");
             lock (_responses)
             {
                 _responses.Add(nr.From);
             }
+        }
+        else
+        {
+            Console.WriteLine($"[SENDRESPONSE] FAILED: WaitToWriteAsync returned false");
         }
     }
 
@@ -114,20 +126,36 @@ public class QueryResponse
     /// </summary>
     public async Task SendAck(string from)
     {
-        if (_ackCh == null) return;
+        Console.WriteLine($"[SENDACK_CH] ENTER: from={from}");
+        
+        if (_ackCh == null)
+        {
+            Console.WriteLine($"[SENDACK_CH] FAILED: ack channel is null");
+            return;
+        }
 
         lock (_closeLock)
         {
-            if (_closed) return;
+            if (_closed)
+            {
+                Console.WriteLine($"[SENDACK_CH] FAILED: channel closed");
+                return;
+            }
         }
 
+        Console.WriteLine($"[SENDACK_CH] Waiting to write to channel...");
         if (await _ackCh.Writer.WaitToWriteAsync())
         {
             await _ackCh.Writer.WriteAsync(from);
+            Console.WriteLine($"[SENDACK_CH] SUCCESS: wrote ack from {from} to channel");
             lock (_acks)
             {
                 _acks.Add(from);
             }
+        }
+        else
+        {
+            Console.WriteLine($"[SENDACK_CH] FAILED: WaitToWriteAsync returned false");
         }
     }
 }

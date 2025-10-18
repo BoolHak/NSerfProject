@@ -273,6 +273,27 @@ public partial class Serf : IDisposable, IAsyncDisposable
         serf.EventClock.Increment();
         serf.QueryClock.Increment();
 
+        // Phase 6: Setup internal query handler to intercept _serf_* queries
+        // This sits between Serf and the user's EventCh, filtering internal queries
+        ChannelWriter<Event>? eventDestination = config.EventCh;
+        ChannelWriter<Event>? internalQueryInput = null;
+        
+        if (config.EventCh != null)
+        {
+            serf.Logger?.LogInformation("[Serf/InternalQuery] Setting up internal query handler");
+            
+            // Create internal query handler - it will intercept _serf_* queries
+            var (queryInputCh, queryHandler) = SerfQueries.Create(
+                serf,
+                config.EventCh, // Non-internal events pass through to user's EventCh
+                serf._shutdownCts.Token);
+            
+            internalQueryInput = queryInputCh;
+            eventDestination = queryInputCh; // Events now go to internal query handler first
+            
+            serf.Logger?.LogInformation("[Serf/InternalQuery] ✓ Internal query handler created");
+        }
+
         // Phase 9.8: Setup snapshot if path is configured
         List<PreviousNode>? previousNodes = null;
         if (!string.IsNullOrEmpty(config.SnapshotPath))
@@ -285,7 +306,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
                 rejoinAfterLeave: config.RejoinAfterLeave,
                 logger: serf.Logger,
                 clock: serf.Clock,
-                outCh: config.EventCh,
+                outCh: eventDestination, // Use eventDestination (query handler or EventCh)
                 shutdownToken: serf._shutdownCts.Token);
 
             var inCh = snapshotResult.InCh;
@@ -642,15 +663,12 @@ public partial class Serf : IDisposable, IAsyncDisposable
                 Logger?.LogDebug("[Serf] Broadcasted leave intent for: {Node}", Config.NodeName);
             }
 
-            // Wait a bit for broadcast to propagate
-            await Task.Delay(100);
-
-            // Notify memberlist to gracefully leave
+            // Notify memberlist to gracefully leave (matching Go implementation)
             if (Memberlist != null)
             {
                 try
                 {
-                    var error = await Memberlist.LeaveAsync(TimeSpan.FromSeconds(5));
+                    var error = await Memberlist.LeaveAsync(Config.BroadcastTimeout);
                     if (error != null)
                     {
                         Logger?.LogWarning("[Serf] Error during memberlist leave: {Error}", error.Message);
@@ -658,9 +676,14 @@ public partial class Serf : IDisposable, IAsyncDisposable
                 }
                 catch (Exception ex)
                 {
-                    Logger?.LogError(ex, "[Serf] Failed to leave memberlist");
+                    Logger?.LogError(ex, "[Serf] Exception during memberlist leave");
                 }
             }
+
+            // Wait for leave message to propagate through the cluster (matching Go's LeavePropagateDelay)
+            // This is CRITICAL - ensures other nodes have time to process the leave before we fully shutdown
+            Logger?.LogDebug("[Serf] Waiting {Delay}ms for leave propagation", Config.LeavePropagateDelay.TotalMilliseconds);
+            await Task.Delay(Config.LeavePropagateDelay);
 
             _state = SerfState.SerfLeft;
         });

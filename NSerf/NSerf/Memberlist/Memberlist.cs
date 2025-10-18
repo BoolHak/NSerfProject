@@ -1012,16 +1012,20 @@ public class Memberlist : IDisposable, IAsyncDisposable
 
     /// <summary>
     /// Sends a UDP packet to an address, adding label header if configured.
+    /// Public API matching Go's SendToAddress for query responses.
+    /// </summary>
+    public async Task SendToAddress(Address addr, byte[] buffer, CancellationToken cancellationToken = default)
+    {
+        await SendPacketAsync(buffer, addr, cancellationToken);
+    }
+
+    /// <summary>
+    /// Sends a UDP packet to an address, adding label header if configured.
+    /// Internal helper that calls SendPacketAsync.
     /// </summary>
     internal async Task SendUdpAsync(byte[] buffer, Address addr, CancellationToken cancellationToken = default)
     {
-        // Add label header if configured
-        if (!string.IsNullOrEmpty(_config.Label))
-        {
-            buffer = LabelHandler.AddLabelHeaderToPacket(buffer, _config.Label);
-        }
-
-        await _transport.WriteToAddressAsync(buffer, addr, cancellationToken);
+        await SendPacketAsync(buffer, addr, cancellationToken);
     }
 
     /// <summary>
@@ -1351,7 +1355,7 @@ public class Memberlist : IDisposable, IAsyncDisposable
         if (_config.Delegate != null)
         {
             meta = _config.Delegate.NodeMeta(MessageConstants.MetaMaxSize);
-            
+
             // Step 2: Validate metadata size
             if (meta.Length > MessageConstants.MetaMaxSize)
             {
@@ -1387,7 +1391,7 @@ public class Memberlist : IDisposable, IAsyncDisposable
         {
             localState.Incarnation = inc;
             localState.Node.Meta = meta;
-            
+
             // Update the cached local node reference
             _localNode = new Node
             {
@@ -1422,9 +1426,9 @@ public class Memberlist : IDisposable, IAsyncDisposable
         lock (_nodeLock)
         {
             // anyAlive() equivalent: Check for nodes that are not dead/left and not ourselves
-            hasOtherNodes = _nodes.Any(n => 
-                n.State != NodeStateType.Dead && 
-                n.State != NodeStateType.Left && 
+            hasOtherNodes = _nodes.Any(n =>
+                n.State != NodeStateType.Dead &&
+                n.State != NodeStateType.Left &&
                 n.Name != _config.Name);
         }
 

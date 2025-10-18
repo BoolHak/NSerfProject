@@ -125,23 +125,45 @@ public class KeyManager
     }
 
     /// <summary>
-    /// HandleKeyRequest performs query broadcasting to all members for any type of
-    /// key operation and manages gathering responses.
+    /// Handles a key management request by broadcasting a query and processing responses.
     /// </summary>
     private async Task<KeyResponse> HandleKeyRequest(string key, string query, KeyRequestOptions? opts)
     {
         var resp = new KeyResponse();
 
-        // TODO: Phase 9 - Implement full query broadcasting when Query() is available
-        // This will involve:
-        // 1. Decoding the base64 key
-        // 2. Creating internal query name (_serf_<query>)
-        // 3. Encoding the key request message
-        // 4. Calling _serf.Query() with parameters
-        // 5. Streaming responses and populating KeyResponse
-        // 6. Checking for errors and partial success
+        // Decode the base64 key (empty string for list-keys)
+        byte[] keyBytes = Array.Empty<byte>();
+        if (!string.IsNullOrEmpty(key))
+        {
+            try
+            {
+                keyBytes = Convert.FromBase64String(key);
+            }
+            catch (FormatException ex)
+            {
+                throw new ArgumentException($"Invalid base64 key: {ex.Message}", ex);
+            }
+        }
 
-        await Task.CompletedTask; // Placeholder for async signature
+        // Create internal query name (_serf_<query>)
+        var queryName = $"_serf_{query}";
+
+        // Encode the key request message
+        var keyRequest = new KeyRequest { Key = keyBytes };
+        var payload = MessagePackSerializer.Serialize(keyRequest);
+
+        // Set up query parameters - use default for now
+        var queryParams = new QueryParam();
+
+        // Broadcast the query
+        var queryResp = await _serf.QueryAsync(queryName, payload, queryParams);
+
+        // Set NumNodes from member count
+        resp.NumNodes = _serf.NumMembers();
+
+        // Stream and process responses
+        await StreamKeyResp(resp, queryResp.ResponseCh);
+
         return resp;
     }
 
@@ -151,16 +173,67 @@ public class KeyManager
     /// </summary>
     private async Task StreamKeyResp(KeyResponse resp, ChannelReader<NodeResponse> channel)
     {
-        // TODO: Phase 9 - Implement response streaming
-        // This will read from the channel and:
-        // 1. Decode each NodeResponse
-        // 2. Update resp.NumResp counter
-        // 3. Parse nodeKeyResponse from payload
-        // 4. Track errors in resp.Messages and resp.NumErr
-        // 5. Aggregate keys in resp.Keys and resp.PrimaryKeys
-        // 6. Return early when resp.NumResp == resp.NumNodes
+        // Read all responses from the channel
+        await foreach (var nodeResp in channel.ReadAllAsync())
+        {
+            // Update response counter
+            resp.NumResp++;
 
-        await Task.CompletedTask; // Placeholder
+            // Parse the nodeKeyResponse from the payload
+            try
+            {
+                var keyResp = MessagePackSerializer.Deserialize<NodeKeyResponse>(nodeResp.Payload);
+
+                // Track the response message
+                resp.Messages[nodeResp.From] = keyResp.Message;
+
+                // If there was an error, increment error counter
+                if (!keyResp.Result)
+                {
+                    resp.NumErr++;
+                }
+                else
+                {
+                    // Aggregate keys - count how many nodes have each key
+                    foreach (var key in keyResp.Keys)
+                    {
+                        if (resp.Keys.ContainsKey(key))
+                        {
+                            resp.Keys[key]++;
+                        }
+                        else
+                        {
+                            resp.Keys[key] = 1;
+                        }
+                    }
+
+                    // Track primary key - count how many nodes have each primary key
+                    if (!string.IsNullOrEmpty(keyResp.PrimaryKey))
+                    {
+                        if (resp.PrimaryKeys.ContainsKey(keyResp.PrimaryKey))
+                        {
+                            resp.PrimaryKeys[keyResp.PrimaryKey]++;
+                        }
+                        else
+                        {
+                            resp.PrimaryKeys[keyResp.PrimaryKey] = 1;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                // Failed to decode response
+                resp.Messages[nodeResp.From] = $"Failed to decode response: {ex.Message}";
+                resp.NumErr++;
+            }
+
+            // Early return if we've received all expected responses
+            if (resp.NumResp == resp.NumNodes)
+            {
+                break;
+            }
+        }
     }
 }
 

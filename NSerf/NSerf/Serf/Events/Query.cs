@@ -3,6 +3,7 @@
 // Ported from: github.com/hashicorp/serf/serf/event.go
 
 using Microsoft.Extensions.Logging;
+using Address = NSerf.Memberlist.Transport.Address;
 
 namespace NSerf.Serf.Events;
 
@@ -80,15 +81,21 @@ public class Query : Event
         // Encode the response
         var raw = SerfInstance.EncodeMessage(MessageType.QueryResponse, resp);
 
-        // Check size limit
+        // Check size limit (before wrapping)
         if (raw.Length > SerfInstance.Config.QueryResponseSizeLimit)
         {
             throw new InvalidOperationException(
                 $"Response exceeds limit of {SerfInstance.Config.QueryResponseSizeLimit} bytes");
         }
 
+        // CRITICAL: Wrap QueryResponse in User message type for memberlist transport
+        // (same way Query messages are wrapped when broadcast)
+        var wrapped = new byte[1 + raw.Length];
+        wrapped[0] = (byte)NSerf.Memberlist.Messages.MessageType.User;
+        Array.Copy(raw, 0, wrapped, 1, raw.Length);
+
         // Send the response
-        await RespondWithMessageAndResponseAsync(raw, resp);
+        await RespondWithMessageAndResponseAsync(wrapped, resp);
     }
 
     /// <summary>
@@ -117,21 +124,31 @@ public class Query : Event
             }
         }
 
-        // TODO: Send the response directly to the originator
-        // This requires Memberlist.SendToAddress() which will be implemented later
-        // For now, just log that we would send
+        // Send the response directly to the originator (matching Go implementation line 174-183)
         var addrStr = System.Text.Encoding.UTF8.GetString(Addr);
-        SerfInstance.Logger?.LogDebug("[Query] Would send response to {Addr}:{Port}", addrStr, Port);
+        var targetAddr = new Address
+        {
+            Addr = $"{addrStr}:{Port}",
+            Name = SourceNodeName ?? string.Empty
+        };
 
-        // TODO: Relay the response through up to relayFactor other nodes
-        // This requires Serf.RelayResponseAsync() which will be implemented in Phase 3
+        try
+        {
+            await SerfInstance.Memberlist!.SendToAddress(targetAddr, raw, CancellationToken.None);
+            SerfInstance.Logger?.LogDebug("[Query] Sent response to {Addr}", targetAddr.Addr);
+        }
+        catch (Exception ex)
+        {
+            SerfInstance.Logger?.LogError(ex, "[Query] Failed to send response to {Addr}", targetAddr.Addr);
+            throw;
+        }
+
+        // TODO: Relay the response through up to relayFactor other nodes (Go line 185-188)
+        // This requires Serf.RelayResponse() which will be implemented later
         if (RelayFactor > 0)
         {
-            SerfInstance.Logger?.LogDebug("[Query] Would relay response through {RelayFactor} nodes", RelayFactor);
+            SerfInstance.Logger?.LogDebug("[Query] Relaying through {RelayFactor} nodes not yet implemented", RelayFactor);
         }
-        
-        // For now, we'll complete this implementation once the supporting methods exist
-        await Task.CompletedTask;
 
         // Clear the deadline - responses sent
         lock (_respLock)
