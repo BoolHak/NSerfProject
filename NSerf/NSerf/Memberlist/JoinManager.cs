@@ -49,33 +49,28 @@ public class JoinManager
                     continue;
                 }
                 
-                // Send ping to the node to initiate join
+                // Initiate push-pull sync with the node (this is the join handshake)
                 var addr = new Address
                 {
-                    Addr = addresses[0].ToString(),
+                    Addr = $"{addresses[0]}",
                     Name = node
                 };
                 
-                var seqNo = _memberlist.NextSequenceNum();
-                var ping = new PingMessage
+                // Perform TCP push-pull state exchange (join=true)
+                var stateResult = await _memberlist.SendAndReceiveStateAsync(addr, join: true, cancellationToken);
+                
+                if (stateResult.RemoteNodes != null && stateResult.RemoteNodes.Count > 0)
                 {
-                    SeqNo = seqNo,
-                    Node = node,
-                    SourceNode = _memberlist._config.Name,
-                    SourceAddr = _memberlist.GetAdvertiseAddr().Address.GetAddressBytes(),
-                    SourcePort = (ushort)_memberlist.GetAdvertiseAddr().Port
-                };
-                
-                // Try to ping the node (this will establish our presence)
-                var pingBytes = Messages.MessageEncoder.Encode(MessageType.Ping, ping);
-                await _memberlist.SendUdpAsync(pingBytes, addr, cancellationToken);
-                
-                // Small delay to allow response
-                await Task.Delay(50, cancellationToken);
-                
-                result.NumJoined++;
-                result.SuccessfulNodes.Add(node);
-                _logger?.LogInformation("Successfully joined via {Node}", node);
+                    result.NumJoined++;
+                    result.SuccessfulNodes.Add(node);
+                    _logger?.LogInformation("Successfully joined via {Node}, received {Count} nodes",
+                        node, stateResult.RemoteNodes.Count);
+                }
+                else
+                {
+                    _logger?.LogWarning("Push-pull with {Node} returned no remote nodes", node);
+                    result.FailedNodes.Add(node);
+                }
             }
             catch (Exception ex)
             {

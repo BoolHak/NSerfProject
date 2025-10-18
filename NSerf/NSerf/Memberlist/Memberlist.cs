@@ -20,7 +20,7 @@ namespace NSerf.Memberlist;
 /// It is eventually consistent but converges quickly. Node failures are detected and network partitions
 /// are partially tolerated by attempting to communicate with potentially dead nodes through multiple routes.
 /// </summary>
-public class Memberlist : IDisposable, IAsyncDisposable
+public partial class Memberlist : IDisposable, IAsyncDisposable
 {
     // Atomic counters
     private uint _sequenceNum;
@@ -59,11 +59,15 @@ public class Memberlist : IDisposable, IAsyncDisposable
     // Broadcast queue
     internal readonly TransmitLimitedQueue _broadcasts;
 
+    // Push-pull state synchronization
+    internal readonly PushPullManager _pushPullManager;
+
     // Probe index for round-robin probing
     private int _probeIndex = 0;
 
     // Logging
     private readonly ILogger? _logger;
+    internal ILogger? Logger => _logger;
 
     // Local node cache
     private Node? _localNode;
@@ -80,6 +84,7 @@ public class Memberlist : IDisposable, IAsyncDisposable
         _numNodes = 1; // Start with just ourselves
         _awareness = new Awareness(config.AwarenessMaxMultiplier);
         _packetHandler = new PacketHandler(this, _logger);
+        _pushPullManager = new PushPullManager(_logger);
 
         // Initialize broadcast queue
         _broadcasts = new TransmitLimitedQueue
@@ -1519,7 +1524,7 @@ public class Memberlist : IDisposable, IAsyncDisposable
     /// <summary>
     /// Initiates a push/pull over a TCP stream with a remote host.
     /// </summary>
-    private async Task<(List<Messages.PushNodeState> RemoteNodes, byte[]? UserState)> SendAndReceiveStateAsync(
+    internal async Task<(List<Messages.PushNodeState> RemoteNodes, byte[]? UserState)> SendAndReceiveStateAsync(
         Address addr,
         bool join,
         CancellationToken cancellationToken = default)

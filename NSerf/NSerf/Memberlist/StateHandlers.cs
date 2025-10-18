@@ -286,11 +286,21 @@ public class StateHandlers
                     return; // Exact match, ignore
                 }
 
-                // Refute the alive message
+                // Refute if incarnation is higher OR if same incarnation with different meta/version
+                // This handles the case where cluster has a higher incarnation for us (e.g., after restart)
                 RefuteNode(state, alive.Incarnation);
                 var ip = new IPAddress(alive.Addr);
-                _logger?.LogWarning("Refuting alive message for '{Node}' ({IP}:{Port}) - meta or version mismatch",
-                    alive.Node, ip, alive.Port);
+                
+                if (alive.Incarnation > state.Incarnation)
+                {
+                    _logger?.LogWarning("Refuting alive message for '{Node}' ({IP}:{Port}) - cluster has higher incarnation {ClusterInc} vs our {OurInc}",
+                        alive.Node, ip, alive.Port, alive.Incarnation, state.Incarnation);
+                }
+                else
+                {
+                    _logger?.LogWarning("Refuting alive message for '{Node}' ({IP}:{Port}) - meta or version mismatch",
+                        alive.Node, ip, alive.Port);
+                }
             }
             else
             {
