@@ -253,12 +253,17 @@ public class ConflictDelegateTest
         var warningLogs = logger.Messages.Where(m => m.level == LogLevel.Warning).ToList();
         warningLogs.Should().HaveCount(2, "should log one warning per conflict");
         
-        // Verify both conflicts were logged
+        // Verify both conflicts were logged (ConcurrentBag doesn't preserve order)
         warningLogs.Should().Contain(m => m.message.Contains("node1"), "should log node1 conflict");
         warningLogs.Should().Contain(m => m.message.Contains("node2"), "should log node2 conflict");
         
-        // Verify conflicts are processed in order (messages contain addresses in order)
-        warningLogs[0].message.Should().Contain("10.0.0.1", "first conflict should mention first address");
-        warningLogs[1].message.Should().Contain("10.0.0.3", "second conflict should mention second address");
+        // Verify both conflicts contain their respective addresses
+        var node1Log = warningLogs.First(m => m.message.Contains("node1"));
+        node1Log.message.Should().Contain("10.0.0.1", "node1 conflict should mention first address");
+        node1Log.message.Should().Contain("10.0.0.2", "node1 conflict should mention second address");
+        
+        var node2Log = warningLogs.First(m => m.message.Contains("node2"));
+        node2Log.message.Should().Contain("10.0.0.3", "node2 conflict should mention first address");
+        node2Log.message.Should().Contain("10.0.0.4", "node2 conflict should mention second address");
     }
 }
