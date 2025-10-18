@@ -15,9 +15,18 @@ using Xunit;
 namespace NSerfTests.Memberlist;
 
 /// <summary>
+/// Collection definition to ensure PushPull tests run sequentially to avoid port conflicts.
+/// </summary>
+[CollectionDefinition("PushPull Sequential Tests", DisableParallelization = true)]
+public class PushPullTestCollection
+{
+}
+
+/// <summary>
 /// Tests for TCP push-pull state synchronization mechanism.
 /// Ported from: net_test.go (TestTCPPushPull) and state_test.go (TestMemberlist_PushPull)
 /// </summary>
+[Collection("PushPull Sequential Tests")]
 public class PushPullTests : IDisposable
 {
     private readonly System.Collections.Generic.List<NSerf.Memberlist.Memberlist> _memberlists = new();
@@ -36,6 +45,9 @@ public class PushPullTests : IDisposable
                 // Ignore cleanup errors
             }
         }
+
+        // Add delay to allow sockets to fully close and exit TIME_WAIT state
+        Task.Delay(500).GetAwaiter().GetResult();
     }
 
     private NSerf.Memberlist.Memberlist CreateMemberlist(string name, Action<MemberlistConfig>? configure = null)
@@ -46,7 +58,8 @@ public class PushPullTests : IDisposable
             BindAddr = "127.0.0.1",
             BindPort = 0, // Let OS assign
             ProbeInterval = TimeSpan.FromMilliseconds(100),
-            ProbeTimeout = TimeSpan.FromMilliseconds(50)
+            ProbeTimeout = TimeSpan.FromMilliseconds(50),
+            EnableCompression = false // Disable by default for tests (can be overridden by configure)
         };
 
         configure?.Invoke(config);
@@ -78,7 +91,7 @@ public class PushPullTests : IDisposable
         {
             config.Label = string.Empty; // Explicit empty label - must match client
         });
-        
+
         // Add a suspect node to the memberlist
         var testNode = new NodeState
         {
@@ -92,7 +105,7 @@ public class PushPullTests : IDisposable
             State = NodeStateType.Suspect,
             StateChange = DateTimeOffset.UtcNow.AddSeconds(-1)
         };
-        
+
         lock (m._nodeLock)
         {
             m._nodes.Add(testNode);
@@ -106,7 +119,7 @@ public class PushPullTests : IDisposable
         var (advertiseAddr, advertisePort) = m.GetAdvertiseAddr();
         Console.WriteLine($"[TEST] Connecting to {advertiseAddr}:{advertisePort}");
         Console.WriteLine($"[TEST] Config Label: '{m._config.Label}', SkipInboundLabelCheck: {m._config.SkipInboundLabelCheck}");
-        
+
         using var client = new TcpClient();
         await client.ConnectAsync(advertiseAddr.ToString(), advertisePort);
         using var stream = client.GetStream();
@@ -122,7 +135,7 @@ public class PushPullTests : IDisposable
                 Incarnation = 1,
                 State = NodeStateType.Alive,
                 Meta = Array.Empty<byte>(),
-                Vsn = new byte[] { 
+                Vsn = new byte[] {
                     ProtocolVersion.Min, ProtocolVersion.Max, m._config.ProtocolVersion,
                     m._config.DelegateProtocolMin, m._config.DelegateProtocolMax, m._config.DelegateProtocolVersion
                 }
@@ -135,7 +148,7 @@ public class PushPullTests : IDisposable
                 Incarnation = 1,
                 State = NodeStateType.Alive,
                 Meta = Array.Empty<byte>(),
-                Vsn = new byte[] { 
+                Vsn = new byte[] {
                     ProtocolVersion.Min, ProtocolVersion.Max, m._config.ProtocolVersion,
                     m._config.DelegateProtocolMin, m._config.DelegateProtocolMax, m._config.DelegateProtocolVersion
                 }
@@ -148,111 +161,105 @@ public class PushPullTests : IDisposable
                 Incarnation = 1,
                 State = NodeStateType.Alive,
                 Meta = Array.Empty<byte>(),
-                Vsn = new byte[] { 
+                Vsn = new byte[] {
                     ProtocolVersion.Min, ProtocolVersion.Max, m._config.ProtocolVersion,
                     m._config.DelegateProtocolMin, m._config.DelegateProtocolMax, m._config.DelegateProtocolVersion
                 }
             }
         };
 
-        // Build the push/pull message using C#'s length-prefixed protocol
-        // Protocol: [MessageType: 1 byte][Length: 4 bytes big-endian][MessagePack payload]
-        // NOTE: Differs from Go but necessary for C# async streaming
+        // Build the push-pull message using the new TCP framing protocol
+        // Protocol: [4-byte length prefix][MessageType byte][MessagePack payload]
         Console.WriteLine($"[TEST] Building push-pull message with {localNodes.Length} nodes");
-        
+
         // First, build the MessagePack payload
         using var payloadStream = new MemoryStream();
-        
+
         var header = new PushPullHeader
         {
             Nodes = localNodes.Length,
             UserStateLen = 0,
             Join = false
         };
-        
+
         // Serialize header and nodes into payload
         await MessagePack.MessagePackSerializer.SerializeAsync(payloadStream, header);
         foreach (var node in localNodes)
         {
             await MessagePack.MessagePackSerializer.SerializeAsync(payloadStream, node);
         }
-        
+
         var payloadBytes = payloadStream.ToArray();
         Console.WriteLine($"[TEST] Payload size: {payloadBytes.Length} bytes");
-        
-        // Now build the complete message with length prefix
+
+        // Build the message: [PushPull byte][payload]
+        using var messageBodyStream = new MemoryStream();
+        messageBodyStream.WriteByte((byte)MessageType.PushPull);
+        await messageBodyStream.WriteAsync(payloadBytes);
+        var messageBody = messageBodyStream.ToArray();
+
+        // Now add TCP framing: [4-byte length][message body]
         using var messageStream = new MemoryStream();
-        
-        // Write message type
-        messageStream.WriteByte((byte)MessageType.PushPull);
-        
-        // Write 4-byte length prefix (big-endian)
-        var lengthBytes = BitConverter.GetBytes(payloadBytes.Length);
+        var lengthBytes = BitConverter.GetBytes(messageBody.Length);
         if (BitConverter.IsLittleEndian)
         {
             Array.Reverse(lengthBytes);
         }
         await messageStream.WriteAsync(lengthBytes);
-        
-        // Write payload
-        await messageStream.WriteAsync(payloadBytes);
-        
+        await messageStream.WriteAsync(messageBody);
+
         // Send to TCP stream
         messageStream.Position = 0;
         await messageStream.CopyToAsync(stream);
         await stream.FlushAsync();
-        
+
         Console.WriteLine($"[TEST] Sent message: type={MessageType.PushPull}, length={payloadBytes.Length}, total={messageStream.Length} bytes");
 
-        // Read response using the same protocol
-        // Protocol: [MessageType: 1 byte][Length: 4 bytes big-endian][MessagePack payload]
-        
-        // Read message type
-        var responseTypeByte = new byte[1];
-        var bytesRead = await stream.ReadAsync(responseTypeByte, 0, 1);
-        bytesRead.Should().Be(1, "should read message type byte");
-        
-        var responseType = (MessageType)responseTypeByte[0];
-        Console.WriteLine($"[TEST] Received response type: {responseType}");
-        
-        // If we got an error, the connection is closed
-        if (responseType == MessageType.Err)
-        {
-            Console.WriteLine($"[TEST] Server returned error response");
-        }
-        
-        responseType.Should().Be(MessageType.PushPull, "response should be push/pull type");
+        // Read response using the new TCP framing protocol
+        // Protocol: [4-byte length prefix][MessageType byte][MessagePack payload]
 
         // Read 4-byte length prefix (big-endian)
         var responseLengthBytes = new byte[4];
-        bytesRead = 0;
+        var bytesRead = 0;
         while (bytesRead < 4)
         {
             var read = await stream.ReadAsync(responseLengthBytes.AsMemory(bytesRead, 4 - bytesRead));
             if (read == 0) throw new IOException("Connection closed while reading response length");
             bytesRead += read;
         }
-        
+
         if (BitConverter.IsLittleEndian)
         {
             Array.Reverse(responseLengthBytes);
         }
         var responseLength = BitConverter.ToInt32(responseLengthBytes, 0);
-        Console.WriteLine($"[TEST] Response payload length: {responseLength} bytes");
-        
-        // Read exact payload bytes
-        var responsePayload = new byte[responseLength];
+        Console.WriteLine($"[TEST] Response message length: {responseLength} bytes");
+
+        // Read exact message bytes (includes message type + payload)
+        var responseMessage = new byte[responseLength];
         bytesRead = 0;
         while (bytesRead < responseLength)
         {
-            var read = await stream.ReadAsync(responsePayload.AsMemory(bytesRead, responseLength - bytesRead));
-            if (read == 0) throw new IOException("Connection closed while reading response payload");
+            var read = await stream.ReadAsync(responseMessage.AsMemory(bytesRead, responseLength - bytesRead));
+            if (read == 0) throw new IOException("Connection closed while reading response message");
             bytesRead += read;
         }
-        
-        // Deserialize from payload buffer
-        using var responsePayloadStream = new MemoryStream(responsePayload, false);
-        
+
+        // Extract message type (first byte)
+        var responseType = (MessageType)responseMessage[0];
+        Console.WriteLine($"[TEST] Received response type: {responseType}");
+
+        // If we got an error, the connection is closed
+        if (responseType == MessageType.Err)
+        {
+            Console.WriteLine($"[TEST] Server returned error response");
+        }
+
+        responseType.Should().Be(MessageType.PushPull, "response should be push/pull type");
+
+        // Deserialize from payload buffer (skip message type byte)
+        using var responsePayloadStream = new MemoryStream(responseMessage, 1, responseMessage.Length - 1, false);
+
         // Deserialize response header
         var responseHeader = await MessagePack.MessagePackSerializer.DeserializeAsync<PushPullHeader>(responsePayloadStream);
         responseHeader.Should().NotBeNull("should receive valid header");
@@ -271,12 +278,12 @@ public class PushPullTests : IDisposable
         // The test sends 3 alive nodes (Test 0, Test 1, Test 2) and the server responds with its state
         remoteNodes.Should().NotBeEmpty("should receive at least one node");
         remoteNodes.Should().HaveCountGreaterOrEqualTo(1, "should receive at least the server's own node");
-        
+
         // Should contain the test-node (the memberlist's own node)
         var serverNode = remoteNodes.FirstOrDefault(n => n.Name == "test-node");
         serverNode.Should().NotBeNull("should receive the server node");
         serverNode!.State.Should().Be(NodeStateType.Alive, "server node should be alive");
-        
+
         // The server should have processed our Test 0 node
         // Note: We sent Test 0 as Alive with incarnation 1, which overwrote the Suspect state (incarnation 0)
         var test0Node = remoteNodes.FirstOrDefault(n => n.Name == "Test 0");
@@ -349,13 +356,13 @@ public class PushPullTests : IDisposable
             Addr = $"{m2._config.BindAddr}:{m2._config.BindPort}",
             Name = "node2"
         };
-        
+
         var result = await m1.SendAndReceiveStateAsync(addr, join: false, CancellationToken.None);
-        
+
         // Assert - Should receive remote state
         result.RemoteNodes.Should().NotBeNull("should receive remote nodes");
         result.RemoteNodes.Should().NotBeEmpty("should receive at least one remote node");
-        
+
         // Wait for events to propagate
         await Task.Delay(200);
 
@@ -404,53 +411,53 @@ public class PushPullTests : IDisposable
             sharedKey[i] = (byte)(i * 7); // Deterministic key for testing
         }
         var keyring = Keyring.Create(null, sharedKey);
-        
+
         Console.WriteLine("[TEST] Creating encrypted memberlist nodes with shared keyring");
-        
+
         var m1 = CreateMemberlist("secure-node1", config =>
         {
             config.Keyring = keyring;
             config.GossipVerifyIncoming = true;
             config.GossipVerifyOutgoing = true;
         });
-        
+
         var m2 = CreateMemberlist("secure-node2", config =>
         {
             config.Keyring = keyring;
             config.GossipVerifyIncoming = true;
             config.GossipVerifyOutgoing = true;
         });
-        
+
         await Task.Delay(200); // Allow initialization
-        
+
         Console.WriteLine($"[TEST] Node1 encryption enabled: {m1._config.EncryptionEnabled()}");
         Console.WriteLine($"[TEST] Node2 encryption enabled: {m2._config.EncryptionEnabled()}");
-        
+
         // Act - Join m2 to m1 (this triggers encrypted push-pull)
         var (numJoined, error) = await m2.JoinAsync(new[] { $"{m1._config.BindAddr}:{m1._config.BindPort}" });
-        
+
         // Assert - Join should succeed
         error.Should().BeNull("encrypted join should succeed with matching keys");
         numJoined.Should().Be(1, "should successfully join 1 node");
-        
+
         await Task.Delay(1000); // Allow more time for encrypted state to propagate
-        
+
         // Verify both nodes see each other
         var m1Members = m1.Members();
         var m2Members = m2.Members();
-        
+
         Console.WriteLine($"[TEST] m1 sees {m1Members.Count} members: {string.Join(", ", m1Members.Select(m => m.Name))}");
         Console.WriteLine($"[TEST] m2 sees {m2Members.Count} members: {string.Join(", ", m2Members.Select(m => m.Name))}");
-        
+
         // With encryption enabled, verify basic functionality
         // Note: Encrypted gossip and state exchange may need additional setup
         m1Members.Should().NotBeEmpty("m1 should see at least itself");
         m2Members.Should().NotBeEmpty("m2 should see at least itself");
-        
+
         // Check if nodes can see each other (best case)
         var m1SeesM2 = m1Members.Any(m => m.Name == "secure-node2");
         var m2SeesM1 = m2Members.Any(m => m.Name == "secure-node1");
-        
+
         if (m1SeesM2 && m2SeesM1)
         {
             Console.WriteLine("[TEST] ✓ Encrypted push-pull successfully exchanged state");
@@ -463,7 +470,7 @@ public class PushPullTests : IDisposable
             Console.WriteLine("[TEST] This may indicate encrypted push-pull needs additional configuration");
         }
     }
-    
+
     /// <summary>
     /// Tests that push-pull fails when nodes have mismatched encryption keys.
     /// </summary>
@@ -478,48 +485,373 @@ public class PushPullTests : IDisposable
             key1[i] = (byte)i;
             key2[i] = (byte)(i + 100); // Different key
         }
-        
+
         var keyring1 = Keyring.Create(null, key1);
         var keyring2 = Keyring.Create(null, key2);
-        
+
         Console.WriteLine("[TEST] Creating nodes with mismatched encryption keys");
-        
+
         var m1 = CreateMemberlist("encrypted-node1", config =>
         {
             config.Keyring = keyring1;
             config.GossipVerifyIncoming = true;
             config.GossipVerifyOutgoing = true;
         });
-        
+
         var m2 = CreateMemberlist("encrypted-node2", config =>
         {
             config.Keyring = keyring2;
             config.GossipVerifyIncoming = true;
             config.GossipVerifyOutgoing = true;
         });
-        
+
         await Task.Delay(200);
-        
+
         // Act - Try to join with mismatched keys
         var (numJoined, error) = await m2.JoinAsync(new[] { $"{m1._config.BindAddr}:{m1._config.BindPort}" });
-        
+
         // Assert - Join should fail or nodes should not see each other properly
         // Note: The join might technically succeed (UDP ping works) but encrypted state exchange fails
         Console.WriteLine($"[TEST] Join result: numJoined={numJoined}, error={error}");
-        
+
         await Task.Delay(500);
-        
+
         // The key test: encrypted push-pull should have failed, so nodes won't have complete state
         var m1Members = m1.Members();
         var m2Members = m2.Members();
-        
+
         Console.WriteLine($"[TEST] m1 members count: {m1Members.Count}");
         Console.WriteLine($"[TEST] m2 members count: {m2Members.Count}");
-        
+
         // With encryption mismatch, push-pull state exchange fails
         // So they might see each other via gossip but won't have synced via push-pull
         // This is expected behavior - encryption prevents unauthorized state exchange
         Console.WriteLine("[TEST] Mismatched keys prevented full encrypted state synchronization");
+    }
+
+    /// <summary>
+    /// Tests push-pull with an empty state (no nodes to sync).
+    /// </summary>
+    [Fact]
+    public async Task PushPull_EmptyState_ShouldHandleGracefully()
+    {
+        // Arrange - Create two memberlists with minimal state
+        var m1 = CreateMemberlist("empty-node1");
+        var m2 = CreateMemberlist("empty-node2");
+
+        await Task.Delay(100);
+
+        // Act - Perform push-pull between nodes with minimal state
+        var (numJoined, error) = await m2.JoinAsync(new[] { $"{m1._config.BindAddr}:{m1._config.BindPort}" });
+
+        // Assert
+        error.Should().BeNull("join should succeed even with empty state");
+        numJoined.Should().Be(1, "should join successfully");
+
+        await Task.Delay(500);
+
+        // Both nodes should see each other despite starting with empty state
+        var m1Members = m1.Members();
+        var m2Members = m2.Members();
+
+        m1Members.Should().HaveCount(2, "m1 should see both nodes");
+        m2Members.Should().HaveCount(2, "m2 should see both nodes");
+    }
+
+    /// <summary>
+    /// Tests push-pull with a large number of nodes to verify scalability.
+    /// </summary>
+    [Fact]
+    public async Task PushPull_LargeState_ShouldHandleManyNodes()
+    {
+        // Arrange - Create memberlist and add many nodes
+        var m1 = CreateMemberlist("hub-node");
+
+        // Add 50 nodes to simulate a large cluster
+        // Note: Nodes must have all required fields including protocol version
+        var nodeStates = new List<NodeState>();
+        for (int i = 0; i < 50; i++)
+        {
+            var nodeState = new NodeState
+            {
+                Node = new Node
+                {
+                    Name = $"node-{i}",
+                    Addr = IPAddress.Parse("127.0.0.1"),
+                    Port = (ushort)(10000 + i),
+                    Meta = Array.Empty<byte>(),
+                    PMin = ProtocolVersion.Min,
+                    PMax = ProtocolVersion.Max,
+                    PCur = m1._config.ProtocolVersion,
+                    DMin = m1._config.DelegateProtocolMin,
+                    DMax = m1._config.DelegateProtocolMax,
+                    DCur = m1._config.DelegateProtocolVersion
+                },
+                Incarnation = (uint)i,
+                State = i % 3 == 0 ? NodeStateType.Suspect : NodeStateType.Alive,
+                StateChange = DateTimeOffset.UtcNow.AddSeconds(-i)
+            };
+
+            lock (m1._nodeLock)
+            {
+                m1._nodes.Add(nodeState);
+                m1._nodeMap[nodeState.Node.Name] = nodeState;
+            }
+            nodeStates.Add(nodeState);
+        }
+
+        var m2 = CreateMemberlist("joining-node");
+        await Task.Delay(100);
+
+        Console.WriteLine($"[TEST] m1 has {m1._nodes.Count} nodes before join");
+
+        // Act - Join m2 to m1, triggering push-pull with large state
+        var (numJoined, error) = await m2.JoinAsync(new[] { $"{m1._config.BindAddr}:{m1._config.BindPort}" });
+
+        // Assert
+        error.Should().BeNull("join should succeed with large state");
+        numJoined.Should().Be(1);
+
+        await Task.Delay(1000); // Give time for state to propagate
+
+        var m2Members = m2.Members();
+        Console.WriteLine($"[TEST] m2 received {m2Members.Count} nodes from large state");
+
+        // With 50+ nodes, we should receive a significant portion via push-pull
+        m2Members.Should().HaveCountGreaterOrEqualTo(10, "m2 should receive many nodes from large state");
+    }
+
+    /// <summary>
+    /// Tests push-pull with compression enabled to verify compressed state exchange.
+    /// </summary>
+    [Fact]
+    public async Task PushPull_WithCompression_ShouldExchangeStateCorrectly()
+    {
+        // Arrange - Create memberlists with compression enabled
+        var m1 = CreateMemberlist("compressed-node1", config =>
+        {
+            config.EnableCompression = true;
+        });
+
+        var m2 = CreateMemberlist("compressed-node2", config =>
+        {
+            config.EnableCompression = true;
+        });
+
+        // Add some nodes to m1 to make compression worthwhile
+        for (int i = 0; i < 10; i++)
+        {
+            var nodeState = new NodeState
+            {
+                Node = new Node
+                {
+                    Name = $"test-node-{i}",
+                    Addr = IPAddress.Parse("127.0.0.1"),
+                    Port = (ushort)(20000 + i),
+                    Meta = new byte[100], // Add metadata to increase payload size
+                    PMin = ProtocolVersion.Min,
+                    PMax = ProtocolVersion.Max,
+                    PCur = m1._config.ProtocolVersion,
+                    DMin = m1._config.DelegateProtocolMin,
+                    DMax = m1._config.DelegateProtocolMax,
+                    DCur = m1._config.DelegateProtocolVersion
+                },
+                Incarnation = (uint)i,
+                State = NodeStateType.Alive,
+                StateChange = DateTimeOffset.UtcNow
+            };
+
+            lock (m1._nodeLock)
+            {
+                m1._nodes.Add(nodeState);
+                m1._nodeMap[nodeState.Node.Name] = nodeState;
+            }
+        }
+
+        await Task.Delay(200);
+
+        Console.WriteLine($"[TEST] m1 has {m1._nodes.Count} nodes with compression enabled");
+
+        // Act - Perform compressed push-pull
+        var (numJoined, error) = await m2.JoinAsync(new[] { $"{m1._config.BindAddr}:{m1._config.BindPort}" });
+
+        // Assert - Compression is transparent, join should work
+        Console.WriteLine($"[TEST] Join result: numJoined={numJoined}, error={error?.Message}");
+
+        if (error == null)
+        {
+            numJoined.Should().Be(1, "compressed join should succeed");
+
+            await Task.Delay(800);
+
+            var m2Members = m2.Members();
+            Console.WriteLine($"[TEST] Compression enabled: m2 received {m2Members.Count} nodes");
+            m2Members.Should().HaveCountGreaterThan(2, "m2 should receive compressed state");
+        }
+        else
+        {
+            // If compression causes issues, at least document it
+            Console.WriteLine($"[TEST] Compression test encountered issue: {error}");
+            throw new Exception($"Compression test failed: {error.Message}", error);
+        }
+    }
+
+    /// <summary>
+    /// Tests that dead nodes are not included in push-pull state exchange.
+    /// </summary>
+    [Fact]
+    public async Task PushPull_DeadNodes_ShouldNotBeSent()
+    {
+        // Arrange - Create memberlist with dead nodes
+        var m1 = CreateMemberlist("sender-node");
+
+        // Add alive node
+        var aliveNode = new NodeState
+        {
+            Node = new Node
+            {
+                Name = "alive-node",
+                Addr = IPAddress.Parse("127.0.0.1"),
+                Port = 30000
+            },
+            Incarnation = 1,
+            State = NodeStateType.Alive,
+            StateChange = DateTimeOffset.UtcNow
+        };
+
+        // Add dead node
+        var deadNode = new NodeState
+        {
+            Node = new Node
+            {
+                Name = "dead-node",
+                Addr = IPAddress.Parse("127.0.0.1"),
+                Port = 30001
+            },
+            Incarnation = 1,
+            State = NodeStateType.Dead,
+            StateChange = DateTimeOffset.UtcNow.AddMinutes(-5)
+        };
+
+        lock (m1._nodeLock)
+        {
+            m1._nodes.Add(aliveNode);
+            m1._nodeMap[aliveNode.Node.Name] = aliveNode;
+            m1._nodes.Add(deadNode);
+            m1._nodeMap[deadNode.Node.Name] = deadNode;
+        }
+
+        var m2 = CreateMemberlist("receiver-node");
+        await Task.Delay(100);
+
+        // Act - Perform push-pull
+        var (numJoined, error) = await m2.JoinAsync(new[] { $"{m1._config.BindAddr}:{m1._config.BindPort}" });
+
+        // Assert
+        error.Should().BeNull("join should succeed");
+
+        await Task.Delay(500);
+
+        var m2Members = m2.Members();
+
+        // m2 should not have received the dead node
+        var hasDeadNode = m2Members.Any(m => m.Name == "dead-node");
+        hasDeadNode.Should().BeFalse("dead nodes should not be sent in push-pull");
+
+        // m2 should have received the alive node
+        var hasAliveNode = m2Members.Any(m => m.Name == "alive-node");
+        Console.WriteLine($"[TEST] Dead node filtered: m2 has alive-node={hasAliveNode}, dead-node={hasDeadNode}");
+    }
+
+    /// <summary>
+    /// Tests push-pull with both encryption and compression enabled.
+    /// </summary>
+    [Fact]
+    public async Task PushPull_EncryptionAndCompression_ShouldWorkTogether()
+    {
+        // Arrange - Create shared encryption key
+        var sharedKey = new byte[32];
+        for (int i = 0; i < sharedKey.Length; i++)
+        {
+            sharedKey[i] = (byte)(i * 13);
+        }
+        var keyring = Keyring.Create(null, sharedKey);
+
+        var m1 = CreateMemberlist("secure-compressed-node1", config =>
+        {
+            config.Keyring = keyring;
+            config.GossipVerifyIncoming = true;
+            config.GossipVerifyOutgoing = true;
+            config.EnableCompression = true;
+        });
+
+        var m2 = CreateMemberlist("secure-compressed-node2", config =>
+        {
+            config.Keyring = keyring;
+            config.GossipVerifyIncoming = true;
+            config.GossipVerifyOutgoing = true;
+            config.EnableCompression = true;
+        });
+
+        // Add nodes to m1 to create compressible payload
+        for (int i = 0; i < 5; i++)
+        {
+            var nodeState = new NodeState
+            {
+                Node = new Node
+                {
+                    Name = $"bulk-node-{i}",
+                    Addr = IPAddress.Parse("127.0.0.1"),
+                    Port = (ushort)(40000 + i),
+                    Meta = new byte[50],
+                    PMin = ProtocolVersion.Min,
+                    PMax = ProtocolVersion.Max,
+                    PCur = m1._config.ProtocolVersion,
+                    DMin = m1._config.DelegateProtocolMin,
+                    DMax = m1._config.DelegateProtocolMax,
+                    DCur = m1._config.DelegateProtocolVersion
+                },
+                Incarnation = (uint)i,
+                State = NodeStateType.Alive,
+                StateChange = DateTimeOffset.UtcNow
+            };
+
+            lock (m1._nodeLock)
+            {
+                m1._nodes.Add(nodeState);
+                m1._nodeMap[nodeState.Node.Name] = nodeState;
+            }
+        }
+
+        await Task.Delay(200);
+
+        Console.WriteLine("[TEST] Testing encryption + compression combination");
+        Console.WriteLine($"[TEST] m1 has {m1._nodes.Count} nodes");
+
+        // Act - Join with both encryption and compression
+        var (numJoined, error) = await m2.JoinAsync(new[] { $"{m1._config.BindAddr}:{m1._config.BindPort}" });
+
+        // Assert
+        Console.WriteLine($"[TEST] Join result: numJoined={numJoined}, error={error?.Message}");
+
+        if (error == null)
+        {
+            numJoined.Should().Be(1, "join with encryption+compression should succeed");
+
+            await Task.Delay(1000);
+
+            var m2Members = m2.Members();
+            Console.WriteLine($"[TEST] Encryption+Compression: m2 sees {m2Members.Count} members");
+
+            // Should at least see itself
+            m2Members.Should().NotBeEmpty("should receive state even with encryption and compression");
+        }
+        else
+        {
+            // Document the issue for debugging
+            Console.WriteLine($"[TEST] Encryption+Compression test encountered issue: {error}");
+            throw new Exception($"Encryption+Compression failed: {error.Message}", error);
+        }
     }
 }
 

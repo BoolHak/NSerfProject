@@ -882,16 +882,126 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
                 }
             }
 
-            var msgType = (MessageType)buffer[0];
-            _logger?.LogDebug("Received stream message type: {MessageType}", msgType);
+            // Read 4-byte length prefix for TCP framing (always present)
+            var lengthBytes = new byte[4];
+            lengthBytes[0] = buffer[0]; // First byte already read
+            int totalRead = 1;
+            while (totalRead < 4)
+            {
+                var bytesRead = await stream.ReadAsync(lengthBytes.AsMemory(totalRead, 4 - totalRead), _shutdownCts.Token);
+                if (bytesRead == 0)
+                {
+                    throw new IOException("Connection closed while reading message length prefix");
+                }
+                totalRead += bytesRead;
+            }
+            
+            if (BitConverter.IsLittleEndian)
+            {
+                Array.Reverse(lengthBytes);
+            }
+            var messageLength = BitConverter.ToInt32(lengthBytes, 0);
+            _logger?.LogDebug("Reading {Length} bytes of message data", messageLength);
+            
+            // Read exact message payload based on length prefix
+            var messageData = new byte[messageLength];
+            totalRead = 0;
+            while (totalRead < messageLength)
+            {
+                var bytesRead = await stream.ReadAsync(messageData.AsMemory(totalRead, messageLength - totalRead), _shutdownCts.Token);
+                if (bytesRead == 0)
+                {
+                    throw new IOException($"Connection closed while reading message payload ({totalRead}/{messageLength} bytes read)");
+                }
+                totalRead += bytesRead;
+            }
+            
+            // Check if encryption is enabled - decrypt if needed
+            if (_config.EncryptionEnabled())
+            {
+                _logger?.LogDebug("Decrypting incoming message (encryption enabled in config)");
+                
+                try
+                {
+                    var authData = System.Text.Encoding.UTF8.GetBytes(streamLabel);
+                    messageData = Security.DecryptPayload(_config.Keyring!.GetKeys().ToArray(), messageData, authData);
+                }
+                catch (Exception ex)
+                {
+                    if (_config.GossipVerifyIncoming)
+                    {
+                        _logger?.LogError(ex, "Failed to decrypt stream");
+                        return;
+                    }
+                    else
+                    {
+                        _logger?.LogDebug(ex, "Failed to decrypt stream, treating as plaintext");
+                    }
+                }
+            }
+            
+            // Now process the message (decrypted if needed)
+            if (messageData.Length > 0)
+            {
+                var msgType = (MessageType)messageData[0];
+                _logger?.LogDebug("Message type: {MessageType}", msgType);
 
+                // Handle compression wrapper
+                if (msgType == MessageType.Compress)
+                {
+                    _logger?.LogDebug("Decompressing message");
+                    
+                    try
+                    {
+                        // Decompress the payload (skip message type byte)
+                        var compressedData = messageData[1..];
+                        var decompressedPayload = Common.CompressionUtils.DecompressPayload(compressedData);
+                        
+                        if (decompressedPayload.Length > 0)
+                        {
+                            msgType = (MessageType)decompressedPayload[0];
+                            _logger?.LogDebug("Decompressed message type: {MessageType}", msgType);
+                            
+                            // Create a memory stream from decompressed payload (skip message type byte)
+                            using var decompressedStream = new MemoryStream(decompressedPayload, 1, decompressedPayload.Length - 1);
+                            await ProcessInnerMessageAsync(msgType, decompressedStream, stream);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger?.LogError(ex, "Failed to decompress message");
+                    }
+                }
+                else
+                {
+                    // Direct message - create stream from messageData
+                    // For PushPull, don't skip message type because ReadRemoteStateAsync expects the full structure
+                    using var messageStream = new MemoryStream(messageData, 1, messageData.Length - 1);
+                    await ProcessInnerMessageAsync(msgType, messageStream, stream);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Error handling stream");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Processes the actual message type after decryption/decompression.
+    /// </summary>
+    private async Task ProcessInnerMessageAsync(MessageType msgType, Stream payloadStream, NetworkStream originalStream)
+    {
+        try
+        {
             if (msgType == MessageType.PushPull)
             {
-                await HandlePushPullStreamAsync(stream);
+                await HandlePushPullStreamAsync(payloadStream, originalStream);
             }
             else if (msgType == MessageType.User)
             {
-                await HandleUserMsgStreamAsync(stream);
+                await HandleUserMsgStreamAsync(payloadStream, originalStream);
             }
             else
             {
@@ -908,12 +1018,12 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
     /// <summary>
     /// Handles an incoming user message over TCP stream.
     /// </summary>
-    private async Task HandleUserMsgStreamAsync(NetworkStream stream)
+    private async Task HandleUserMsgStreamAsync(Stream payloadStream, NetworkStream responseStream)
     {
         try
         {
             // Read the user message header using MessagePack deserialization
-            var header = await MessagePack.MessagePackSerializer.DeserializeAsync<Messages.UserMsgHeader>(stream, cancellationToken: _shutdownCts.Token);
+            var header = await MessagePack.MessagePackSerializer.DeserializeAsync<Messages.UserMsgHeader>(payloadStream, cancellationToken: _shutdownCts.Token);
 
             _logger?.LogDebug("User message header: {Length} bytes", header.UserMsgLen);
 
@@ -925,7 +1035,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
 
                 while (totalRead < header.UserMsgLen)
                 {
-                    var bytesRead = await stream.ReadAsync(userMsgBytes.AsMemory(totalRead, header.UserMsgLen - totalRead), _shutdownCts.Token);
+                    var bytesRead = await payloadStream.ReadAsync(userMsgBytes.AsMemory(totalRead, header.UserMsgLen - totalRead), _shutdownCts.Token);
                     if (bytesRead == 0)
                     {
                         throw new IOException("Connection closed while reading user message");
@@ -955,12 +1065,12 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
     /// <summary>
     /// Handles an incoming push/pull request over TCP.
     /// </summary>
-    private async Task HandlePushPullStreamAsync(NetworkStream stream)
+    private async Task HandlePushPullStreamAsync(Stream payloadStream, NetworkStream responseStream)
     {
         try
         {
-            // Read remote state  
-            var (remoteNodes, userState) = await ReadRemoteStateAsync(stream, _shutdownCts.Token);
+            // Read remote state from payload stream 
+            var (remoteNodes, userState) = await ReadRemoteStateAsync(payloadStream, _shutdownCts.Token);
             _logger?.LogDebug("Received {Count} nodes from remote", remoteNodes.Count);
 
             // Merge remote state
@@ -980,18 +1090,18 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
                 }
             }
 
-            // Send our state back
-            await SendLocalStateAsync(stream, join: false, _config.Label, _shutdownCts.Token);
+            // Send our state back on response stream
+            await SendLocalStateAsync(responseStream, join: false, _config.Label, _shutdownCts.Token);
         }
         catch (Exception ex)
         {
             _logger?.LogWarning(ex, "Push/pull stream handler error");
 
-            // Try to send error response
+            // Try to send error response on response stream
             try
             {
-                await stream.WriteAsync(new byte[] { (byte)MessageType.Err });
-                await stream.FlushAsync();
+                await responseStream.WriteAsync(new byte[] { (byte)MessageType.Err });
+                await responseStream.FlushAsync();
             }
             catch (Exception errEx)
             {
@@ -1081,7 +1191,8 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
     }
 
     /// <summary>
-    /// Sends a raw message over a stream, applying compression and encryption if enabled.
+    /// Sends a raw message over a stream with proper TCP framing.
+    /// Format: [4-byte length prefix][message data (possibly compressed/encrypted)]
     /// </summary>
     internal async Task RawSendMsgStreamAsync(NetworkStream conn, byte[] buf, string streamLabel, CancellationToken cancellationToken = default)
     {
@@ -1094,7 +1205,11 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
             try
             {
                 var compressed = Common.CompressionUtils.CompressPayload(buf);
-                buf = Messages.MessageEncoder.Encode(Messages.MessageType.Compress, compressed);
+                // Prepend Compress message type byte (don't use MessageEncoder.Encode as it would MessagePack-serialize the byte array)
+                var compressedWithType = new byte[1 + compressed.Length];
+                compressedWithType[0] = (byte)Messages.MessageType.Compress;
+                Buffer.BlockCopy(compressed, 0, compressedWithType, 1, compressed.Length);
+                buf = compressedWithType;
             }
             catch (Exception ex)
             {
@@ -1123,8 +1238,18 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
             }
         }
 
-        // Write the full buffer to the stream
-        await conn.WriteAsync(buf, cancellationToken);
+        // Always add length prefix for proper TCP framing
+        using var framedMs = new MemoryStream();
+        var lengthBytes = BitConverter.GetBytes(buf.Length);
+        if (BitConverter.IsLittleEndian)
+        {
+            Array.Reverse(lengthBytes);
+        }
+        await framedMs.WriteAsync(lengthBytes, cancellationToken);
+        await framedMs.WriteAsync(buf, cancellationToken);
+        
+        var framedMessage = framedMs.ToArray();
+        await conn.WriteAsync(framedMessage, cancellationToken);
         await conn.FlushAsync(cancellationToken);
     }
 
@@ -1553,7 +1678,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
             // Set read deadline
             conn.Socket.ReceiveTimeout = (int)_config.TCPTimeout.TotalMilliseconds;
 
-            // Read response
+            // Read response with proper TCP framing
             var buffer = new byte[1];
             var bytesRead = await conn.ReadAsync(buffer, cancellationToken);
             if (bytesRead == 0)
@@ -1561,20 +1686,89 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
                 throw new IOException("Connection closed by remote");
             }
 
-            var msgType = (MessageType)buffer[0];
+            // Read 4-byte length prefix (always present)
+            var lengthBytes = new byte[4];
+            lengthBytes[0] = buffer[0];
+            int totalRead = 1;
+            while (totalRead < 4)
+            {
+                var read = await conn.ReadAsync(lengthBytes.AsMemory(totalRead, 4 - totalRead), cancellationToken);
+                if (read == 0)
+                {
+                    throw new IOException("Connection closed while reading response length prefix");
+                }
+                totalRead += read;
+            }
+            
+            if (BitConverter.IsLittleEndian)
+            {
+                Array.Reverse(lengthBytes);
+            }
+            var messageLength = BitConverter.ToInt32(lengthBytes, 0);
+            _logger?.LogDebug("Reading {Length} bytes of response data", messageLength);
+            
+            // Read exact message payload
+            var messageData = new byte[messageLength];
+            totalRead = 0;
+            while (totalRead < messageLength)
+            {
+                var read = await conn.ReadAsync(messageData.AsMemory(totalRead, messageLength - totalRead), cancellationToken);
+                if (read == 0)
+                {
+                    throw new IOException($"Connection closed while reading response ({totalRead}/{messageLength} bytes read)");
+                }
+                totalRead += read;
+            }
+            
+            // Decrypt if encryption is enabled
+            if (_config.EncryptionEnabled())
+            {
+                _logger?.LogDebug("Decrypting push-pull response");
+                var authData = System.Text.Encoding.UTF8.GetBytes(_config.Label);
+                messageData = Security.DecryptPayload(_config.Keyring!.GetKeys().ToArray(), messageData, authData);
+            }
+            
+            // Get message type and create stream
+            var msgType = (MessageType)messageData[0];
+            _logger?.LogDebug("Response message type: {MessageType}", msgType);
+            
+            // Handle compression if present
+            if (msgType == MessageType.Compress)
+            {
+                _logger?.LogDebug("Decompressing push-pull response");
+                try
+                {
+                    var compressedData = messageData[1..];
+                    var decompressedPayload = Common.CompressionUtils.DecompressPayload(compressedData);
+                    
+                    if (decompressedPayload.Length > 0)
+                    {
+                        msgType = (MessageType)decompressedPayload[0];
+                        _logger?.LogDebug("Decompressed response message type: {MessageType}", msgType);
+                        messageData = decompressedPayload;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogError(ex, "Failed to decompress push-pull response");
+                    throw;
+                }
+            }
+            
+            Stream responseStream = new MemoryStream(messageData, 1, messageData.Length - 1);
 
             if (msgType == MessageType.Err)
             {
-                // Decode error message from remote
+                // Decode error message
                 try
                 {
                     var errResp = await MessagePack.MessagePackSerializer.DeserializeAsync<Messages.ErrRespMessage>(
-                        conn, cancellationToken: cancellationToken);
+                        responseStream, cancellationToken: cancellationToken);
                     throw new RemoteErrorException(errResp.Error, addr.Addr);
                 }
                 catch (RemoteErrorException)
                 {
-                    throw; // Re-throw remote errors
+                    throw;
                 }
                 catch (Exception ex)
                 {
@@ -1588,8 +1782,8 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
                 throw new Exception($"Expected PushPull but got {msgType}");
             }
 
-            // Read remote state
-            var (remoteNodes, userState) = await ReadRemoteStateAsync(conn, cancellationToken);
+            // Read remote state from response stream
+            var (remoteNodes, userState) = await ReadRemoteStateAsync(responseStream, cancellationToken);
             return (remoteNodes, userState);
         }
         catch (Exception ex)
@@ -1672,82 +1866,36 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
 
         var payloadBytes = payloadMs.ToArray();
 
-        // Build the complete message with length prefix
-        // NOTE: This differs from Go implementation (which has no length prefix when encryption disabled)
-        // but is necessary for C# async streams where MessagePackSerializer needs explicit framing
+        // Build the message: [PushPull byte][payload]
+        // TCP framing (length prefix) is handled by RawSendMsgStreamAsync
         using var finalMs = new MemoryStream();
-
-        // Write message type
         finalMs.WriteByte((byte)MessageType.PushPull);
-
-        // Write 4-byte length prefix (big-endian) - enables proper async deserialization
-        var lengthBytes = BitConverter.GetBytes(payloadBytes.Length);
-        if (BitConverter.IsLittleEndian)
-        {
-            Array.Reverse(lengthBytes);
-        }
-        await finalMs.WriteAsync(lengthBytes, cancellationToken);
-
-        // Write payload
         await finalMs.WriteAsync(payloadBytes, cancellationToken);
 
-        // Send the complete buffer
         var buffer = finalMs.ToArray();
-        await conn.WriteAsync(buffer, cancellationToken);
-        await conn.FlushAsync(cancellationToken);
+        
+        // RawSendMsgStreamAsync adds TCP framing and handles compression/encryption
+        await RawSendMsgStreamAsync(conn, buffer, streamLabel ?? "", cancellationToken);
     }
 
     /// <summary>
     /// Reads remote state from a TCP stream connection.
+    /// Stream should already be positioned after the message type byte.
     /// </summary>
     private async Task<(List<Messages.PushNodeState> RemoteNodes, byte[]? UserState)> ReadRemoteStateAsync(
-        NetworkStream conn,
+        Stream conn,
         CancellationToken cancellationToken)
     {
-        // Read 4-byte length prefix (big-endian)
-        // NOTE: This differs from Go implementation but is necessary for C# async streaming
-        var lengthBytes = new byte[4];
-        var totalRead = 0;
-        while (totalRead < 4)
-        {
-            var bytesRead = await conn.ReadAsync(lengthBytes.AsMemory(totalRead, 4 - totalRead), cancellationToken);
-            if (bytesRead == 0)
-            {
-                throw new IOException("Connection closed while reading length prefix");
-            }
-            totalRead += bytesRead;
-        }
-
-        if (BitConverter.IsLittleEndian)
-        {
-            Array.Reverse(lengthBytes);
-        }
-        var payloadLength = BitConverter.ToInt32(lengthBytes, 0);
-
-        // Read exact payload bytes into buffer
-        var payloadBuffer = new byte[payloadLength];
-        totalRead = 0;
-        while (totalRead < payloadLength)
-        {
-            var bytesRead = await conn.ReadAsync(payloadBuffer.AsMemory(totalRead, payloadLength - totalRead), cancellationToken);
-            if (bytesRead == 0)
-            {
-                throw new IOException("Connection closed while reading payload");
-            }
-            totalRead += bytesRead;
-        }
-
-        // Deserialize from complete buffer (avoids streaming ambiguity)
-        using var payloadStream = new MemoryStream(payloadBuffer, false);
-
-        // Read header
-        var header = await MessagePack.MessagePackSerializer.DeserializeAsync<Messages.PushPullHeader>(payloadStream, cancellationToken: cancellationToken);
-
+        // Read header first
+        var header = await MessagePack.MessagePackSerializer.DeserializeAsync<Messages.PushPullHeader>(
+            conn, cancellationToken: cancellationToken);
+        
         // Read nodes
         var remoteNodes = new List<Messages.PushNodeState>(header.Nodes);
         for (int i = 0; i < header.Nodes; i++)
         {
-            var node = await MessagePack.MessagePackSerializer.DeserializeAsync<Messages.PushNodeState>(payloadStream, cancellationToken: cancellationToken);
+            var node = await MessagePack.MessagePackSerializer.DeserializeAsync<Messages.PushNodeState>(
+                conn, cancellationToken: cancellationToken);
             remoteNodes.Add(node);
         }
 
@@ -1756,7 +1904,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
         if (header.UserStateLen > 0)
         {
             userState = new byte[header.UserStateLen];
-            var read = await payloadStream.ReadAsync(userState, cancellationToken);
+            var read = await conn.ReadAsync(userState, cancellationToken);
             if (read != header.UserStateLen)
             {
                 throw new IOException($"Expected {header.UserStateLen} bytes of user state but got {read}");

@@ -9,15 +9,15 @@ namespace NSerf.Memberlist;
 /// </summary>
 public class RttEstimator
 {
-    private readonly Dictionary<string, TimeSpan> _rttCache = new();
+    private readonly Dictionary<string, TimeSpan> _rttCache = [];
     private readonly object _lock = new();
     private readonly int _maxEntries;
-    
+
     public RttEstimator(int maxEntries = 1000)
     {
         _maxEntries = maxEntries;
     }
-    
+
     /// <summary>
     /// Records an RTT measurement for a node.
     /// </summary>
@@ -26,7 +26,7 @@ public class RttEstimator
         lock (_lock)
         {
             _rttCache[nodeId] = rtt;
-            
+
             // Prune if too large
             if (_rttCache.Count > _maxEntries)
             {
@@ -38,7 +38,7 @@ public class RttEstimator
             }
         }
     }
-    
+
     /// <summary>
     /// Gets the estimated RTT for a node.
     /// </summary>
@@ -49,7 +49,7 @@ public class RttEstimator
             return _rttCache.TryGetValue(nodeId, out var rtt) ? rtt : null;
         }
     }
-    
+
     /// <summary>
     /// Clears all RTT data.
     /// </summary>
