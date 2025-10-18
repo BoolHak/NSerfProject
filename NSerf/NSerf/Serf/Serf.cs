@@ -172,8 +172,11 @@ public partial class Serf : IDisposable, IAsyncDisposable
                 var memberInfo = kvp.Value;
 
                 // If we have a stored Member object (from HandleNodeLeave), use it
+                // BUT always use the current status from memberInfo, not the cached Member.Status
                 if (memberInfo.Member != null)
                 {
+                    // Update the status in the member object to match current state
+                    memberInfo.Member.Status = memberInfo.Status;
                     members.Add(memberInfo.Member);
                 }
                 else if (memberlistNodes.TryGetValue(kvp.Key, out var node))
@@ -359,9 +362,22 @@ public partial class Serf : IDisposable, IAsyncDisposable
             previousNodes = snapshotter.AliveNodes();
 
             serf.Logger?.LogInformation("[Serf/Snapshot] Loaded {Count} previous nodes from snapshot", previousNodes.Count);
+            Console.WriteLine($"[SNAPSHOT DEBUG] Loaded {previousNodes.Count} nodes from snapshot at {config.SnapshotPath}");
             foreach (var node in previousNodes)
             {
                 serf.Logger?.LogInformation("[Serf/Snapshot] - Previous node: {Name} at {Addr}", node.Name, node.Addr);
+                Console.WriteLine($"[SNAPSHOT DEBUG] - Node: {node.Name} at {node.Addr}");
+            }
+            
+            // DEBUG: Check snapshot file
+            if (System.IO.File.Exists(config.SnapshotPath))
+            {
+                var fileInfo = new System.IO.FileInfo(config.SnapshotPath);
+                Console.WriteLine($"[SNAPSHOT DEBUG] File exists: {config.SnapshotPath}, Size: {fileInfo.Length} bytes");
+            }
+            else
+            {
+                Console.WriteLine($"[SNAPSHOT DEBUG] File DOES NOT exist: {config.SnapshotPath}");
             }
         }
         else
@@ -456,24 +472,29 @@ public partial class Serf : IDisposable, IAsyncDisposable
                 {
                     // Give memberlist more time to fully initialize
                     serf.Logger?.LogInformation("[Serf/AutoRejoin] Waiting 500ms for memberlist initialization...");
+                    Console.WriteLine("[Serf/AutoRejoin] Waiting 500ms for memberlist initialization...");
                     await Task.Delay(500);
 
                     var addrs = previousNodes.Select(n => n.Addr).ToArray();
                     serf.Logger?.LogInformation("[Serf/AutoRejoin] Attempting to join {Count} addresses: [{Addrs}]",
                         addrs.Length, string.Join(", ", addrs));
+                    Console.WriteLine($"[Serf/AutoRejoin] Attempting to join {addrs.Length} addresses: [{string.Join(", ", addrs)}]");
 
                     var joined = await serf.JoinAsync(addrs, ignoreOld: true);
                     serf.Logger?.LogInformation("[Serf/AutoRejoin] Auto-rejoin completed, successfully joined {Joined}/{Total} nodes",
                         joined, addrs.Length);
+                    Console.WriteLine($"[Serf/AutoRejoin] Auto-rejoin completed, successfully joined {joined}/{addrs.Length} nodes");
 
                     if (joined == 0)
                     {
                         serf.Logger?.LogWarning("[Serf/AutoRejoin] Failed to join any nodes during auto-rejoin");
+                        Console.WriteLine("[Serf/AutoRejoin] WARNING: Failed to join any nodes during auto-rejoin");
                     }
                 }
                 catch (Exception ex)
                 {
                     serf.Logger?.LogError(ex, "[Serf/AutoRejoin] Exception during auto-rejoin");
+                    Console.WriteLine($"[Serf/AutoRejoin] EXCEPTION: {ex.Message}\n{ex.StackTrace}");
                 }
             });
         }
@@ -807,6 +828,21 @@ public partial class Serf : IDisposable, IAsyncDisposable
             }
         }
 
+        // Wait for snapshotter to finish flushing (CRITICAL for auto-rejoin)
+        if (Snapshotter != null)
+        {
+            try
+            {
+                Logger?.LogInformation("[Serf] Waiting for snapshotter to finish...");
+                await Snapshotter.WaitAsync();
+                Logger?.LogInformation("[Serf] Snapshotter shutdown complete");
+            }
+            catch (Exception ex)
+            {
+                Logger?.LogError(ex, "[Serf] Failed to wait for snapshotter shutdown");
+            }
+        }
+
         // Give a moment for any pending callbacks to complete
         await Task.Delay(50);
     }
@@ -892,6 +928,15 @@ public partial class Serf : IDisposable, IAsyncDisposable
             // Mark member as leaving/left if it exists
             if (MemberStates.TryGetValue(leave.Node, out var memberInfo))
             {
+                // Don't downgrade Left back to Leaving
+                // Once memberlist has confirmed the node is Left (via Dead message), 
+                // stale leave intent messages should not override that
+                if (memberInfo.Status == MemberStatus.Left)
+                {
+                    Logger?.LogDebug("[Serf] Ignoring leave intent for already-left member {Node}", leave.Node);
+                    return;
+                }
+                
                 // Only update if this is newer than current status
                 if (leave.LTime > memberInfo.StatusLTime)
                 {
@@ -943,9 +988,74 @@ public partial class Serf : IDisposable, IAsyncDisposable
 
     internal bool HandleNodeJoinIntent(MessageJoin join)
     {
-        // Stub - to be fully implemented in Phase 9
         Logger?.LogDebug("[Serf] HandleNodeJoinIntent: {Node} at LTime {LTime}", join.Node, join.LTime);
-        return false; // No rebroadcast for now
+        
+        // Witness a potentially newer time
+        Clock.Witness(join.LTime);
+
+        return WithWriteLock(_memberLock, () =>
+        {
+            // Check if we know about this member
+            if (!MemberStates.TryGetValue(join.Node, out var memberInfo))
+            {
+                // We don't know about this member yet. The actual member join from memberlist
+                // will arrive later and will create the member. We don't need recentIntents
+                // tracking in our simpler implementation since memberlist handles that.
+                // Rebroadcast since this is new information.
+                Logger?.LogDebug("[Serf] HandleNodeJoinIntent: Unknown member {Node}, will rebroadcast", join.Node);
+                return true;
+            }
+
+            // Check if this time is newer than what we have
+            if (join.LTime <= memberInfo.StatusLTime)
+            {
+                Logger?.LogDebug("[Serf] HandleNodeJoinIntent: Ignoring old join intent for {Node} (LTime {LTime} <= {StatusLTime})",
+                    join.Node, join.LTime, memberInfo.StatusLTime);
+                return false;
+            }
+
+            // Update the LTime
+            var oldStatus = memberInfo.Status;
+            memberInfo.StatusLTime = join.LTime;
+
+            // IMPORTANT: Do NOT update a Left/Failed member back to Alive based solely on join intents.
+            // Join intent messages may still be propagating in the network after a node has left.
+            // We should only update back to Alive when we receive an actual NotifyJoin from memberlist,
+            // which indicates the node has genuinely reconnected at the memberlist level.
+            // 
+            // In Go's implementation, the join intent only updates statusLTime and may change Leaving -> Alive,
+            // but does NOT change Left/Failed -> Alive. That transition only happens via handleNodeJoin.
+            if (memberInfo.Status == MemberStatus.Leaving)
+            {
+                // Leaving -> Alive is OK, since the leave broadcast may have been preempted by a newer join
+                Logger?.LogInformation("[Serf] HandleNodeJoinIntent: Member {Node} was Leaving, updating to Alive due to newer join intent",
+                    join.Node);
+                    
+                memberInfo.Status = MemberStatus.Alive;
+                if (memberInfo.Member != null)
+                {
+                    memberInfo.Member.Status = MemberStatus.Alive;
+                }
+
+                // Emit a member join event
+                var memberEvent = new MemberEvent
+                {
+                    Type = EventType.MemberJoin,
+                    Members = new List<Member> { memberInfo.Member ?? new Member { Name = join.Node, Status = MemberStatus.Alive } }
+                };
+                EmitEvent(memberEvent);
+            }
+            else if (memberInfo.Status == MemberStatus.Left || memberInfo.Status == MemberStatus.Failed)
+            {
+                // Do NOT update Left/Failed back to Alive based on join intent alone
+                Logger?.LogDebug("[Serf] HandleNodeJoinIntent: Ignoring join intent for {Status} member {Node} (old intents may still be propagating)",
+                    memberInfo.Status, join.Node);
+                return false; // Don't rebroadcast stale join intents for left/failed nodes
+            }
+
+            // Rebroadcast since we updated the LTime
+            return true;
+        });
     }
 
     internal bool HandleUserEvent(MessageUserEvent userEvent)
@@ -1038,12 +1148,10 @@ public partial class Serf : IDisposable, IAsyncDisposable
 
         Logger?.LogDebug("[Serf] HandleNodeJoin: {Name}", node.Name);
 
-        // Don't process if we're ignoring joins (during rejoin with ignoreOld=true)
-        if (EventJoinIgnore)
-        {
-            Logger?.LogTrace("[Serf] Ignoring join event for: {Name}", node.Name);
-            return;
-        }
+        // NOTE: EventJoinIgnore only affects USER EVENTS, not member join events!
+        // In Go, eventJoinIgnore is only used to set eventMinTime in the delegate
+        // to filter old user events during auto-rejoin. Member join events are
+        // always processed.
 
         WithWriteLock(_memberLock, () =>
         {
@@ -1128,7 +1236,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
             return;
         }
 
-        Logger?.LogDebug("[Serf] HandleNodeLeave: {Name}", node.Name);
+        Logger?.LogDebug("[Serf] HandleNodeLeave: {Name}, NodeState={State}", node.Name, node.State);
 
         // Determine event type based on memberlist's determination
         // Memberlist sets State to Left for graceful leave (node == from in Dead message)

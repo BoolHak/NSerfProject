@@ -217,7 +217,8 @@ public class Snapshotter : IDisposable
     /// </summary>
     public async Task LeaveAsync()
     {
-        await _leaveCh.Writer.WriteAsync(true, _shutdownToken);
+        // Process leave immediately and synchronously to ensure it's written before shutdown
+        await HandleLeaveAsync();
     }
 
     private void StartProcessing()
@@ -329,6 +330,13 @@ public class Snapshotter : IDisposable
             
             // Snapshot the clock
             UpdateClock();
+
+            // Process any pending leave events FIRST
+            while (_leaveCh.Reader.TryRead(out var _))
+            {
+                DebugLog("Stream: processing pending leave during shutdown");
+                await HandleLeaveAsync();
+            }
 
             // Drain remaining events
             while (_streamCh.Reader.TryRead(out var evt))

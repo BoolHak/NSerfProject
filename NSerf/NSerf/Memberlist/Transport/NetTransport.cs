@@ -71,8 +71,9 @@ public class NetTransport : INodeAwareTransport
         {
             var ip = IPAddress.Parse(addr);
             
-            // Create TCP listener
+            // Create TCP listener with SO_REUSEADDR to avoid TIME_WAIT issues
             var tcpListener = new TcpListener(ip, port);
+            tcpListener.Server.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
             tcpListener.Start();
             _tcpListeners.Add(tcpListener);
             
@@ -82,8 +83,10 @@ public class NetTransport : INodeAwareTransport
                 port = ((IPEndPoint)tcpListener.LocalEndpoint).Port;
             }
             
-            // Create UDP listener
-            var udpListener = new UdpClient(new IPEndPoint(ip, port));
+            // Create UDP listener with SO_REUSEADDR to avoid TIME_WAIT issues
+            var udpListener = new UdpClient();
+            udpListener.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+            udpListener.Client.Bind(new IPEndPoint(ip, port));
             
             // Try to set large receive buffer
             try
