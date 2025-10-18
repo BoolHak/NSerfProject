@@ -1804,12 +1804,14 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
     {
         conn.Socket.SendTimeout = (int)_config.TCPTimeout.TotalMilliseconds;
 
-        // Prepare local node state (only include alive/suspect nodes, not dead)
+        // Prepare local node state - include ALL states (Alive, Suspect, Dead, Left)
+        // This matches Go memberlist behavior and is critical for rejoin scenarios.
+        // Dead/Left nodes MUST be included so rejoining nodes can see their own tombstone
+        // and trigger refutation by incrementing incarnation.
         List<Messages.PushNodeState> localNodes;
         lock (_nodeLock)
         {
             localNodes = [.. _nodes
-                .Where(n => n.State != NodeStateType.Dead) // Don't send dead nodes
                 .Select(n => new Messages.PushNodeState
                 {
                     Name = n.Name,

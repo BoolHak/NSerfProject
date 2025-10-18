@@ -83,7 +83,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
     internal Serf(Config config, ILogger? logger = null)
     {
         Config = config ?? throw new ArgumentNullException(nameof(config));
-        Logger = logger;
+        Logger = logger ?? config.Logger;
 
         Clock = new LamportClock();
         EventClock = new LamportClock();
@@ -998,12 +998,21 @@ public partial class Serf : IDisposable, IAsyncDisposable
             // Check if we know about this member
             if (!MemberStates.TryGetValue(join.Node, out var memberInfo))
             {
-                // We don't know about this member yet. The actual member join from memberlist
-                // will arrive later and will create the member. We don't need recentIntents
-                // tracking in our simpler implementation since memberlist handles that.
-                // Rebroadcast since this is new information.
-                Logger?.LogDebug("[Serf] HandleNodeJoinIntent: Unknown member {Node}, will rebroadcast", join.Node);
-                return true;
+                // Create a basic MemberInfo entry for push-pull state synchronization
+                // NOTE: We don't emit a MemberJoin event here because we don't have the address yet.
+                // The event will be emitted when HandleNodeJoin is called with the full Node object.
+                memberInfo = new MemberInfo
+                {
+                    Name = join.Node,
+                    StatusLTime = join.LTime,
+                    Status = MemberStatus.Alive
+                    // Member will be populated by HandleNodeJoin with full address info
+                };
+                MemberStates[join.Node] = memberInfo;
+                
+                Logger?.LogDebug("[Serf] HandleNodeJoinIntent: Created placeholder for unknown member {Node} with LTime {LTime}", 
+                    join.Node, join.LTime);
+                return true; // Rebroadcast since this is new information
             }
 
             // Check if this time is newer than what we have
@@ -1396,8 +1405,8 @@ public partial class Serf : IDisposable, IAsyncDisposable
             Logger?.LogWarning("[Serf] HandleNodeConflict called with null node(s)");
             return;
         }
-        Logger?.LogWarning("[Serf] HandleNodeConflict: {Existing} conflicts with {Other}",
-            existing.Name, other.Name);
+        Logger?.LogWarning("[Serf] HandleNodeConflict: {ExistingName} ({ExistingAddr}:{ExistingPort}) conflicts with {OtherName} ({OtherAddr}:{OtherPort})",
+            existing.Name, existing.Addr, existing.Port, other.Name, other.Addr, other.Port);
     }
 
     internal Coordinate.Coordinate GetCoordinate()

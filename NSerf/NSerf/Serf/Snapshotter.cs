@@ -83,15 +83,26 @@ public class Snapshotter : IDisposable
             SingleWriter = false
         });
 
-        // Try to open the file
+        // Try to open the file with retry logic to handle file locks from previous instances
         FileStream fh;
-        try
+        int retries = 5;
+        while (true)
         {
-            fh = new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
-        }
-        catch (Exception ex)
-        {
-            throw new IOException($"Failed to open snapshot: {ex.Message}", ex);
+            try
+            {
+                fh = new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read);
+                break;
+            }
+            catch (IOException ex) when (retries > 0)
+            {
+                retries--;
+                logger?.LogWarning("Failed to open snapshot (retries left: {Retries}): {Error}", retries, ex.Message);
+                await Task.Delay(100);
+            }
+            catch (Exception ex)
+            {
+                throw new IOException($"Failed to open snapshot: {ex.Message}", ex);
+            }
         }
 
         // Determine the offset
@@ -282,7 +293,18 @@ public class Snapshotter : IDisposable
                 // Create tasks once per iteration so we can compare references reliably
                 var tLeave = _leaveCh.Reader.ReadAsync(_shutdownToken).AsTask();
                 var tEvent = _streamCh.Reader.ReadAsync(_shutdownToken).AsTask();
-                var tClock = clockTimer.WaitForNextTickAsync(_shutdownToken).AsTask();
+                Task<bool> tClock;
+                
+                try
+                {
+                    tClock = clockTimer.WaitForNextTickAsync(_shutdownToken).AsTask();
+                }
+                catch (ObjectDisposedException)
+                {
+                    // Timer was disposed, treat as shutdown
+                    DebugLog("Stream: clockTimer disposed, exiting");
+                    break;
+                }
 
                 var completed = await Task.WhenAny(tLeave, tEvent, tClock);
 
@@ -314,7 +336,16 @@ public class Snapshotter : IDisposable
                     var evt = await tEvent;
                     DebugLog($"Stream: processing event {evt.GetType().Name}");
                     _logger?.LogInformation("[Snapshotter/Stream] Processing event: {Type}", evt.GetType().Name);
-                    FlushEvent(evt);
+                    try
+                    {
+                        FlushEvent(evt);
+                        DebugLog($"Stream: successfully flushed event {evt.GetType().Name}");
+                    }
+                    catch (Exception ex)
+                    {
+                        DebugLog($"Stream: FlushEvent error {ex.GetType().Name} {ex.Message} {ex.StackTrace}");
+                        throw;
+                    }
                 }
                 else if (completed == tClock)
                 {
@@ -324,40 +355,14 @@ public class Snapshotter : IDisposable
         }
         catch (OperationCanceledException)
         {
-            DebugLog("Stream: cancelled");
-            // Shutdown - flush remaining events with timeout
-            var cts = new CancellationTokenSource(ShutdownFlushTimeoutMs);
-            
-            // Snapshot the clock
-            UpdateClock();
-
-            // Process any pending leave events FIRST
-            while (_leaveCh.Reader.TryRead(out var _))
-            {
-                DebugLog("Stream: processing pending leave during shutdown");
-                await HandleLeaveAsync();
-            }
-
-            // Drain remaining events
-            while (_streamCh.Reader.TryRead(out var evt))
-            {
-                if (cts.Token.IsCancellationRequested) break;
-                DebugLog($"Stream: draining event {evt.GetType().Name}");
-                FlushEvent(evt);
-            }
-
-            // Final flush
-            try
-            {
-                DebugLog("Stream: final flush");
-                await _bufferedWriter!.FlushAsync();
-                await _fileHandle!.FlushAsync();
-            }
-            catch (Exception ex)
-            {
-                DebugLog($"Stream: flush error {ex.Message}");
-                _logger?.LogError(ex, "Failed to flush snapshot during shutdown");
-            }
+            DebugLog("Stream: cancelled (OperationCanceledException)");
+            await PerformShutdownFlushAsync();
+        }
+        catch (InvalidOperationException ex) when (_shutdownToken.IsCancellationRequested)
+        {
+            // PeriodicTimer can throw InvalidOperationException during shutdown
+            DebugLog($"Stream: cancelled (InvalidOperationException during shutdown): {ex.Message}");
+            await PerformShutdownFlushAsync();
         }
         catch (Exception ex)
         {
@@ -381,6 +386,43 @@ public class Snapshotter : IDisposable
             DebugLog("Stream: exiting");
             _fileHandle?.Close();
             _waitTcs.SetResult();
+        }
+    }
+
+    private async Task PerformShutdownFlushAsync()
+    {
+        // Shutdown - flush remaining events with timeout
+        var cts = new CancellationTokenSource(ShutdownFlushTimeoutMs);
+        
+        // Snapshot the clock
+        UpdateClock();
+
+        // Process any pending leave events FIRST
+        while (_leaveCh.Reader.TryRead(out var _))
+        {
+            DebugLog("Stream: processing pending leave during shutdown");
+            await HandleLeaveAsync();
+        }
+
+        // Drain remaining events
+        while (_streamCh.Reader.TryRead(out var evt))
+        {
+            if (cts.Token.IsCancellationRequested) break;
+            DebugLog($"Stream: draining event {evt.GetType().Name}");
+            FlushEvent(evt);
+        }
+
+        // Final flush
+        try
+        {
+            DebugLog("Stream: final flush");
+            await _bufferedWriter!.FlushAsync();
+            await _fileHandle!.FlushAsync();
+        }
+        catch (Exception ex)
+        {
+            DebugLog($"Stream: flush error {ex.Message}");
+            _logger?.LogError(ex, "Failed to flush snapshot during shutdown");
         }
     }
 
@@ -655,7 +697,7 @@ public class Snapshotter : IDisposable
                 File.Move(newPath, _path);
 
                 // Reopen
-                _fileHandle = new FileStream(_path, FileMode.Append, FileAccess.Write, FileShare.None);
+                _fileHandle = new FileStream(_path, FileMode.Append, FileAccess.Write, FileShare.Read);
                 _bufferedWriter = new StreamWriter(_fileHandle, Encoding.UTF8, bufferSize: 4096, leaveOpen: true);
                 _offset = offset;
                 _lastFlush = DateTime.UtcNow;

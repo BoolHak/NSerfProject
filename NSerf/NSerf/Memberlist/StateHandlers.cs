@@ -18,11 +18,49 @@ public class StateHandlers
 {
     private readonly Memberlist _memberlist;
     private readonly ILogger? _logger;
+    private readonly object _incLock = new();
 
     public StateHandlers(Memberlist memberlist, ILogger? logger)
     {
         _memberlist = memberlist;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// Atomically bumps local incarnation to be strictly greater than the specified minimum.
+    /// Used for refutation when the cluster has a stale view of us.
+    /// </summary>
+    private void BumpIncarnationAtLeast(uint min)
+    {
+        lock (_incLock)
+        {
+            if (!_memberlist._nodeMap.TryGetValue(_memberlist._config.Name, out var local))
+                return;
+
+            // Ensure strictly greater than both our current and the remote's
+            var target = Math.Max(local.Incarnation, min) + 1;
+            if (target == local.Incarnation) return; // Already at or above
+
+            local.Incarnation = target;
+            _logger?.LogInformation("Auto-refuted incarnation: {OldInc} → {NewInc} (detected stuck state)", 
+                local.Incarnation - 1, target);
+
+            // Broadcast immediate Alive with bumped incarnation
+            var alive = new Messages.Alive
+            {
+                Incarnation = target,
+                Node = local.Node.Name,
+                Addr = local.Node.Addr.GetAddressBytes(),
+                Port = local.Node.Port,
+                Meta = local.Node.Meta,
+                Vsn = new[]
+                {
+                    local.Node.PMin, local.Node.PMax, local.Node.PCur,
+                    local.Node.DMin, local.Node.DMax, local.Node.DCur
+                }
+            };
+            _memberlist.EncodeAndBroadcast(local.Node.Name, Messages.MessageType.Alive, alive);
+        }
     }
 
     /// <summary>
@@ -192,11 +230,15 @@ public class StateHandlers
                         }
                     }
 
-                    // Allow address update if node is dead or left (with reclaim time check)
+                    // Allow address update if:
+                    // 1. Node is Left, OR
+                    // 2. Node is Dead and reclaim time elapsed, OR
+                    // 3. Incarnation is strictly greater (rejoin scenario)
                     bool canReclaim = _memberlist._config.DeadNodeReclaimTime > TimeSpan.Zero &&
                         (DateTimeOffset.UtcNow - state.StateChange) > _memberlist._config.DeadNodeReclaimTime;
+                    bool higherIncarnation = alive.Incarnation > state.Incarnation;
 
-                    if (state.State == NodeStateType.Left || (state.State == NodeStateType.Dead && canReclaim))
+                    if (state.State == NodeStateType.Left || (state.State == NodeStateType.Dead && canReclaim) || higherIncarnation)
                     {
                         var newIp = new IPAddress(alive.Addr);
                         _logger?.LogInformation("Updating address for left/failed node {Node} from {OldIP}:{OldPort} to {NewIP}:{NewPort}",
@@ -601,6 +643,28 @@ public class StateHandlers
     /// </summary>
     public void MergeRemoteState(List<PushNodeState> remoteNodes)
     {
+        // SURGICAL FIX: Check if we're stuck (remote has us as Dead/Left with >= incarnation)
+        // If so, auto-increment our incarnation to break free and allow rejoin.
+        // This is the standard refutation mechanism in SWIM/memberlist protocols.
+        var ourState = remoteNodes.FirstOrDefault(n => n.Name == _memberlist._config.Name);
+
+        if (ourState != null && 
+            (ourState.State == NodeStateType.Dead || ourState.State == NodeStateType.Left))
+        {
+            if (_memberlist._nodeMap.TryGetValue(_memberlist._config.Name, out var localState))
+            {
+                // If remote thinks we're Dead/Left with >= incarnation, we're stuck!
+                if (ourState.Incarnation >= localState.Incarnation)
+                {
+                    _logger?.LogWarning("Detected stuck state: Remote has us as {State} with Inc={RemoteInc}, our Inc={OurInc}. Auto-refuting!",
+                        ourState.State, ourState.Incarnation, localState.Incarnation);
+
+                    // Atomically bump incarnation strictly above remote's view
+                    BumpIncarnationAtLeast(ourState.Incarnation);
+                }
+            }
+        }
+
         foreach (var remote in remoteNodes)
         {
             switch (remote.State)
