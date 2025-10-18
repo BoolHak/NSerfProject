@@ -1672,13 +1672,15 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
 
         var payloadBytes = payloadMs.ToArray();
 
-        // Now build the complete message with length prefix
+        // Build the complete message with length prefix
+        // NOTE: This differs from Go implementation (which has no length prefix when encryption disabled)
+        // but is necessary for C# async streams where MessagePackSerializer needs explicit framing
         using var finalMs = new MemoryStream();
 
         // Write message type
         finalMs.WriteByte((byte)MessageType.PushPull);
 
-        // Write length prefix (4 bytes, big-endian)
+        // Write 4-byte length prefix (big-endian) - enables proper async deserialization
         var lengthBytes = BitConverter.GetBytes(payloadBytes.Length);
         if (BitConverter.IsLittleEndian)
         {
@@ -1702,7 +1704,8 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
         NetworkStream conn,
         CancellationToken cancellationToken)
     {
-        // Read length prefix (4 bytes, big-endian)
+        // Read 4-byte length prefix (big-endian)
+        // NOTE: This differs from Go implementation but is necessary for C# async streaming
         var lengthBytes = new byte[4];
         var totalRead = 0;
         while (totalRead < 4)
@@ -1721,7 +1724,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
         }
         var payloadLength = BitConverter.ToInt32(lengthBytes, 0);
 
-        // Read exact payload bytes
+        // Read exact payload bytes into buffer
         var payloadBuffer = new byte[payloadLength];
         totalRead = 0;
         while (totalRead < payloadLength)
@@ -1734,7 +1737,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
             totalRead += bytesRead;
         }
 
-        // Now deserialize from the complete buffer
+        // Deserialize from complete buffer (avoids streaming ambiguity)
         using var payloadStream = new MemoryStream(payloadBuffer, false);
 
         // Read header
