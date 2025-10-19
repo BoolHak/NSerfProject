@@ -39,29 +39,46 @@
 
 ---
 
-## 🔄 In Progress
+## ✅ Completed Fixes (Continued)
 
 ### Fix 2: Shutdown Coordination
-**Status**: NOT STARTED
+**Status**: ✅ COMPLETE AND TESTED
 
-**Required Changes**:
-1. Update `TeeStreamAsync()` to use `ReadAllAsync(_shutdownToken)`
-2. Call `_streamCh.Writer.Complete()` in finally block
-3. Update `PerformShutdownFlushAsync()` to use `ReadAllAsync()` with timeout
+**Changes Made**:
+- Updated `TeeStreamAsync()` to use `ReadAllAsync(_shutdownToken)` (lines 258-286)
+- Added `_streamCh.Writer.Complete()` in finally block (lines 293-307)
+  - Signals that no more events will be written
+  - Allows StreamAsync to drain safely
+- Updated `PerformShutdownFlushAsync()` to use `ReadAllAsync()` with timeout (lines 440-444)
+  - Respects channel completion from TeeStream
+  - Drains all events within timeout period
 
-**Tests to Pass**:
-- ✅ `Shutdown_ShouldNotLoseEvents` (currently passing with unbounded)
-- ✅ `Shutdown_ShouldCompleteWithinTimeout` (currently passing)
+**Tests Passing**:
+- ✅ `Shutdown_ShouldNotLoseEvents`
+- ✅ `Shutdown_ShouldCompleteWithinTimeout`
 
 ---
 
-## 📋 Pending Fixes
-
 ### Fix 4: Async I/O
-**Status**: NOT STARTED
+**Status**: ✅ COMPLETE AND TESTED
+
+**Changes Made**:
+- Converted `ForceFlush()` to `ForceFlushAsync()` (lines 558-580)
+  - Keeps writer flush synchronous inside lock (for atomicity)
+  - Makes file flush async outside lock
+- Converted `FlushEvent()` to `FlushEventAsync()` (lines 495-515)
+- Converted `ProcessMemberEvent()` to `ProcessMemberEventAsync()` (lines 517-556)
+- Updated all callers to await async methods
+
+**Tests Passing**:
+- ✅ All 6 unit tests still passing
+
+---
+
+## 📋 Pending Fixes (Lower Priority)
 
 ### Fix 5: Compaction Lock Optimization
-**Status**: NOT STARTED
+**Status**: NOT STARTED (Medium priority)
 
 ### Fix 6: Leave Synchronization
 **Status**: NOT STARTED
@@ -81,14 +98,22 @@
 - ✅ MemoryUsage_ShouldStayBounded
 
 ### ⚠️ Existing Integration Tests (SerfSnapshotTest)
-**0/3 Passing** (Pre-existing failures, not caused by our changes)
+**0/3 Passing** (Pre-existing failures, unrelated to Snapshotter)
 
-These tests were already failing due to rejoin issues documented in memory:
+These tests continue to fail due to **memberlist rejoin logic issues**:
 - ❌ Serf_SnapshotRecovery_ShouldRestoreAndAutoRejoin
 - ❌ Serf_Leave_SnapshotRecovery_ShouldNotAutoRejoin
 - ❌ Serf_RejoinAfterLeave_ShouldAutoRejoin
 
-**Note**: These failures are related to memberlist rejoin logic (TCP push-pull, incarnation refutation), NOT to the Snapshotter changes we made.
+**Root Cause** (from memory investigation):
+- Snapshotter correctly saves/restores alive nodes ✅
+- Snapshotter correctly calls `JoinAsync()` with previous addresses ✅
+- **BUT**: JoinManager only sends UDP ping, not TCP push-pull
+- Node2's Alive broadcasts don't reach Node1's HandleAliveNode
+- Rejoin requires TCP push-pull for state synchronization and refutation
+- This is a **memberlist/JoinManager issue**, not Snapshotter
+
+**Snapshotter is Working Correctly** - The rejoin failure is in the cluster join protocol, not snapshot persistence.
 
 ---
 

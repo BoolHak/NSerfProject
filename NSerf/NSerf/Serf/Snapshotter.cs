@@ -254,20 +254,33 @@ public class Snapshotter : IDisposable, IAsyncDisposable
         _logger?.LogInformation("[Snapshotter/TeeStream] Task started, waiting for events...");
         try
         {
-            while (await _inCh.WaitToReadAsync(_shutdownToken))
+            // Use ReadAllAsync to automatically respect cancellation
+            await foreach (var evt in _inCh.ReadAllAsync(_shutdownToken))
             {
-                while (_inCh.TryRead(out var evt))
+                DebugLog($"TeeStream: received {evt.GetType().Name}");
+                _logger?.LogInformation("[Snapshotter/TeeStream] Received event: {Type}", evt.GetType().Name);
+                
+                // Forward to stream channel (may block on backpressure)
+                try
                 {
-                    DebugLog($"TeeStream: received {evt.GetType().Name}");
-                    _logger?.LogInformation("[Snapshotter/TeeStream] Received event: {Type}", evt.GetType().Name);
-                    
-                    // Forward to stream channel
                     await _streamCh.Writer.WriteAsync(evt, _shutdownToken);
-                    
-                    // Forward to output channel if configured
-                    if (_outCh != null)
+                }
+                catch (OperationCanceledException)
+                {
+                    // Shutdown requested - stop forwarding
+                    break;
+                }
+                
+                // Forward to output channel if configured (non-blocking)
+                if (_outCh != null)
+                {
+                    try
                     {
                         await _outCh.WriteAsync(evt, _shutdownToken);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // Continue - outCh failure shouldn't stop snapshot writes
                     }
                 }
             }
@@ -276,6 +289,21 @@ public class Snapshotter : IDisposable, IAsyncDisposable
         {
             DebugLog("TeeStream: cancelled");
             _logger?.LogInformation("[Snapshotter/TeeStream] Task cancelled (shutdown)");
+        }
+        finally
+        {
+            // Critical: Signal that no more events will be written to streamCh
+            // This allows StreamAsync to drain all remaining events safely
+            try
+            {
+                _streamCh.Writer.Complete();
+                DebugLog("TeeStream: completed streamCh writer");
+                _logger?.LogInformation("[Snapshotter/TeeStream] Completed streamCh writer");
+            }
+            catch (Exception ex)
+            {
+                DebugLog($"TeeStream: error completing streamCh {ex.Message}");
+            }
         }
     }
 
@@ -340,7 +368,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
                     _logger?.LogInformation("[Snapshotter/Stream] Processing event: {Type}", evt.GetType().Name);
                     try
                     {
-                        FlushEvent(evt);
+                        await FlushEventAsync(evt);
                         DebugLog($"Stream: successfully flushed event {evt.GetType().Name}");
                     }
                     catch (Exception ex)
@@ -393,10 +421,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
 
     private async Task PerformShutdownFlushAsync()
     {
-        // Shutdown - flush remaining events with timeout
-        var cts = new CancellationTokenSource(ShutdownFlushTimeoutMs);
-        
-        // Snapshot the clock
+        // Snapshot the clock first
         UpdateClock();
 
         // Process any pending leave events FIRST
@@ -406,12 +431,24 @@ public class Snapshotter : IDisposable, IAsyncDisposable
             await HandleLeaveAsync();
         }
 
-        // Drain remaining events
-        while (_streamCh.Reader.TryRead(out var evt))
+        // Wait for TeeStreamAsync to complete the channel, then drain remaining events
+        // Use ReadAllAsync with timeout to ensure we don't wait forever
+        var cts = new CancellationTokenSource(ShutdownFlushTimeoutMs);
+        try
         {
-            if (cts.Token.IsCancellationRequested) break;
-            DebugLog($"Stream: draining event {evt.GetType().Name}");
-            FlushEvent(evt);
+            DebugLog("Stream: draining remaining events from streamCh");
+            await foreach (var evt in _streamCh.Reader.ReadAllAsync(cts.Token))
+            {
+                DebugLog($"Stream: draining event {evt.GetType().Name}");
+                await FlushEventAsync(evt);
+            }
+            DebugLog("Stream: all events drained successfully");
+        }
+        catch (OperationCanceledException)
+        {
+            // Timeout reached - acceptable data loss scenario
+            DebugLog("Stream: drain timeout reached, some events may be lost");
+            _logger?.LogWarning("[Snapshotter] Shutdown drain timeout - some pending events may not be persisted");
         }
 
         // Final flush
@@ -420,6 +457,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
             DebugLog("Stream: final flush");
             await _bufferedWriter!.FlushAsync();
             await _fileHandle!.FlushAsync();
+            DebugLog("Stream: final flush complete");
         }
         catch (Exception ex)
         {
@@ -454,7 +492,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
         }
     }
 
-    private void FlushEvent(Event e)
+    private async Task FlushEventAsync(Event e)
     {
         // Stop recording events after a leave is issued
         if (_leaving) return;
@@ -462,7 +500,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
         switch (e)
         {
             case MemberEvent memberEvent:
-                ProcessMemberEvent(memberEvent);
+                await ProcessMemberEventAsync(memberEvent);
                 break;
             case UserEvent userEvent:
                 ProcessUserEvent(userEvent);
@@ -476,7 +514,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
         }
     }
 
-    private void ProcessMemberEvent(MemberEvent e)
+    private async Task ProcessMemberEventAsync(MemberEvent e)
     {
         DebugLog($"ProcessMemberEvent: {e.EventType()} members={e.Members.Count}");
         _logger?.LogInformation("[Snapshotter] Processing MemberEvent: {Type} with {Count} members", 
@@ -514,19 +552,26 @@ public class Snapshotter : IDisposable, IAsyncDisposable
         }
         UpdateClock();
         // Force an immediate flush to make snapshot visible promptly
-        ForceFlush();
+        await ForceFlushAsync();
     }
 
-    private void ForceFlush()
+    private async Task ForceFlushAsync()
     {
         try
         {
+            // Flush writer inside lock for atomicity
             lock (_fileLock)
             {
                 _bufferedWriter?.Flush();
-                _fileHandle?.Flush();
-                _lastFlush = DateTime.UtcNow;
             }
+            
+            // Flush file async (outside lock)
+            if (_fileHandle != null)
+            {
+                await _fileHandle.FlushAsync();
+            }
+            
+            _lastFlush = DateTime.UtcNow;
         }
         catch (Exception ex)
         {
