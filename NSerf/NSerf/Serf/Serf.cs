@@ -1400,14 +1400,112 @@ public partial class Serf : IDisposable, IAsyncDisposable
 
     internal void HandleNodeConflict(Memberlist.State.Node? existing, Memberlist.State.Node? other)
     {
-        // Stub - to be fully implemented in Phase 9
         if (existing == null || other == null)
         {
             Logger?.LogWarning("[Serf] HandleNodeConflict called with null node(s)");
             return;
         }
-        Logger?.LogWarning("[Serf] HandleNodeConflict: {ExistingName} ({ExistingAddr}:{ExistingPort}) conflicts with {OtherName} ({OtherAddr}:{OtherPort})",
-            existing.Name, existing.Addr, existing.Port, other.Name, other.Addr, other.Port);
+
+        // Log a basic warning if the node is not us...
+        if (existing.Name != Config.NodeName)
+        {
+            Logger?.LogWarning("[Serf] Name conflict for '{Name}' both {Addr1}:{Port1} and {Addr2}:{Port2} are claiming",
+                existing.Name, existing.Addr, existing.Port, other.Addr, other.Port);
+            return;
+        }
+
+        // The current node is conflicting! This is an error
+        Logger?.LogError("[Serf] Node name conflicts with another node at {Addr}:{Port}. Names must be unique! (Resolution enabled: {Enabled})",
+            other.Addr, other.Port, Config.EnableNameConflictResolution);
+
+        // If automatic resolution is enabled, kick off the resolution
+        if (Config.EnableNameConflictResolution)
+        {
+            _ = Task.Run(async () => await ResolveNodeConflictAsync());
+        }
+    }
+
+    /// <summary>
+    /// ResolveNodeConflict is used to determine which node should remain during
+    /// a name conflict. This is done by running an internal query.
+    /// Maps to: Go's resolveNodeConflict()
+    /// </summary>
+    private async Task ResolveNodeConflictAsync()
+    {
+        try
+        {
+            // Get the local node
+            var local = Memberlist?.LocalNode;
+            if (local == null)
+            {
+                Logger?.LogError("[Serf] Cannot resolve conflict: memberlist not initialized");
+                return;
+            }
+
+            // Start a name resolution query
+            var queryName = $"_serf_conflict";
+            var payload = System.Text.Encoding.UTF8.GetBytes(Config.NodeName);
+            
+            var queryParams = new QueryParam
+            {
+                Timeout = TimeSpan.FromSeconds(5)
+            };
+
+            Logger?.LogInformation("[Serf] Starting conflict resolution query for '{NodeName}'", Config.NodeName);
+            
+            var resp = await QueryAsync(queryName, payload, queryParams);
+
+            // Counter to determine winner
+            int responses = 0;
+            int matching = 0;
+
+            // Gather responses
+            await foreach (var r in resp.ResponseCh.ReadAllAsync())
+            {
+                // Decode the response
+                if (r.Payload.Length < 1 || (MessageType)r.Payload[0] != MessageType.ConflictResponse)
+                {
+                    Logger?.LogError("[Serf] Invalid conflict query response type: {Type}", r.Payload.Length > 0 ? r.Payload[0] : -1);
+                    continue;
+                }
+
+                try
+                {
+                    var member = MessagePackSerializer.Deserialize<Member>(r.Payload[1..]);
+                    
+                    // Update the counters
+                    responses++;
+                    if (member.Addr.Equals(local.Addr) && member.Port == local.Port)
+                    {
+                        matching++;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Logger?.LogError(ex, "[Serf] Failed to decode conflict query response");
+                    continue;
+                }
+            }
+
+            // Query over, determine if we should live
+            int majority = (responses / 2) + 1;
+            if (matching >= majority)
+            {
+                Logger?.LogInformation("[Serf] majority in name conflict resolution [{Matching} / {Responses}]",
+                    matching, responses);
+                return;
+            }
+
+            // Since we lost the vote, we need to exit
+            Logger?.LogWarning("[Serf] minority in name conflict resolution, quitting [{Matching} / {Responses}]",
+                matching, responses);
+            
+            await ShutdownAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger?.LogError(ex, "[Serf] Failed to resolve node conflict");
+        }
     }
 
     internal Coordinate.Coordinate GetCoordinate()
