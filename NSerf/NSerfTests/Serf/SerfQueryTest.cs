@@ -233,13 +233,13 @@ public class SerfQueryTest
         // Allow propagation and async handlers
         await Task.Delay(500);
 
-        // Assert - read two responses from node1 (direct + relayed via node3)
+        // Assert - read response from node1 (relay provides network redundancy but duplicate detection filters it)
         var responses = new List<NodeResponse>();
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
 
         try
         {
-            while (!timeout.IsCancellationRequested && responses.Count < 2)
+            while (!timeout.IsCancellationRequested && responses.Count < 1)
             {
                 // Prefer immediate read if available
                 if (resp.ResponseCh.TryRead(out var r))
@@ -257,9 +257,11 @@ public class SerfQueryTest
             // ignore
         }
 
-        // We expect 2 responses total from the same sender due to relay duplication
-        responses.Should().HaveCountGreaterOrEqualTo(2, "RelayFactor should cause duplicate responses via peer");
-        responses.All(r => r.From == "node1").Should().BeTrue("both responses should originate from node1");
+        // We expect 1 response (duplicate detection filters the relayed response from same node)
+        // RelayFactor provides redundancy at the network level, but application-level duplicate detection
+        // ensures we only process one response per sender (Go serf.go:1447-1450)
+        responses.Should().HaveCount(1, "duplicate detection should filter relayed response from same node");
+        responses.First().From.Should().Be("node1", "response should come from node1");
 
         // Cleanup
         cts.Cancel();

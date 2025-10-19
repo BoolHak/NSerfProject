@@ -269,20 +269,14 @@ public partial class Serf
     /// </summary>
     internal void HandleQueryResponse(MessageQueryResponse response)
     {
-        Console.WriteLine($"[HANDLERESPONSE] ENTER: LTime={response.LTime}, ID={response.ID}, From={response.From}, Flags={response.Flags}");
-        
         WithReadLock(_queryLock, () =>
         {
-            Console.WriteLine($"[HANDLERESPONSE] Looking up query for LTime={response.LTime}");
-            Console.WriteLine($"[HANDLERESPONSE] Currently tracking {_queryResponses.Count} query responses");
             // Lookup the corresponding QueryResponse
             if (!_queryResponses.TryGetValue(response.LTime, out var query))
             {
-                Console.WriteLine($"[HANDLERESPONSE] NO QUERY FOUND for LTime={response.LTime}");
                 Logger?.LogDebug("[Serf] Received response for unknown query at LTime {LTime}", response.LTime);
                 return;
             }
-            Console.WriteLine($"[HANDLERESPONSE] Found query object: LTime={query.LTime}, ID={query.Id}, Address={query.GetHashCode()}");
 
             // Verify ID matches
             if (query.Id != response.ID)
@@ -295,14 +289,12 @@ public partial class Serf
             // Check if this is an acknowledgement
             if ((response.Flags & (uint)QueryFlags.Ack) != 0)
             {
-                Console.WriteLine($"[HANDLERESPONSE] This is an ACK, writing to channel");
                 // Handle ack - use async method with Task.Run to ensure execution
                 _ = Task.Run(async () => await query.SendAck(response.From));
                 Logger?.LogTrace("[Serf] Received ack from {From} for query", response.From);
             }
             else
             {
-                Console.WriteLine($"[HANDLERESPONSE] This is a RESPONSE, writing to channel");
                 // Handle response - use async method with Task.Run to ensure execution
                 var nr = new NodeResponse
                 {

@@ -97,18 +97,20 @@ public class QueryResponse
     /// </summary>
     public async Task SendResponse(NodeResponse nr)
     {
-        Console.WriteLine($"[SENDRESPONSE] ENTER: from={nr.From}, payload size={nr.Payload.Length}");
-        
-        // Check for duplicate (Go serf.go:1447-1450)
-        bool isDuplicate;
+        // Atomically check for duplicate and add if not duplicate (Go serf.go:1447-1450)
+        bool shouldSend;
         lock (_responses)
         {
-            isDuplicate = _responses.Contains(nr.From);
+            shouldSend = !_responses.Contains(nr.From);
+            if (shouldSend)
+            {
+                // Reserve immediately to prevent race condition
+                _responses.Add(nr.From);
+            }
         }
         
-        if (isDuplicate)
+        if (!shouldSend)
         {
-            Console.WriteLine($"[SENDRESPONSE] DUPLICATE from {nr.From}");
             // Emit duplicate response metric
             _serf?.Config.Metrics.IncrCounter(new[] { "serf", "query_duplicate_responses" }, 1, _serf.Config.MetricLabels);
             return;
@@ -118,26 +120,15 @@ public class QueryResponse
         {
             if (_closed)
             {
-                Console.WriteLine($"[SENDRESPONSE] FAILED: channel closed");
                 return;
             }
         }
 
-        Console.WriteLine($"[SENDRESPONSE] Waiting to write to channel...");
         if (await _respCh.Writer.WaitToWriteAsync())
         {
             await _respCh.Writer.WriteAsync(nr);
-            Console.WriteLine($"[SENDRESPONSE] SUCCESS: wrote response from {nr.From} to channel");
-            lock (_responses)
-            {
-                _responses.Add(nr.From);
-            }
             // Emit valid response metric (Go serf.go:1452)
             _serf?.Config.Metrics.IncrCounter(new[] { "serf", "query_responses" }, 1, _serf.Config.MetricLabels);
-        }
-        else
-        {
-            Console.WriteLine($"[SENDRESPONSE] FAILED: WaitToWriteAsync returned false");
         }
     }
 
@@ -146,24 +137,25 @@ public class QueryResponse
     /// </summary>
     public async Task SendAck(string from)
     {
-        Console.WriteLine($"[SENDACK_CH] ENTER: from={from}");
-        
         if (_ackCh == null)
         {
-            Console.WriteLine($"[SENDACK_CH] FAILED: ack channel is null");
             return;
         }
 
-        // Check for duplicate (Go serf.go:1435-1438)
-        bool isDuplicate;
+        // Atomically check for duplicate and add if not duplicate (Go serf.go:1435-1438)
+        bool shouldSend;
         lock (_acks)
         {
-            isDuplicate = _acks.Contains(from);
+            shouldSend = !_acks.Contains(from);
+            if (shouldSend)
+            {
+                // Reserve immediately to prevent race condition
+                _acks.Add(from);
+            }
         }
         
-        if (isDuplicate)
+        if (!shouldSend)
         {
-            Console.WriteLine($"[SENDACK_CH] DUPLICATE from {from}");
             // Emit duplicate ack metric
             _serf?.Config.Metrics.IncrCounter(new[] { "serf", "query_duplicate_acks" }, 1, _serf.Config.MetricLabels);
             return;
@@ -173,26 +165,15 @@ public class QueryResponse
         {
             if (_closed)
             {
-                Console.WriteLine($"[SENDACK_CH] FAILED: channel closed");
                 return;
             }
         }
 
-        Console.WriteLine($"[SENDACK_CH] Waiting to write to channel...");
         if (await _ackCh.Writer.WaitToWriteAsync())
         {
             await _ackCh.Writer.WriteAsync(from);
-            Console.WriteLine($"[SENDACK_CH] SUCCESS: wrote ack from {from} to channel");
-            lock (_acks)
-            {
-                _acks.Add(from);
-            }
             // Emit valid ack metric (Go serf.go:1440)
             _serf?.Config.Metrics.IncrCounter(new[] { "serf", "query_acks" }, 1, _serf.Config.MetricLabels);
-        }
-        else
-        {
-            Console.WriteLine($"[SENDACK_CH] FAILED: WaitToWriteAsync returned false");
         }
     }
 }

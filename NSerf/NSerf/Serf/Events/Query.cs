@@ -148,6 +148,7 @@ public class Query : Event
         // Relay the response through up to relayFactor other nodes (Go line 185-188)
         if (RelayFactor > 0)
         {
+
             try
             {
                 // Destination for the relayed message is the original requester
@@ -172,6 +173,7 @@ public class Query : Event
                 if (candidates.Count > 0)
                 {
                     var selected = QueryHelpers.KRandomMembers(Math.Min((int)RelayFactor, candidates.Count), candidates);
+                    
                     foreach (var m in selected)
                     {
                         var relayAddr = new Address
