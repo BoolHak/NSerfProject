@@ -22,7 +22,7 @@ namespace NSerf.Serf;
 /// nodes to re-join, as well as restore our clock values to avoid replaying
 /// old events.
 /// </summary>
-public class Snapshotter : IDisposable
+public class Snapshotter : IDisposable, IAsyncDisposable
 {
     private const int FlushIntervalMs = 500;
     private const int ClockUpdateIntervalMs = 500;
@@ -77,10 +77,11 @@ public class Snapshotter : IDisposable
         ChannelWriter<Event>? outCh,
         CancellationToken shutdownToken)
     {
-        var inCh = Channel.CreateUnbounded<Event>(new UnboundedChannelOptions
+        var inCh = Channel.CreateBounded<Event>(new BoundedChannelOptions(EventChSize)
         {
             SingleReader = true,
-            SingleWriter = false
+            SingleWriter = false,
+            FullMode = BoundedChannelFullMode.Wait  // Apply backpressure when full
         });
 
         // Try to open the file with retry logic to handle file locks from previous instances
@@ -163,10 +164,11 @@ public class Snapshotter : IDisposable
         _fileHandle = fileHandle;
         _bufferedWriter = new StreamWriter(fileHandle, Encoding.UTF8, bufferSize: 4096, leaveOpen: true);
         _inCh = inCh;
-        _streamCh = Channel.CreateUnbounded<Event>(new UnboundedChannelOptions
+        _streamCh = Channel.CreateBounded<Event>(new BoundedChannelOptions(EventChSize)
         {
             SingleReader = true,
-            SingleWriter = false
+            SingleWriter = false,
+            FullMode = BoundedChannelFullMode.Wait  // Apply backpressure when full
         });
         _lastClock = lastClock;
         _lastEventClock = lastEventClock;
@@ -805,10 +807,69 @@ public class Snapshotter : IDisposable
         _fileHandle.Seek(0, SeekOrigin.End);
     }
 
+    /// <summary>
+    /// Disposes the snapshotter asynchronously, waiting for background tasks to complete.
+    /// This is the preferred disposal method as it ensures all pending writes are flushed.
+    /// </summary>
+    public async ValueTask DisposeAsync()
+    {
+        // Signal no more events will be written to streamCh
+        try
+        {
+            _streamCh.Writer.Complete();
+        }
+        catch
+        {
+            // Channel may already be completed
+        }
+
+        // Wait for background tasks to finish
+        var tasks = new List<Task>();
+        if (_teeTask != null) tasks.Add(_teeTask);
+        if (_streamTask != null) tasks.Add(_streamTask);
+        
+        if (tasks.Count > 0)
+        {
+            try
+            {
+                await Task.WhenAll(tasks).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected during shutdown
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "Error waiting for snapshotter tasks to complete");
+            }
+        }
+        
+        // Dispose resources synchronously
+        Dispose();
+    }
+
+    /// <summary>
+    /// Synchronous disposal. Use DisposeAsync() when possible.
+    /// </summary>
     public void Dispose()
     {
-        _bufferedWriter?.Dispose();
-        _fileHandle?.Dispose();
+        try
+        {
+            _bufferedWriter?.Dispose();
+        }
+        catch (ObjectDisposedException)
+        {
+            // Already disposed by StreamAsync
+        }
+        
+        try
+        {
+            _fileHandle?.Dispose();
+        }
+        catch (ObjectDisposedException)
+        {
+            // Already disposed by StreamAsync
+        }
     }
 }
 
