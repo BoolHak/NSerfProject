@@ -18,6 +18,7 @@ public class QueryResponse
     private readonly HashSet<string> _responses = new();
     private readonly object _closeLock = new();
     private bool _closed;
+    private readonly Serf? _serf; // For metrics emission
 
     /// <summary>
     /// Deadline is the query end time (start + query timeout).
@@ -39,9 +40,11 @@ public class QueryResponse
     /// </summary>
     /// <param name="capacity">Channel capacity</param>
     /// <param name="requestAck">Whether acks are requested</param>
-    public QueryResponse(int capacity, bool requestAck)
+    /// <param name="serf">Serf instance for metrics emission</param>
+    public QueryResponse(int capacity, bool requestAck, Serf? serf = null)
     {
         _respCh = Channel.CreateBounded<NodeResponse>(capacity);
+        _serf = serf;
         
         if (requestAck)
         {
@@ -96,6 +99,21 @@ public class QueryResponse
     {
         Console.WriteLine($"[SENDRESPONSE] ENTER: from={nr.From}, payload size={nr.Payload.Length}");
         
+        // Check for duplicate (Go serf.go:1447-1450)
+        bool isDuplicate;
+        lock (_responses)
+        {
+            isDuplicate = _responses.Contains(nr.From);
+        }
+        
+        if (isDuplicate)
+        {
+            Console.WriteLine($"[SENDRESPONSE] DUPLICATE from {nr.From}");
+            // Emit duplicate response metric
+            _serf?.Config.Metrics.IncrCounter(new[] { "serf", "query_duplicate_responses" }, 1, _serf.Config.MetricLabels);
+            return;
+        }
+        
         lock (_closeLock)
         {
             if (_closed)
@@ -114,6 +132,8 @@ public class QueryResponse
             {
                 _responses.Add(nr.From);
             }
+            // Emit valid response metric (Go serf.go:1452)
+            _serf?.Config.Metrics.IncrCounter(new[] { "serf", "query_responses" }, 1, _serf.Config.MetricLabels);
         }
         else
         {
@@ -131,6 +151,21 @@ public class QueryResponse
         if (_ackCh == null)
         {
             Console.WriteLine($"[SENDACK_CH] FAILED: ack channel is null");
+            return;
+        }
+
+        // Check for duplicate (Go serf.go:1435-1438)
+        bool isDuplicate;
+        lock (_acks)
+        {
+            isDuplicate = _acks.Contains(from);
+        }
+        
+        if (isDuplicate)
+        {
+            Console.WriteLine($"[SENDACK_CH] DUPLICATE from {from}");
+            // Emit duplicate ack metric
+            _serf?.Config.Metrics.IncrCounter(new[] { "serf", "query_duplicate_acks" }, 1, _serf.Config.MetricLabels);
             return;
         }
 
@@ -152,6 +187,8 @@ public class QueryResponse
             {
                 _acks.Add(from);
             }
+            // Emit valid ack metric (Go serf.go:1440)
+            _serf?.Config.Metrics.IncrCounter(new[] { "serf", "query_acks" }, 1, _serf.Config.MetricLabels);
         }
         else
         {

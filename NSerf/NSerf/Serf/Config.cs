@@ -6,6 +6,7 @@ using System.Threading.Channels;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSerf.Memberlist.Configuration;
+using NSerf.Metrics;
 using NSerf.Serf.Events;
 
 namespace NSerf.Serf;
@@ -293,12 +294,27 @@ public class Config
     public bool MsgpackUseNewTimeFormat { get; set; } = false;
 
     /// <summary>
+    /// Metrics is the interface for emitting metrics. If not set, NullMetrics will be used (no-op).
+    /// You can provide your own implementation that forwards to Prometheus, StatsD, etc.
+    /// </summary>
+    public IMetrics Metrics { get; set; } = NullMetrics.Instance;
+
+    /// <summary>
+    /// MetricLabels is an optional array of labels to apply to all emitted metrics.
+    /// For example: [new MetricLabel("datacenter", "us-west"), new MetricLabel("env", "prod")]
+    /// Reference: Go implementation uses []metrics.Label
+    /// </summary>
+    public MetricLabel[] MetricLabels { get; set; } = Array.Empty<MetricLabel>();
+
+    /// <summary>
     /// Init allocates the sub-data structures.
     /// </summary>
     public void Init()
     {
         Tags ??= new Dictionary<string, string>();
         MessageDropper ??= _ => false;
+        Metrics ??= NullMetrics.Instance;
+        MetricLabels ??= Array.Empty<MetricLabel>();
     }
 
     /// <summary>

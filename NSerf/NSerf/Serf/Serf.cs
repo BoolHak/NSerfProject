@@ -816,6 +816,18 @@ public partial class Serf : IDisposable, IAsyncDisposable
             }
         }
 
+        if (_queueMonitorTask != null)
+        {
+            try
+            {
+                await _queueMonitorTask;
+            }
+            catch (Exception ex)
+            {
+                Logger?.LogDebug(ex, "[Serf] Queue monitor task shutdown");
+            }
+        }
+
         // Shutdown memberlist AFTER state transition to prevent race conditions
         if (Memberlist != null)
         {
@@ -907,13 +919,17 @@ public partial class Serf : IDisposable, IAsyncDisposable
 
     internal void RecordMessageReceived(int size)
     {
-        // Metrics recording - to be implemented with metrics system
+        // Emit metrics
+        // Reference: Go delegate.go:36
+        Config.Metrics.AddSample(new[] { "serf", "msgs", "received" }, size, Config.MetricLabels);
         Logger?.LogTrace("[Serf] Message received: {Size} bytes", size);
     }
 
     internal void RecordMessageSent(int size)
     {
-        // Metrics recording - to be implemented with metrics system
+        // Emit metrics
+        // Reference: Go delegate.go:148
+        Config.Metrics.AddSample(new[] { "serf", "msgs", "sent" }, size, Config.MetricLabels);
         Logger?.LogTrace("[Serf] Message sent: {Size} bytes", size);
     }
 
@@ -1120,6 +1136,11 @@ public partial class Serf : IDisposable, IAsyncDisposable
                 Payload = userEvent.Payload
             });
 
+            // Emit metrics
+            // Reference: Go serf.go:1289-1290
+            Config.Metrics.IncrCounter(new[] { "serf", "events" }, 1, Config.MetricLabels);
+            Config.Metrics.IncrCounter(new[] { "serf", "events", userEvent.Name }, 1, Config.MetricLabels);
+
             // Send to EventCh if configured
             if (Config.EventCh != null)
             {
@@ -1199,6 +1220,17 @@ public partial class Serf : IDisposable, IAsyncDisposable
             {
                 // Update existing member (rejoin)
                 var oldStatus = memberInfo.Status;
+                
+                // Check for flap (Go serf.go:969-971)
+                if (oldStatus == MemberStatus.Failed && memberInfo.LeaveTime != default)
+                {
+                    var deadTime = DateTimeOffset.UtcNow - memberInfo.LeaveTime;
+                    if (deadTime < Config.FlapTimeout)
+                    {
+                        Config.Metrics.IncrCounter(new[] { "serf", "member", "flap" }, 1, Config.MetricLabels);
+                    }
+                }
+                
                 memberInfo.StatusLTime = Clock.Time();
                 memberInfo.Status = MemberStatus.Alive;
                 memberInfo.Member = member;
@@ -1206,6 +1238,10 @@ public partial class Serf : IDisposable, IAsyncDisposable
                     node.Name, oldStatus, MemberStates.Count);
             }
         });
+
+        // Emit metrics
+        // Reference: Go serf.go:997
+        Config.Metrics.IncrCounter(new[] { "serf", "member", "join" }, 1, Config.MetricLabels);
 
         // Emit join event to both Snapshotter and EventCh
         var member = new Member
@@ -1267,6 +1303,10 @@ public partial class Serf : IDisposable, IAsyncDisposable
             eventType = EventType.MemberLeave;
             memberStatus = MemberStatus.Left;
         }
+
+        // Emit metrics
+        // Reference: Go serf.go:1047 - metrics by status (failed or left)
+        Config.Metrics.IncrCounter(new[] { "serf", "member", memberStatus.ToStatusString() }, 1, Config.MetricLabels);
 
         try
         {
@@ -1384,6 +1424,13 @@ public partial class Serf : IDisposable, IAsyncDisposable
                 Logger?.LogWarning("[Serf] HandleNodeUpdate: Member {Name} not found in MemberStates", node.Name);
             }
         });
+
+        // Emit metrics
+        // Reference: Go serf.go:1091
+        if (updatedMember != null)
+        {
+            Config.Metrics.IncrCounter(new[] { "serf", "member", "update" }, 1, Config.MetricLabels);
+        }
 
         // Emit update event if we successfully updated a member
         if (updatedMember != null)
@@ -1530,8 +1577,17 @@ public partial class Serf : IDisposable, IAsyncDisposable
 
         try
         {
+            // Get the current coordinate before update
+            var before = _coordClient.GetCoordinate();
+            
             // Update coordinate based on the observation
             var updated = _coordClient.Update(nodeName, coordinate, rtt);
+            
+            // Emit coordinate adjustment metric (Go ping_delegate.go:86-87)
+            // Calculate distance between old and new coordinate in milliseconds
+            var adjustment = (float)(before.DistanceTo(updated).TotalMilliseconds);
+            Config.Metrics.AddSample(new[] { "serf", "coordinate", "adjustment-ms" }, adjustment, Config.MetricLabels);
+            
             // Cache the latest coordinate for this node
             _coordCacheLock.EnterWriteLock();
             try
@@ -1548,6 +1604,8 @@ public partial class Serf : IDisposable, IAsyncDisposable
         }
         catch (Exception ex)
         {
+            // Emit coordinate rejection metric (Go ping_delegate.go:78)
+            Config.Metrics.IncrCounter(new[] { "serf", "coordinate", "rejected" }, 1, Config.MetricLabels);
             Logger?.LogError(ex, "[Serf] Failed to update coordinate for {Node}", nodeName);
         }
     }

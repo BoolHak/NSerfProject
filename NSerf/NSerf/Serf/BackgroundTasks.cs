@@ -15,15 +15,17 @@ public partial class Serf
     // Background task cancellation tokens
     private Task? _reapTask;
     private Task? _reconnectTask;
+    private Task? _queueMonitorTask;
 
     /// <summary>
-    /// Starts the background tasks (reaper and reconnect).
+    /// Starts the background tasks (reaper, reconnect, and queue monitoring).
     /// Called from CreateAsync after Serf is fully initialized.
     /// </summary>
     private void StartBackgroundTasks()
     {
         _reapTask = Task.Run(HandleReapAsync);
         _reconnectTask = Task.Run(HandleReconnectAsync);
+        _queueMonitorTask = Task.Run(HandleQueueMonitorAsync);
     }
 
     /// <summary>
@@ -77,6 +79,48 @@ public partial class Serf
         catch (Exception ex)
         {
             Logger?.LogError(ex, "[Serf] HandleReconnect error");
+        }
+    }
+
+    /// <summary>
+    /// Periodically monitors queue depths and emits metrics.
+    /// Runs on QueueCheckInterval until shutdown.
+    /// Reference: Go serf.go:1690-1696
+    /// </summary>
+    private async Task HandleQueueMonitorAsync()
+    {
+        try
+        {
+            while (!_shutdownCts.Token.IsCancellationRequested)
+            {
+                await Task.Delay(Config.QueueCheckInterval, _shutdownCts.Token);
+
+                // Check event queue depth
+                var eventQueueDepth = EventBroadcasts.Count;
+                Config.Metrics.AddSample(new[] { "serf", "queue", "event" }, eventQueueDepth, Config.MetricLabels);
+                
+                if (eventQueueDepth >= Config.QueueDepthWarning)
+                {
+                    Logger?.LogWarning("[Serf] event queue depth: {Depth}", eventQueueDepth);
+                }
+
+                // Check query queue depth
+                var queryQueueDepth = QueryBroadcasts.Count;
+                Config.Metrics.AddSample(new[] { "serf", "queue", "query" }, queryQueueDepth, Config.MetricLabels);
+                
+                if (queryQueueDepth >= Config.QueueDepthWarning)
+                {
+                    Logger?.LogWarning("[Serf] query queue depth: {Depth}", queryQueueDepth);
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected during shutdown
+        }
+        catch (Exception ex)
+        {
+            Logger?.LogError(ex, "[Serf] HandleQueueMonitor error");
         }
     }
 

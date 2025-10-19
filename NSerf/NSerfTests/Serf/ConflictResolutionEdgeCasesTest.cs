@@ -113,7 +113,7 @@ public class ConflictResolutionEdgeCasesTest : IDisposable
     }
 
     [Fact]
-    public async Task ConflictResolution_WithNullNodes_ShouldHandleGracefully()
+    public void ConflictResolution_WithNullNodes_ShouldHandleGracefully()
     {
         // Arrange
         var logger = new TestLogger();
@@ -354,7 +354,7 @@ public class ConflictResolutionEdgeCasesTest : IDisposable
     }
 
     [Fact]
-    public async Task ConflictResolution_WithVeryLargeCluster_ShouldScaleCorrectly()
+    public void ConflictResolution_WithVeryLargeCluster_ShouldScaleCorrectly()
     {
         // Edge case: Test with larger vote count
         // Simulates a 10-node cluster scenario

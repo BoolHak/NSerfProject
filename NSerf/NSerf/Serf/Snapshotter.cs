@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using NSerf.Metrics;
 using NSerf.Serf.Events;
 
 namespace NSerf.Serf;
@@ -59,6 +60,8 @@ public class Snapshotter : IDisposable, IAsyncDisposable
     private Task? _teeTask;
     private Task? _streamTask;
     private readonly object _fileLock = new();
+    private readonly IMetrics? _metrics;
+    private readonly MetricLabel[]? _metricLabels;
 
     /// <summary>
     /// Creates a new Snapshotter that records events up to a
@@ -124,7 +127,9 @@ public class Snapshotter : IDisposable, IAsyncDisposable
             offset: offset,
             outCh: outCh,
             rejoinAfterLeave: rejoinAfterLeave,
-            shutdownToken: shutdownToken);
+            shutdownToken: shutdownToken,
+            metrics: null,
+            metricLabels: null);
 
         // Recover the last known state
         try
@@ -157,7 +162,9 @@ public class Snapshotter : IDisposable, IAsyncDisposable
         long offset,
         ChannelWriter<Event>? outCh,
         bool rejoinAfterLeave,
-        CancellationToken shutdownToken)
+        CancellationToken shutdownToken,
+        IMetrics? metrics,
+        MetricLabel[]? metricLabels)
     {
         _aliveNodes = aliveNodes;
         _clock = clock;
@@ -181,6 +188,8 @@ public class Snapshotter : IDisposable, IAsyncDisposable
         _rejoinAfterLeave = rejoinAfterLeave;
         _shutdownToken = shutdownToken;
         _debugLogPath = path + ".log";
+        _metrics = metrics;
+        _metricLabels = metricLabels;
     }
 
     /// <summary>
@@ -664,28 +673,33 @@ public class Snapshotter : IDisposable, IAsyncDisposable
 
     private void AppendLine(string line)
     {
-        var bytes = Encoding.UTF8.GetByteCount(line);
-
-        lock (_fileLock)
+        // Emit duration metric (Go snapshot.go:397)
+        // Reference: defer metrics.MeasureSinceWithLabels([]string{"serf", "snapshot", "appendLine"}, time.Now(), s.metricLabels)
+        using (_metrics?.MeasureSince(new[] { "serf", "snapshot", "appendLine" }, _metricLabels))
         {
-            _bufferedWriter!.Write(line);
+            var bytes = Encoding.UTF8.GetByteCount(line);
 
-            // Check if we should flush
-            var now = DateTime.UtcNow;
-            if ((now - _lastFlush).TotalMilliseconds > FlushIntervalMs)
+            lock (_fileLock)
             {
-                _lastFlush = now;
-                _bufferedWriter.Flush();
-                _fileHandle!.Flush();
+                _bufferedWriter!.Write(line);
+
+                // Check if we should flush
+                var now = DateTime.UtcNow;
+                if ((now - _lastFlush).TotalMilliseconds > FlushIntervalMs)
+                {
+                    _lastFlush = now;
+                    _bufferedWriter.Flush();
+                    _fileHandle!.Flush();
+                }
+
+                _offset += bytes;
             }
 
-            _offset += bytes;
-        }
-
-        // Check compaction outside the file lock to avoid long-held locks during I/O
-        if (_offset > SnapshotMaxSize())
-        {
-            Compact();
+            // Check compaction outside the file lock to avoid long-held locks during I/O
+            if (_offset > SnapshotMaxSize())
+            {
+                Compact();
+            }
         }
     }
 
@@ -708,67 +722,72 @@ public class Snapshotter : IDisposable, IAsyncDisposable
 
     private void Compact()
     {
-        var newPath = _path + TmpExt;
-
-        // Step 1: Snapshot the alive nodes (SHORT lock)
-        Dictionary<string, string> aliveSnapshot;
-        lock (_lock)
+        // Emit duration metric (Go snapshot.go:436)
+        // Reference: defer metrics.MeasureSinceWithLabels([]string{"serf", "snapshot", "compact"}, time.Now(), s.metricLabels)
+        using (_metrics?.MeasureSince(new[] { "serf", "snapshot", "compact" }, _metricLabels))
         {
-            aliveSnapshot = new Dictionary<string, string>(_aliveNodes);
-        }
+            var newPath = _path + TmpExt;
 
-        // Step 2: Write to new file (NO lock - this is the slow part)
-        long newOffset;
-        using (var newFile = new FileStream(newPath, FileMode.Create, FileAccess.Write, FileShare.None))
-        using (var writer = new StreamWriter(newFile, Encoding.UTF8))
-        {
-            newOffset = 0;
-
-            // Write out alive nodes (no lock needed - we have a snapshot)
-            foreach (var (name, addr) in aliveSnapshot)
+            // Step 1: Snapshot the alive nodes (SHORT lock)
+            Dictionary<string, string> aliveSnapshot;
+            lock (_lock)
             {
-                var line = $"alive: {name} {addr}\n";
-                writer.Write(line);
-                newOffset += Encoding.UTF8.GetByteCount(line);
+                aliveSnapshot = new Dictionary<string, string>(_aliveNodes);
             }
 
-            // Write out clocks
-            var clockLine = $"clock: {_lastClock}\n";
-            writer.Write(clockLine);
-            newOffset += Encoding.UTF8.GetByteCount(clockLine);
-
-            var eventClockLine = $"event-clock: {_lastEventClock}\n";
-            writer.Write(eventClockLine);
-            newOffset += Encoding.UTF8.GetByteCount(eventClockLine);
-
-            var queryClockLine = $"query-clock: {_lastQueryClock}\n";
-            writer.Write(queryClockLine);
-            newOffset += Encoding.UTF8.GetByteCount(queryClockLine);
-
-            writer.Flush();
-            newFile.Flush(true);
-        } // Close and flush new file before swap
-
-        // Step 3: Atomic file swap (SHORT lock - just the swap operation)
-        lock (_fileLock)
-        {
-            try
+            // Step 2: Write to new file (NO lock - this is the slow part)
+            long newOffset;
+            using (var newFile = new FileStream(newPath, FileMode.Create, FileAccess.Write, FileShare.None))
+            using (var writer = new StreamWriter(newFile, Encoding.UTF8))
             {
-                _bufferedWriter?.Flush();
-                _bufferedWriter?.Dispose();
-                _fileHandle?.Close();
+                newOffset = 0;
+
+                // Write out alive nodes (no lock needed - we have a snapshot)
+                foreach (var (name, addr) in aliveSnapshot)
+                {
+                    var line = $"alive: {name} {addr}\n";
+                    writer.Write(line);
+                    newOffset += Encoding.UTF8.GetByteCount(line);
+                }
+
+                // Write out clocks
+                var clockLine = $"clock: {_lastClock}\n";
+                writer.Write(clockLine);
+                newOffset += Encoding.UTF8.GetByteCount(clockLine);
+
+                var eventClockLine = $"event-clock: {_lastEventClock}\n";
+                writer.Write(eventClockLine);
+                newOffset += Encoding.UTF8.GetByteCount(eventClockLine);
+
+                var queryClockLine = $"query-clock: {_lastQueryClock}\n";
+                writer.Write(queryClockLine);
+                newOffset += Encoding.UTF8.GetByteCount(queryClockLine);
+
+                writer.Flush();
+                newFile.Flush(true);
+            } // Close and flush new file before swap
+
+            // Step 3: Atomic file swap (SHORT lock - just the swap operation)
+            lock (_fileLock)
+            {
+                try
+                {
+                    _bufferedWriter?.Flush();
+                    _bufferedWriter?.Dispose();
+                    _fileHandle?.Close();
+                }
+                catch { /* ignore */ }
+
+                // Replace old file with new file
+                try { File.Delete(_path); } catch { }
+                File.Move(newPath, _path);
+
+                // Reopen
+                _fileHandle = new FileStream(_path, FileMode.Append, FileAccess.Write, FileShare.Read);
+                _bufferedWriter = new StreamWriter(_fileHandle, Encoding.UTF8, bufferSize: 4096, leaveOpen: true);
+                _offset = newOffset;
+                _lastFlush = DateTime.UtcNow;
             }
-            catch { /* ignore */ }
-
-            // Replace old file with new file
-            try { File.Delete(_path); } catch { }
-            File.Move(newPath, _path);
-
-            // Reopen
-            _fileHandle = new FileStream(_path, FileMode.Append, FileAccess.Write, FileShare.Read);
-            _bufferedWriter = new StreamWriter(_fileHandle, Encoding.UTF8, bufferSize: 4096, leaveOpen: true);
-            _offset = newOffset;
-            _lastFlush = DateTime.UtcNow;
         }
     }
     /// <summary>

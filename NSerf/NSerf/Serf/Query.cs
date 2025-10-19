@@ -77,7 +77,7 @@ public partial class Serf
         }
 
         // Register QueryResponse to track acks and responses
-        var resp = new QueryResponse(Memberlist?.NumMembers() ?? 1, parameters.RequestAck)
+        var resp = new QueryResponse(Memberlist?.NumMembers() ?? 1, parameters.RequestAck, this)
         {
             Deadline = DateTime.UtcNow.Add(parameters.Timeout),
             Id = q.ID,
@@ -174,6 +174,11 @@ public partial class Serf
                 seen.QueryIDs.Add(query.ID);
                 QueryBuffer[query.LTime] = seen;
             }
+
+            // Emit metrics
+            // Reference: Go serf.go:1348-1349
+            Config.Metrics.IncrCounter(new[] { "serf", "queries" }, 1, Config.MetricLabels);
+            Config.Metrics.IncrCounter(new[] { "serf", "queries", query.Name }, 1, Config.MetricLabels);
 
             Console.WriteLine($"[HANDLEQUERY] Checking filters for query {query.Name}, filter count={query.Filters.Count}");
             // Check if we should process this query
