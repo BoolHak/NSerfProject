@@ -22,8 +22,8 @@ public partial class Serf
     /// </summary>
     private void StartBackgroundTasks()
     {
-        _reapTask = Task.Run(async () => await HandleReapAsync());
-        _reconnectTask = Task.Run(async () => await HandleReconnectAsync());
+        _reapTask = Task.Run(HandleReapAsync);
+        _reconnectTask = Task.Run(HandleReconnectAsync);
     }
 
     /// <summary>
@@ -41,8 +41,8 @@ public partial class Serf
                 WithWriteLock(_memberLock, () =>
                 {
                     var now = DateTimeOffset.UtcNow;
-                    FailedMembers = Reap(FailedMembers, now, Config.ReconnectTimeout);
-                    LeftMembers = Reap(LeftMembers, now, Config.TombstoneTimeout);
+                    Reap(FailedMembers, now, Config.ReconnectTimeout);
+                    Reap(LeftMembers, now, Config.TombstoneTimeout);
                 });
             }
         }
@@ -82,18 +82,21 @@ public partial class Serf
 
     /// <summary>
     /// Reaps (removes) old members from a list that have exceeded the timeout.
-    /// Returns the updated list with expired members removed.
+    /// Modifies the list in-place using reverse iteration for efficient removal.
     /// </summary>
-    /// <param name="oldMembers">List of members to check</param>
+    /// <param name="members">List of members to check and modify</param>
     /// <param name="now">Current time</param>
     /// <param name="timeout">Timeout duration</param>
-    /// <returns>Updated list with expired members removed</returns>
-    private List<MemberInfo> Reap(List<MemberInfo> oldMembers, DateTimeOffset now, TimeSpan timeout)
+    /// <remarks>
+    /// Uses reverse iteration to avoid index shifting issues when removing items.
+    /// This approach reduces GC pressure compared to creating a new list.
+    /// </remarks>
+    private void Reap(List<MemberInfo> members, DateTimeOffset now, TimeSpan timeout)
     {
-        var remaining = new List<MemberInfo>();
-
-        foreach (var member in oldMembers)
+        // Iterate in reverse to safely remove items
+        for (int i = members.Count - 1; i >= 0; i--)
         {
+            var member = members[i];
             var memberTimeout = timeout;
 
             // Check if we should override the timeout (for dynamic timeout per member)
@@ -105,33 +108,55 @@ public partial class Serf
             // Skip if timeout not yet reached
             if (now - member.LeaveTime <= memberTimeout)
             {
-                remaining.Add(member);
                 continue;
             }
 
-            // Timeout exceeded - erase this member
+            // Timeout exceeded - erase this member and remove from list
             Logger?.LogInformation("[Serf] EventMemberReap: {Name}", member.Name);
             EraseNode(member);
+            members.RemoveAt(i);
         }
-
-        return remaining;
     }
 
     /// <summary>
     /// Completely removes a node from the member list and emits EventMemberReap.
     /// </summary>
     /// <param name="member">Member to erase</param>
+    /// <remarks>
+    /// THREAD SAFETY: This method assumes _memberLock write lock is already held by the caller.
+    /// It accesses MemberStates which requires synchronization.
+    /// </remarks>
     private void EraseNode(MemberInfo member)
     {
         // Delete from members map
         MemberStates.Remove(member.Name);
 
-        // TODO: Phase 10+ - Coordinate client cleanup
-        // if (!Config.DisableCoordinates)
-        // {
-        //     CoordClient.ForgetNode(member.Name);
-        //     CoordCache.Remove(member.Name);
-        // }
+        // Coordinate client cleanup (matches Go eraseNode)
+        if (!Config.DisableCoordinates)
+        {
+            try
+            {
+                _coordClient?.ForgetNode(member.Name);
+            }
+            catch (Exception ex)
+            {
+                Logger?.LogWarning(ex, "[Serf] CoordClient.ForgetNode error for {Name}", member.Name);
+            }
+
+            _coordCacheLock.EnterWriteLock();
+            try
+            {
+                // Remove cached coordinate entry for this node
+                if (_coordCache != null)
+                {
+                    _coordCache.Remove(member.Name);
+                }
+            }
+            finally
+            {
+                _coordCacheLock.ExitWriteLock();
+            }
+        }
 
         // Emit EventMemberReap
         if (Config.EventCh != null)
@@ -202,7 +227,7 @@ public partial class Serf
             // Attempt to join at memberlist level
             if (Memberlist != null)
             {
-                await Memberlist.JoinAsync(new[] { joinAddr }, CancellationToken.None);
+                await Memberlist.JoinAsync(new[] { joinAddr }, _shutdownCts.Token);
             }
         }
         catch (Exception ex)

@@ -98,7 +98,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
             {
                 retries--;
                 logger?.LogWarning("Failed to open snapshot (retries left: {Retries}): {Error}", retries, ex.Message);
-                await Task.Delay(100);
+                await Task.Delay(100, shutdownToken);
             }
             catch (Exception ex)
             {
@@ -206,7 +206,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
         lock (_lock)
         {
             var previous = _aliveNodes.Select(kvp => new PreviousNode(kvp.Key, kvp.Value)).ToList();
-            
+
             // Randomize the order (Fisher-Yates shuffle)
             var rng = new Random();
             for (int i = previous.Count - 1; i > 0; i--)
@@ -214,7 +214,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
                 int j = rng.Next(i + 1);
                 (previous[i], previous[j]) = (previous[j], previous[i]);
             }
-            
+
             return previous;
         }
     }
@@ -259,7 +259,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
             {
                 DebugLog($"TeeStream: received {evt.GetType().Name}");
                 _logger?.LogInformation("[Snapshotter/TeeStream] Received event: {Type}", evt.GetType().Name);
-                
+
                 // Forward to stream channel (may block on backpressure)
                 try
                 {
@@ -270,7 +270,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
                     // Shutdown requested - stop forwarding
                     break;
                 }
-                
+
                 // Forward to output channel if configured (non-blocking)
                 if (_outCh != null)
                 {
@@ -324,7 +324,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
                 var tLeave = _leaveCh.Reader.ReadAsync(_shutdownToken).AsTask();
                 var tEvent = _streamCh.Reader.ReadAsync(_shutdownToken).AsTask();
                 Task<bool> tClock;
-                
+
                 try
                 {
                     tClock = clockTimer.WaitForNextTickAsync(_shutdownToken).AsTask();
@@ -480,7 +480,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
         }
 
         TryAppend("leave\n");
-        
+
         // Ensure leave marker is flushed to disk before returning
         try
         {
@@ -489,13 +489,13 @@ public class Snapshotter : IDisposable, IAsyncDisposable
             {
                 _bufferedWriter?.Flush();
             }
-            
+
             // Flush file system cache (outside lock)
             if (_fileHandle != null)
             {
                 await _fileHandle.FlushAsync();
             }
-            
+
             DebugLog("HandleLeave: leave marker flushed to disk");
             _logger?.LogInformation("[Snapshotter] Leave marker successfully written and flushed");
         }
@@ -531,9 +531,9 @@ public class Snapshotter : IDisposable, IAsyncDisposable
     private async Task ProcessMemberEventAsync(MemberEvent e)
     {
         DebugLog($"ProcessMemberEvent: {e.EventType()} members={e.Members.Count}");
-        _logger?.LogInformation("[Snapshotter] Processing MemberEvent: {Type} with {Count} members", 
+        _logger?.LogInformation("[Snapshotter] Processing MemberEvent: {Type} with {Count} members",
             e.EventType(), e.Members.Count);
-        
+
         lock (_lock)
         {
             switch (e.EventType())
@@ -560,7 +560,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
                     }
                     break;
             }
-            
+
             DebugLog($"ProcessMemberEvent: total alive {_aliveNodes.Count}");
             _logger?.LogInformation("[Snapshotter] Total alive nodes in memory: {Count}", _aliveNodes.Count);
         }
@@ -578,13 +578,13 @@ public class Snapshotter : IDisposable, IAsyncDisposable
             {
                 _bufferedWriter?.Flush();
             }
-            
+
             // Flush file async (outside lock)
             if (_fileHandle != null)
             {
                 await _fileHandle.FlushAsync();
             }
-            
+
             _lastFlush = DateTime.UtcNow;
         }
         catch (Exception ex)
@@ -619,7 +619,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
     {
         // Ignore old clocks
         if (e.LTime <= _lastEventClock) return;
-        
+
         _lastEventClock = e.LTime;
         TryAppend($"event-clock: {e.LTime}\n");
     }
@@ -628,7 +628,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
     {
         // Ignore old clocks
         if (q.LTime <= _lastQueryClock) return;
-        
+
         _lastQueryClock = q.LTime;
         TryAppend($"query-clock: {q.LTime}\n");
     }
@@ -642,13 +642,13 @@ public class Snapshotter : IDisposable, IAsyncDisposable
         catch (Exception ex)
         {
             _logger?.LogError(ex, "Failed to update snapshot");
-            
+
             var now = DateTime.UtcNow;
             if ((now - _lastAttemptedCompaction).TotalMilliseconds > SnapshotErrorRecoveryIntervalMs)
             {
                 _lastAttemptedCompaction = now;
                 _logger?.LogInformation("Attempting compaction to recover from error...");
-                
+
                 try
                 {
                     Compact();
@@ -782,7 +782,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
 
         // Read each line
         using var reader = new StreamReader(_fileHandle, Encoding.UTF8, detectEncodingFromByteOrderMarks: false, bufferSize: 4096, leaveOpen: true);
-        
+
         string? line;
         while ((line = await reader.ReadLineAsync()) != null)
         {
@@ -892,7 +892,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
         var tasks = new List<Task>();
         if (_teeTask != null) tasks.Add(_teeTask);
         if (_streamTask != null) tasks.Add(_streamTask);
-        
+
         if (tasks.Count > 0)
         {
             try
@@ -908,7 +908,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
                 _logger?.LogError(ex, "Error waiting for snapshotter tasks to complete");
             }
         }
-        
+
         // Dispose resources synchronously
         Dispose();
     }
@@ -926,7 +926,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
         {
             // Already disposed by StreamAsync
         }
-        
+
         try
         {
             _fileHandle?.Dispose();

@@ -75,6 +75,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
     private readonly ReaderWriterLockSlim _queryLock = new();   // Protects: queryBuffer, queryMinTime, queryResponse
     private readonly SemaphoreSlim _stateLock = new(1, 1);      // Protects: state field (SerfAlive, SerfLeaving, etc.)
     private readonly ReaderWriterLockSlim _coordCacheLock = new(); // Protects: coordCache
+    private readonly Dictionary<string, Coordinate.Coordinate> _coordCache = new();
     private readonly SemaphoreSlim _joinLock = new(1, 1);       // Protects: eventJoinIgnore during Join operation
 
     /// <summary>
@@ -1433,6 +1434,16 @@ public partial class Serf : IDisposable, IAsyncDisposable
         {
             // Update coordinate based on the observation
             var updated = _coordClient.Update(nodeName, coordinate, rtt);
+            // Cache the latest coordinate for this node
+            _coordCacheLock.EnterWriteLock();
+            try
+            {
+                _coordCache[nodeName] = updated;
+            }
+            finally
+            {
+                _coordCacheLock.ExitWriteLock();
+            }
             
             Logger?.LogTrace("[Serf] Updated coordinate for {Node}, RTT: {RTT}ms, New position: {Vec}",
                 nodeName, rtt.TotalMilliseconds, string.Join(",", updated.Vec.Select(v => v.ToString("F4"))));
