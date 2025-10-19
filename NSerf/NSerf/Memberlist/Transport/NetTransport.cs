@@ -2,10 +2,15 @@
 // Copyright (c) HashiCorp, Inc.
 // SPDX-License-Identifier: MPL-2.0
 
+using System;
+using System.Collections.Generic;
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Threading.Channels;
+using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using NSerf.Memberlist.Messages;
 
 namespace NSerf.Memberlist.Transport;
 
@@ -73,6 +78,11 @@ public class NetTransport : INodeAwareTransport
             
             // Create TCP listener with SO_REUSEADDR to avoid TIME_WAIT issues
             var tcpListener = new TcpListener(ip, port);
+            // On Windows, disable ExclusiveAddressUse to allow port reuse
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                tcpListener.Server.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ExclusiveAddressUse, false);
+            }
             tcpListener.Server.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
             tcpListener.Start();
             _tcpListeners.Add(tcpListener);
@@ -85,6 +95,11 @@ public class NetTransport : INodeAwareTransport
             
             // Create UDP listener with SO_REUSEADDR to avoid TIME_WAIT issues
             var udpListener = new UdpClient();
+            // On Windows, disable ExclusiveAddressUse to allow port reuse
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                udpListener.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ExclusiveAddressUse, false);
+            }
             udpListener.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
             udpListener.Client.Bind(new IPEndPoint(ip, port));
             

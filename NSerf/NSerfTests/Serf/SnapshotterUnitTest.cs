@@ -204,17 +204,15 @@ public class SnapshotterUnitTest : IDisposable
     /// Related to Fix 1: Async Disposal
     /// </summary>
     [Fact]
-    public void Dispose_ShouldNotHang()
+    public async Task Dispose_ShouldNotHang()
     {
         // Arrange
         var path = GetTempSnapshotPath();
         var clock = new LamportClock();
         var shutdownCts = new CancellationTokenSource();
         
-        var task = Snapshotter.NewSnapshotterAsync(
+        var (inCh, snap) = await Snapshotter.NewSnapshotterAsync(
             path, 1024, false, null, clock, null, shutdownCts.Token);
-        task.Wait();
-        var (inCh, snap) = task.Result;
 
         // Act - sync dispose should not hang
         shutdownCts.Cancel();

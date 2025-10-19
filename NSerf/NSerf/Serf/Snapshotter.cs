@@ -481,13 +481,27 @@ public class Snapshotter : IDisposable, IAsyncDisposable
 
         TryAppend("leave\n");
         
+        // Ensure leave marker is flushed to disk before returning
         try
         {
-            await _bufferedWriter!.FlushAsync();
-            await _fileHandle!.FlushAsync();
+            // Flush writer buffer
+            lock (_fileLock)
+            {
+                _bufferedWriter?.Flush();
+            }
+            
+            // Flush file system cache (outside lock)
+            if (_fileHandle != null)
+            {
+                await _fileHandle.FlushAsync();
+            }
+            
+            DebugLog("HandleLeave: leave marker flushed to disk");
+            _logger?.LogInformation("[Snapshotter] Leave marker successfully written and flushed");
         }
         catch (Exception ex)
         {
+            DebugLog($"HandleLeave: flush error {ex.Message}");
             _logger?.LogError(ex, "Failed to flush leave to snapshot");
         }
     }
@@ -696,59 +710,65 @@ public class Snapshotter : IDisposable, IAsyncDisposable
     {
         var newPath = _path + TmpExt;
 
+        // Step 1: Snapshot the alive nodes (SHORT lock)
+        Dictionary<string, string> aliveSnapshot;
+        lock (_lock)
+        {
+            aliveSnapshot = new Dictionary<string, string>(_aliveNodes);
+        }
+
+        // Step 2: Write to new file (NO lock - this is the slow part)
+        long newOffset;
         using (var newFile = new FileStream(newPath, FileMode.Create, FileAccess.Write, FileShare.None))
         using (var writer = new StreamWriter(newFile, Encoding.UTF8))
         {
-            long offset = 0;
+            newOffset = 0;
 
-            // Write out alive nodes (protect access to _aliveNodes with _lock)
-            lock (_lock)
+            // Write out alive nodes (no lock needed - we have a snapshot)
+            foreach (var (name, addr) in aliveSnapshot)
             {
-                foreach (var (name, addr) in _aliveNodes)
-                {
-                    var line = $"alive: {name} {addr}\n";
-                    writer.Write(line);
-                    offset += Encoding.UTF8.GetByteCount(line);
-                }
+                var line = $"alive: {name} {addr}\n";
+                writer.Write(line);
+                newOffset += Encoding.UTF8.GetByteCount(line);
             }
 
             // Write out clocks
             var clockLine = $"clock: {_lastClock}\n";
             writer.Write(clockLine);
-            offset += Encoding.UTF8.GetByteCount(clockLine);
+            newOffset += Encoding.UTF8.GetByteCount(clockLine);
 
             var eventClockLine = $"event-clock: {_lastEventClock}\n";
             writer.Write(eventClockLine);
-            offset += Encoding.UTF8.GetByteCount(eventClockLine);
+            newOffset += Encoding.UTF8.GetByteCount(eventClockLine);
 
             var queryClockLine = $"query-clock: {_lastQueryClock}\n";
             writer.Write(queryClockLine);
-            offset += Encoding.UTF8.GetByteCount(queryClockLine);
+            newOffset += Encoding.UTF8.GetByteCount(queryClockLine);
 
             writer.Flush();
             newFile.Flush(true);
+        } // Close and flush new file before swap
 
-            // Swap files with file lock held to avoid races with AppendLine/StreamAsync
-            lock (_fileLock)
+        // Step 3: Atomic file swap (SHORT lock - just the swap operation)
+        lock (_fileLock)
+        {
+            try
             {
-                try
-                {
-                    _bufferedWriter?.Flush();
-                    _bufferedWriter?.Dispose();
-                    _fileHandle?.Close();
-                }
-                catch { /* ignore */ }
-
-                // Replace old file with new file
-                try { File.Delete(_path); } catch { }
-                File.Move(newPath, _path);
-
-                // Reopen
-                _fileHandle = new FileStream(_path, FileMode.Append, FileAccess.Write, FileShare.Read);
-                _bufferedWriter = new StreamWriter(_fileHandle, Encoding.UTF8, bufferSize: 4096, leaveOpen: true);
-                _offset = offset;
-                _lastFlush = DateTime.UtcNow;
+                _bufferedWriter?.Flush();
+                _bufferedWriter?.Dispose();
+                _fileHandle?.Close();
             }
+            catch { /* ignore */ }
+
+            // Replace old file with new file
+            try { File.Delete(_path); } catch { }
+            File.Move(newPath, _path);
+
+            // Reopen
+            _fileHandle = new FileStream(_path, FileMode.Append, FileAccess.Write, FileShare.Read);
+            _bufferedWriter = new StreamWriter(_fileHandle, Encoding.UTF8, bufferSize: 4096, leaveOpen: true);
+            _offset = newOffset;
+            _lastFlush = DateTime.UtcNow;
         }
     }
     /// <summary>
