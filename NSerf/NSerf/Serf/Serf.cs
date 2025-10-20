@@ -5,6 +5,7 @@
 using Microsoft.Extensions.Logging;
 using NSerf.Memberlist;
 using NSerf.Serf.Events;
+using NSerf.Serf.Managers;
 using MessagePack;
 using System.Threading.Channels;
 
@@ -44,6 +45,9 @@ public partial class Serf : IDisposable, IAsyncDisposable
     internal List<MemberInfo> LeftMembers { get; private set; }
     internal Dictionary<LamportTime, UserEventCollection> EventBuffer { get; private set; }
     internal Dictionary<LamportTime, QueryCollection> QueryBuffer { get; private set; }
+    
+    // Phase 2: MemberManager with transaction pattern
+    private readonly IMemberManager _memberManager;
 
     // Event configuration
     internal bool EventJoinIgnore { get; set; }
@@ -100,6 +104,9 @@ public partial class Serf : IDisposable, IAsyncDisposable
         LeftMembers = new List<MemberInfo>();
         EventBuffer = new Dictionary<LamportTime, UserEventCollection>();
         QueryBuffer = new Dictionary<LamportTime, QueryCollection>();
+        
+        // Phase 2: Initialize MemberManager with transaction pattern
+        _memberManager = new MemberManager();
 
         EventJoinIgnore = false;
         EventMinTime = 0;
@@ -134,98 +141,95 @@ public partial class Serf : IDisposable, IAsyncDisposable
 
     /// <summary>
     /// Returns the number of members known to this Serf instance.
-    /// Thread-safe read operation using read lock.
+    /// Thread-safe read operation using MemberManager transaction pattern.
     /// </summary>
     public int NumMembers()
     {
-        return WithReadLock(_memberLock, () => MemberStates.Count);
+        return _memberManager.ExecuteUnderLock(accessor => accessor.GetMemberCount());
+    }
+    
+    // ========== Phase 2: Helper Methods for Member State Management ==========
+    
+    /// <summary>
+    /// Sets a member using MemberManager transaction pattern.
+    /// MUST be called with _memberLock held.
+    /// </summary>
+    private void SetMemberState(string name, MemberInfo memberInfo)
+    {
+        // Write to old structure for backward compatibility with internal code
+        MemberStates[name] = memberInfo;
+        
+        // Write to MemberManager
+        _memberManager.ExecuteUnderLock(accessor =>
+        {
+            accessor.AddMember(memberInfo);
+        });
+    }
+    
+    /// <summary>
+    /// Updates a member using MemberManager transaction pattern.
+    /// MUST be called with _memberLock held.
+    /// </summary>
+    private void UpdateMemberState(string name, Action<MemberInfo> updater)
+    {
+        // Update in old structure for backward compatibility
+        if (MemberStates.TryGetValue(name, out var memberInfo))
+        {
+            updater(memberInfo);
+        }
+        
+        // Update in MemberManager
+        _memberManager.ExecuteUnderLock(accessor =>
+        {
+            accessor.UpdateMember(name, updater);
+        });
+    }
+    
+    /// <summary>
+    /// Removes a member using MemberManager transaction pattern.
+    /// MUST be called with _memberLock held.
+    /// </summary>
+    private void RemoveMemberState(string name)
+    {
+        // Remove from old structure for backward compatibility
+        MemberStates.Remove(name);
+        
+        // Remove from MemberManager
+        _memberManager.ExecuteUnderLock(accessor =>
+        {
+            accessor.RemoveMember(name);
+        });
     }
 
     /// <summary>
     /// Returns all known members in the cluster, including failed and left nodes.
-    /// Matches Go's behavior: returns from Serf's own tracking (MemberStates),
+    /// Matches Go's behavior: returns from Serf's own tracking,
     /// not from memberlist which filters out dead/left nodes.
-    /// Thread-safe read operation using read lock.
+    /// Thread-safe read operation using MemberManager transaction pattern.
     /// </summary>
     public Member[] Members()
     {
-        return WithReadLock(_memberLock, () =>
+        return _memberManager.ExecuteUnderLock(accessor =>
         {
-            var members = new List<Member>();
-
-            // Get all nodes from memberlist first (includes all states)
-            var memberlistNodes = new Dictionary<string, Memberlist.State.NodeState>();
-            if (Memberlist != null)
-            {
-                lock (Memberlist._nodeLock)
-                {
-                    foreach (var node in Memberlist._nodes)
-                    {
-                        memberlistNodes[node.Name] = node;
-                    }
-                }
-            }
-
-            // Return from Serf's own MemberStates
-            // This matches Go's behavior where Members() returns from s.members map
-            foreach (var kvp in MemberStates)
-            {
-                var memberInfo = kvp.Value;
-
-                // If we have a stored Member object (from HandleNodeLeave), use it
-                // BUT always use the current status from memberInfo, not the cached Member.Status
-                if (memberInfo.Member != null)
-                {
-                    // Update the status in the member object to match current state
-                    memberInfo.Member.Status = memberInfo.Status;
-                    members.Add(memberInfo.Member);
-                }
-                else if (memberlistNodes.TryGetValue(kvp.Key, out var node))
-                {
-                    // Construct from memberlist node
-                    var member = new Member
-                    {
-                        Name = node.Name,
-                        Addr = node.Node.Addr,
-                        Port = node.Node.Port,
-                        Tags = DecodeTags(node.Node.Meta),
-                        Status = memberInfo.Status,
-                        ProtocolMin = node.Node.PMin,
-                        ProtocolMax = node.Node.PMax,
-                        ProtocolCur = node.Node.PCur,
-                        DelegateMin = node.Node.DMin,
-                        DelegateMax = node.Node.DMax,
-                        DelegateCur = node.Node.DCur
-                    };
-                    members.Add(member);
-                }
-            }
-
-            return members.ToArray();
+            return accessor.GetAllMembers()
+                .Where(mi => mi.Member != null)
+                .Select(mi => mi.Member!)
+                .ToArray();
         });
     }
 
     /// <summary>
     /// Returns members filtered by status.
-    /// Thread-safe read operation using read lock.
+    /// Thread-safe read operation using MemberManager transaction pattern.
     /// </summary>
     public Member[] Members(MemberStatus statusFilter)
     {
-        return WithReadLock(_memberLock, () =>
+        return _memberManager.ExecuteUnderLock(accessor =>
         {
-            var members = new List<Member>();
-            foreach (var kvp in MemberStates)
-            {
-                // Return the actual stored Member object with current data
-                var memberInfo = kvp.Value;
-                if (memberInfo.Member != null && memberInfo.Status == statusFilter)
-                {
-                    // Update the Member's status to match current state
-                    memberInfo.Member.Status = memberInfo.Status;
-                    members.Add(memberInfo.Member);
-                }
-            }
-            return members.ToArray();
+            return accessor.GetMembersByStatus(statusFilter)
+                .Where(mi => mi.Member != null)
+                .Select(mi => mi.Member!)
+                .ToArray();
         });
     }
 
@@ -456,7 +460,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
                     DelegateCur = localNode.DCur
                 }
             };
-            serf.MemberStates[config.NodeName] = localMember;
+            serf.SetMemberState(config.NodeName, localMember);
         }
 
         // Phase 9.4: Start background tasks (reaper and reconnect)
@@ -990,12 +994,12 @@ public partial class Serf : IDisposable, IAsyncDisposable
             else
             {
                 // Node not yet in members - store the intent
-                MemberStates[leave.Node] = new MemberInfo
+                SetMemberState(leave.Node, new MemberInfo
                 {
                     Name = leave.Node,
                     Status = MemberStatus.Leaving,
                     StatusLTime = leave.LTime
-                };
+                });
                 Logger?.LogDebug("[Serf] Stored leave intent for unknown member: {Node}", leave.Node);
             }
         });
@@ -1025,7 +1029,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
                     Status = MemberStatus.Alive
                     // Member will be populated by HandleNodeJoin with full address info
                 };
-                MemberStates[join.Node] = memberInfo;
+                SetMemberState(join.Node, memberInfo);
                 
                 Logger?.LogDebug("[Serf] HandleNodeJoinIntent: Created placeholder for unknown member {Node} with LTime {LTime}", 
                     join.Node, join.LTime);
@@ -1212,7 +1216,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
                     Status = MemberStatus.Alive,
                     Member = member
                 };
-                MemberStates[node.Name] = memberInfo;
+                SetMemberState(node.Name, memberInfo);
                 Logger?.LogInformation("[Serf/Join] NEW member joined: {Name} at {Address}:{Port} (Total members: {Count})",
                     node.Name, node.Addr, node.Port, MemberStates.Count);
             }

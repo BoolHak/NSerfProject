@@ -172,8 +172,8 @@ public partial class Serf
     /// </remarks>
     private void EraseNode(MemberInfo member)
     {
-        // Delete from members map
-        MemberStates.Remove(member.Name);
+        // Delete from members map (using helper to synchronize both structures)
+        RemoveMemberState(member.Name);
 
         // Coordinate client cleanup (matches Go eraseNode)
         if (!Config.DisableCoordinates)
