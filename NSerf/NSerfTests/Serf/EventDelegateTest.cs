@@ -47,9 +47,10 @@ public class EventDelegateTest
         eventDelegate.NotifyJoin(node);
         
         // Assert - Verify node was added to member states
-        serf.MemberStates.Should().ContainKey("joining-node", "node should be added to member states");
-        var memberInfo = serf.MemberStates["joining-node"];
-        memberInfo.Status.Should().Be(MemberStatus.Alive, "node should have Alive status");
+        serf.HasMember("joining-node").Should().BeTrue("node should be added to member states");
+        var memberInfo = serf.GetMember("joining-node");
+        memberInfo.Should().NotBeNull();
+        memberInfo!.Status.Should().Be(MemberStatus.Alive, "node should have Alive status");
         memberInfo.Name.Should().Be("joining-node");
         memberInfo.Member.Addr.Should().Be(IPAddress.Parse("127.0.0.1"));
         memberInfo.Member.Port.Should().Be(8000);
@@ -93,14 +94,15 @@ public class EventDelegateTest
         eventDelegate.NotifyLeave(node);
         
         // Assert - Verify node status changed
-        serf.MemberStates.Should().ContainKey("leaving-node");
-        var memberInfo = serf.MemberStates["leaving-node"];
-        memberInfo.Status.Should().BeOneOf(MemberStatus.Left, MemberStatus.Failed);
+        serf.HasMember("leaving-node").Should().BeTrue();
+        var memberInfo = serf.GetMember("leaving-node");
+        memberInfo.Should().NotBeNull();
+        memberInfo!.Status.Should().BeOneOf(MemberStatus.Left, MemberStatus.Failed);
         // Node should have Left or Failed status after leave
         
         // Verify node was added to left or failed members list
-        var isInLeftOrFailed = serf.LeftMembers.Any(m => m.Name == "leaving-node") ||
-                               serf.FailedMembers.Any(m => m.Name == "leaving-node");
+        var isInLeftOrFailed = serf.LeftMembers().Any(m => m.Name == "leaving-node") ||
+                               serf.FailedMembers().Any(m => m.Name == "leaving-node");
         isInLeftOrFailed.Should().BeTrue("node should be in left or failed members list");
         
         // Verify appropriate MemberEvent was emitted
@@ -151,9 +153,10 @@ public class EventDelegateTest
         eventDelegate.NotifyUpdate(updatedNode);
         
         // Assert - Verify node properties were updated
-        serf.MemberStates.Should().ContainKey("updated-node");
-        var memberInfo = serf.MemberStates["updated-node"];
-        memberInfo.Member.Addr.Should().Be(IPAddress.Parse("127.0.0.2"), "address should be updated");
+        serf.HasMember("updated-node").Should().BeTrue();
+        var memberInfo = serf.GetMember("updated-node");
+        memberInfo.Should().NotBeNull();
+        memberInfo!.Member.Addr.Should().Be(IPAddress.Parse("127.0.0.2"), "address should be updated");
         memberInfo.Member.Port.Should().Be(8001, "port should be updated");
         memberInfo.Member.Tags.Should().NotBeNull("tags should be updated from metadata");
         
@@ -185,7 +188,7 @@ public class EventDelegateTest
         var serf = new NSerf.Serf.Serf(config);
         var eventDelegate = new EventDelegate(serf);
         
-        var initialCount = serf.MemberStates.Count;
+        var initialCount = serf.NumMembers();
 
         // Act
         var act = () => eventDelegate.NotifyJoin(null!);
@@ -194,7 +197,7 @@ public class EventDelegateTest
         act.Should().NotThrow("Serf should handle null nodes gracefully");
         
         // Verify no state changes occurred
-        serf.MemberStates.Count.Should().Be(initialCount, "member count should not change with null input");
+        serf.NumMembers().Should().Be(initialCount, "member count should not change with null input");
     }
 
     [Fact]
@@ -209,7 +212,7 @@ public class EventDelegateTest
         var serf = new NSerf.Serf.Serf(config);
         var eventDelegate = new EventDelegate(serf);
         
-        var initialCount = serf.MemberStates.Count;
+        var initialCount = serf.NumMembers();
 
         // Act
         var act = () => eventDelegate.NotifyLeave(null!);
@@ -218,7 +221,7 @@ public class EventDelegateTest
         act.Should().NotThrow("Serf should handle null nodes gracefully");
         
         // Verify no state changes occurred
-        serf.MemberStates.Count.Should().Be(initialCount, "member count should not change with null input");
+        serf.NumMembers().Should().Be(initialCount, "member count should not change with null input");
     }
 
     [Fact]
@@ -233,7 +236,7 @@ public class EventDelegateTest
         var serf = new NSerf.Serf.Serf(config);
         var eventDelegate = new EventDelegate(serf);
         
-        var initialCount = serf.MemberStates.Count;
+        var initialCount = serf.NumMembers();
 
         // Act
         var act = () => eventDelegate.NotifyUpdate(null!);
@@ -242,7 +245,7 @@ public class EventDelegateTest
         act.Should().NotThrow("Serf should handle null nodes gracefully");
         
         // Verify no state changes occurred
-        serf.MemberStates.Count.Should().Be(initialCount, "member count should not change with null input");
+        serf.NumMembers().Should().Be(initialCount, "member count should not change with null input");
     }
 
     [Fact]
@@ -276,14 +279,14 @@ public class EventDelegateTest
         await Task.Delay(100);
 
         // Assert - Verify all 3 nodes were added
-        serf.MemberStates.Should().ContainKey("node1", "node1 should be added");
-        serf.MemberStates.Should().ContainKey("node2", "node2 should be added");
-        serf.MemberStates.Should().ContainKey("node3", "node3 should be added");
+        serf.HasMember("node1").Should().BeTrue("node1 should be added");
+        serf.HasMember("node2").Should().BeTrue("node2 should be added");
+        serf.HasMember("node3").Should().BeTrue("node3 should be added");
         
         // Verify all have Alive status
-        serf.MemberStates["node1"].Status.Should().Be(MemberStatus.Alive);
-        serf.MemberStates["node2"].Status.Should().Be(MemberStatus.Alive);
-        serf.MemberStates["node3"].Status.Should().Be(MemberStatus.Alive);
+        serf.GetMember("node1")!.Status.Should().Be(MemberStatus.Alive);
+        serf.GetMember("node2")!.Status.Should().Be(MemberStatus.Alive);
+        serf.GetMember("node3")!.Status.Should().Be(MemberStatus.Alive);
         
         // Verify 3 MemberEvent messages were emitted
         var eventCount = 0;
@@ -334,12 +337,12 @@ public class EventDelegateTest
         await Task.Delay(100);
 
         // Assert - Verify both nodes have left/failed status
-        serf.MemberStates["node1"].Status.Should().BeOneOf(MemberStatus.Left, MemberStatus.Failed);
-        serf.MemberStates["node2"].Status.Should().BeOneOf(MemberStatus.Left, MemberStatus.Failed);
+        serf.GetMember("node1")!.Status.Should().BeOneOf(MemberStatus.Left, MemberStatus.Failed);
+        serf.GetMember("node2")!.Status.Should().BeOneOf(MemberStatus.Left, MemberStatus.Failed);
         
         // Verify both are in left or failed members lists
-        var node1InList = serf.LeftMembers.Any(m => m.Name == "node1") || serf.FailedMembers.Any(m => m.Name == "node1");
-        var node2InList = serf.LeftMembers.Any(m => m.Name == "node2") || serf.FailedMembers.Any(m => m.Name == "node2");
+        var node1InList = serf.LeftMembers().Any(m => m.Name == "node1") || serf.FailedMembers().Any(m => m.Name == "node1");
+        var node2InList = serf.LeftMembers().Any(m => m.Name == "node2") || serf.FailedMembers().Any(m => m.Name == "node2");
         
         node1InList.Should().BeTrue("node1 should be in left/failed list");
         node2InList.Should().BeTrue("node2 should be in left/failed list");

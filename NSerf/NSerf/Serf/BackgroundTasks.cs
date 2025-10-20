@@ -40,12 +40,14 @@ public partial class Serf
             {
                 await Task.Delay(Config.ReapInterval, _shutdownCts.Token);
 
-                WithWriteLock(_memberLock, () =>
-                {
-                    var now = DateTimeOffset.UtcNow;
-                    Reap(FailedMembers, now, Config.ReconnectTimeout);
-                    Reap(LeftMembers, now, Config.TombstoneTimeout);
-                });
+                var now = DateTimeOffset.UtcNow;
+                
+                // Get failed and left members from MemberManager and reap them
+                var failedMembers = _memberManager.ExecuteUnderLock(accessor => accessor.GetFailedMembers());
+                var leftMembers = _memberManager.ExecuteUnderLock(accessor => accessor.GetLeftMembers());
+                
+                Reap(failedMembers, now, Config.ReconnectTimeout);
+                Reap(leftMembers, now, Config.TombstoneTimeout);
             }
         }
         catch (OperationCanceledException)
@@ -167,8 +169,7 @@ public partial class Serf
     /// </summary>
     /// <param name="member">Member to erase</param>
     /// <remarks>
-    /// THREAD SAFETY: This method assumes _memberLock write lock is already held by the caller.
-    /// It accesses MemberStates which requires synchronization.
+    /// THREAD SAFETY: Thread-safe. Uses MemberManager.ExecuteUnderLock() for atomic member removal.
     /// </remarks>
     private void EraseNode(MemberInfo member)
     {
@@ -225,33 +226,34 @@ public partial class Serf
         int numAlive = 0;
         MemberInfo? selectedMember = null;
 
-        WithReadLock(_memberLock, () =>
+        // Get failed members from MemberManager
+        var failedMembers = _memberManager.ExecuteUnderLock(accessor => accessor.GetFailedMembers());
+        numFailed = failedMembers.Count;
+        
+        if (numFailed == 0)
         {
-            numFailed = FailedMembers.Count;
-            if (numFailed == 0)
-            {
-                return; // Nothing to do
-            }
+            return; // Nothing to do
+        }
 
-            // Calculate probability of attempting reconnect
-            // prob = numFailed / (total - numFailed - numLeft)
-            numAlive = MemberStates.Count - FailedMembers.Count - LeftMembers.Count;
-            if (numAlive == 0)
-            {
-                numAlive = 1; // Guard against divide by zero
-            }
+        // Calculate probability of attempting reconnect
+        // prob = numFailed / (total - numFailed - numLeft)
+        var numLeft = _memberManager.ExecuteUnderLock(accessor => accessor.GetLeftMembers().Count);
+        numAlive = NumMembers() - numFailed - numLeft;
+        if (numAlive == 0)
+        {
+            numAlive = 1; // Guard against divide by zero
+        }
 
-            var prob = (float)numFailed / numAlive;
-            if (Random.Shared.NextSingle() > prob)
-            {
-                Logger?.LogDebug("[Serf] Forgoing reconnect for random throttling");
-                return;
-            }
+        var prob = (float)numFailed / numAlive;
+        if (Random.Shared.NextSingle() > prob)
+        {
+            Logger?.LogDebug("[Serf] Forgoing reconnect for random throttling");
+            return;
+        }
 
-            // Select a random failed member
-            var idx = Random.Shared.Next(numFailed);
-            selectedMember = FailedMembers[idx];
-        });
+        // Select a random failed member
+        var idx = Random.Shared.Next(numFailed);
+        selectedMember = failedMembers[idx];
 
         if (selectedMember == null)
         {

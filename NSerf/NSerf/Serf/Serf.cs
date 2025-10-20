@@ -39,15 +39,12 @@ public partial class Serf : IDisposable, IAsyncDisposable
     internal BroadcastQueue EventBroadcasts { get; private set; }
     internal BroadcastQueue QueryBroadcasts { get; private set; }
 
-    // Member state - internal tracking
-    internal Dictionary<string, MemberInfo> MemberStates { get; private set; }
-    internal List<MemberInfo> FailedMembers { get; private set; }
-    internal List<MemberInfo> LeftMembers { get; private set; }
+    // Member state - fully migrated to MemberManager
     internal Dictionary<LamportTime, UserEventCollection> EventBuffer { get; private set; }
     internal Dictionary<LamportTime, QueryCollection> QueryBuffer { get; private set; }
-    
+
     // Phase 2: MemberManager with transaction pattern
-    private readonly IMemberManager _memberManager;
+    internal readonly IMemberManager _memberManager;
 
     // Event configuration
     internal bool EventJoinIgnore { get; set; }
@@ -74,7 +71,6 @@ public partial class Serf : IDisposable, IAsyncDisposable
     // - No strict global order, but acquire lock at start of handler
     // - When multiple locks needed, acquire in nested fashion
     // - Most handlers acquire single lock protecting their data
-    private readonly ReaderWriterLockSlim _memberLock = new();  // Protects: members, failedMembers, leftMembers, recentIntents
     private readonly ReaderWriterLockSlim _eventLock = new();   // Protects: eventBuffer, eventMinTime
     private readonly ReaderWriterLockSlim _queryLock = new();   // Protects: queryBuffer, queryMinTime, queryResponse
     private readonly SemaphoreSlim _stateLock = new(1, 1);      // Protects: state field (SerfAlive, SerfLeaving, etc.)
@@ -99,12 +95,10 @@ public partial class Serf : IDisposable, IAsyncDisposable
         EventBroadcasts = new BroadcastQueue(new TransmitLimitedQueue());
         QueryBroadcasts = new BroadcastQueue(new TransmitLimitedQueue());
 
-        MemberStates = new Dictionary<string, MemberInfo>();
-        FailedMembers = new List<MemberInfo>();
-        LeftMembers = new List<MemberInfo>();
+        // Member state fully migrated to MemberManager
         EventBuffer = new Dictionary<LamportTime, UserEventCollection>();
         QueryBuffer = new Dictionary<LamportTime, QueryCollection>();
-        
+
         // Phase 2: Initialize MemberManager with transaction pattern
         _memberManager = new MemberManager();
 
@@ -147,54 +141,25 @@ public partial class Serf : IDisposable, IAsyncDisposable
     {
         return _memberManager.ExecuteUnderLock(accessor => accessor.GetMemberCount());
     }
-    
+
     // ========== Phase 2: Helper Methods for Member State Management ==========
-    
+
     /// <summary>
     /// Sets a member using MemberManager transaction pattern.
-    /// MUST be called with _memberLock held.
     /// </summary>
     private void SetMemberState(string name, MemberInfo memberInfo)
     {
-        // Write to old structure for backward compatibility with internal code
-        MemberStates[name] = memberInfo;
-        
-        // Write to MemberManager
         _memberManager.ExecuteUnderLock(accessor =>
         {
             accessor.AddMember(memberInfo);
         });
     }
-    
-    /// <summary>
-    /// Updates a member using MemberManager transaction pattern.
-    /// MUST be called with _memberLock held.
-    /// </summary>
-    private void UpdateMemberState(string name, Action<MemberInfo> updater)
-    {
-        // Update in old structure for backward compatibility
-        if (MemberStates.TryGetValue(name, out var memberInfo))
-        {
-            updater(memberInfo);
-        }
-        
-        // Update in MemberManager
-        _memberManager.ExecuteUnderLock(accessor =>
-        {
-            accessor.UpdateMember(name, updater);
-        });
-    }
-    
+
     /// <summary>
     /// Removes a member using MemberManager transaction pattern.
-    /// MUST be called with _memberLock held.
     /// </summary>
     private void RemoveMemberState(string name)
     {
-        // Remove from old structure for backward compatibility
-        MemberStates.Remove(name);
-        
-        // Remove from MemberManager
         _memberManager.ExecuteUnderLock(accessor =>
         {
             accessor.RemoveMember(name);
@@ -273,16 +238,13 @@ public partial class Serf : IDisposable, IAsyncDisposable
         }
     }
 
-    // ========== Phase 9.1: Lifecycle Methods ==========
-
     /// <summary>
     /// Creates a new Serf instance with the given configuration.
     /// Maps to: Go's Create() function
     /// </summary>
-    public static async Task<Serf> CreateAsync(Config config)
+    public static async Task<Serf> CreateAsync(Config? config)
     {
-        if (config == null)
-            throw new ArgumentNullException(nameof(config));
+        ArgumentNullException.ThrowIfNull(config);
 
         // Validate protocol version
         if (config.ProtocolVersion < ProtocolVersionMin)
@@ -314,24 +276,23 @@ public partial class Serf : IDisposable, IAsyncDisposable
         // This sits between Serf and the user's EventCh, filtering internal queries
         ChannelWriter<Event>? eventDestination = config.EventCh;
         ChannelWriter<Event>? internalQueryInput = null;
-        
+
         if (config.EventCh != null)
         {
             serf.Logger?.LogInformation("[Serf/InternalQuery] Setting up internal query handler");
-            
+
             // Create internal query handler - it will intercept _serf_* queries
             var (queryInputCh, queryHandler) = SerfQueries.Create(
                 serf,
                 config.EventCh, // Non-internal events pass through to user's EventCh
                 serf._shutdownCts.Token);
-            
+
             internalQueryInput = queryInputCh;
             eventDestination = queryInputCh; // Events now go to internal query handler first
-            
+
             serf.Logger?.LogInformation("[Serf/InternalQuery] ✓ Internal query handler created");
         }
 
-        // Phase 9.8: Setup snapshot if path is configured
         List<PreviousNode>? previousNodes = null;
         if (!string.IsNullOrEmpty(config.SnapshotPath))
         {
@@ -343,7 +304,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
                 rejoinAfterLeave: config.RejoinAfterLeave,
                 logger: serf.Logger,
                 clock: serf.Clock,
-                outCh: eventDestination, // Use eventDestination (query handler or EventCh)
+                outCh: eventDestination,
                 shutdownToken: serf._shutdownCts.Token);
 
             var inCh = snapshotResult.InCh;
@@ -367,23 +328,11 @@ public partial class Serf : IDisposable, IAsyncDisposable
             previousNodes = snapshotter.AliveNodes();
 
             serf.Logger?.LogInformation("[Serf/Snapshot] Loaded {Count} previous nodes from snapshot", previousNodes.Count);
-            Console.WriteLine($"[SNAPSHOT DEBUG] Loaded {previousNodes.Count} nodes from snapshot at {config.SnapshotPath}");
             foreach (var node in previousNodes)
             {
                 serf.Logger?.LogInformation("[Serf/Snapshot] - Previous node: {Name} at {Addr}", node.Name, node.Addr);
-                Console.WriteLine($"[SNAPSHOT DEBUG] - Node: {node.Name} at {node.Addr}");
             }
-            
-            // DEBUG: Check snapshot file
-            if (System.IO.File.Exists(config.SnapshotPath))
-            {
-                var fileInfo = new System.IO.FileInfo(config.SnapshotPath);
-                Console.WriteLine($"[SNAPSHOT DEBUG] File exists: {config.SnapshotPath}, Size: {fileInfo.Length} bytes");
-            }
-            else
-            {
-                Console.WriteLine($"[SNAPSHOT DEBUG] File DOES NOT exist: {config.SnapshotPath}");
-            }
+
         }
         else
         {
@@ -403,7 +352,6 @@ public partial class Serf : IDisposable, IAsyncDisposable
             serf.Logger?.LogInformation("[Serf/Coordinates] Coordinates disabled per configuration");
         }
 
-        // Phase 9.2: Initialize memberlist with delegates
         if (config.MemberlistConfig != null)
         {
             // Create event delegate that routes to Serf for membership events
@@ -443,8 +391,11 @@ public partial class Serf : IDisposable, IAsyncDisposable
             var localMember = new MemberInfo
             {
                 Name = config.NodeName,
-                StatusLTime = 0,
-                Status = MemberStatus.Alive,
+                StateMachine = new StateMachine.MemberStateMachine(
+                    config.NodeName,
+                    MemberStatus.Alive,
+                    0,
+                    serf.Logger),
                 Member = new Member
                 {
                     Name = localNode.Name,
@@ -463,10 +414,8 @@ public partial class Serf : IDisposable, IAsyncDisposable
             serf.SetMemberState(config.NodeName, localMember);
         }
 
-        // Phase 9.4: Start background tasks (reaper and reconnect)
         serf.StartBackgroundTasks();
 
-        // Phase 9.8: Auto-rejoin from snapshot if we have previous nodes
         if (previousNodes != null && previousNodes.Count > 0)
         {
             serf.Logger?.LogInformation("[Serf/AutoRejoin] Starting auto-rejoin task for {Count} nodes", previousNodes.Count);
@@ -475,31 +424,25 @@ public partial class Serf : IDisposable, IAsyncDisposable
             {
                 try
                 {
-                    // Give memberlist more time to fully initialize
                     serf.Logger?.LogInformation("[Serf/AutoRejoin] Waiting 500ms for memberlist initialization...");
-                    Console.WriteLine("[Serf/AutoRejoin] Waiting 500ms for memberlist initialization...");
                     await Task.Delay(500);
 
                     var addrs = previousNodes.Select(n => n.Addr).ToArray();
                     serf.Logger?.LogInformation("[Serf/AutoRejoin] Attempting to join {Count} addresses: [{Addrs}]",
                         addrs.Length, string.Join(", ", addrs));
-                    Console.WriteLine($"[Serf/AutoRejoin] Attempting to join {addrs.Length} addresses: [{string.Join(", ", addrs)}]");
 
                     var joined = await serf.JoinAsync(addrs, ignoreOld: true);
                     serf.Logger?.LogInformation("[Serf/AutoRejoin] Auto-rejoin completed, successfully joined {Joined}/{Total} nodes",
                         joined, addrs.Length);
-                    Console.WriteLine($"[Serf/AutoRejoin] Auto-rejoin completed, successfully joined {joined}/{addrs.Length} nodes");
 
                     if (joined == 0)
                     {
                         serf.Logger?.LogWarning("[Serf/AutoRejoin] Failed to join any nodes during auto-rejoin");
-                        Console.WriteLine("[Serf/AutoRejoin] WARNING: Failed to join any nodes during auto-rejoin");
                     }
                 }
                 catch (Exception ex)
                 {
                     serf.Logger?.LogError(ex, "[Serf/AutoRejoin] Exception during auto-rejoin");
-                    Console.WriteLine($"[Serf/AutoRejoin] EXCEPTION: {ex.Message}\n{ex.StackTrace}");
                 }
             });
         }
@@ -554,10 +497,9 @@ public partial class Serf : IDisposable, IAsyncDisposable
     /// Updates the tags for the local member and broadcasts the change to the cluster.
     /// Maps to: Go's SetTags() method
     /// </summary>
-    public async Task SetTagsAsync(Dictionary<string, string> tags)
+    public async Task SetTagsAsync(Dictionary<string, string>? tags)
     {
-        if (tags == null)
-            throw new ArgumentNullException(nameof(tags));
+        ArgumentNullException.ThrowIfNull(tags);
 
         // Update the configuration
         Config.Tags = new Dictionary<string, string>(tags);
@@ -579,12 +521,10 @@ public partial class Serf : IDisposable, IAsyncDisposable
     /// <param name="payload">Event payload data</param>
     /// <param name="coalesce">If true, allow event coalescing</param>
     /// <returns>Task that completes when event is queued for broadcast</returns>
-    public Task UserEventAsync(string name, byte[] payload, bool coalesce)
+    public Task UserEventAsync(string? name, byte[]? payload, bool coalesce)
     {
-        if (string.IsNullOrEmpty(name))
-            throw new ArgumentException("Event name cannot be null or empty", nameof(name));
-        if (payload == null)
-            throw new ArgumentNullException(nameof(payload));
+        ArgumentNullException.ThrowIfNullOrEmpty(name);
+        ArgumentNullException.ThrowIfNull(payload);
 
         var payloadSizeBeforeEncoding = name.Length + payload.Length;
 
@@ -864,8 +804,6 @@ public partial class Serf : IDisposable, IAsyncDisposable
         await Task.Delay(50);
     }
 
-    // ========== Phase 9.3: Member Failure & Recovery Methods ==========
-
     /// <summary>
     /// Forcibly removes a failed node from the cluster.
     /// Maps to: Go's RemoveFailedNode() method
@@ -873,10 +811,9 @@ public partial class Serf : IDisposable, IAsyncDisposable
     /// <param name="nodeName">Name of the node to remove</param>
     /// <param name="prune">If true, also prune from snapshot</param>
     /// <returns>True if node was removed, false if not found</returns>
-    public async Task<bool> RemoveFailedNodeAsync(string nodeName, bool prune = false)
+    public async Task<bool> RemoveFailedNodeAsync(string? nodeName, bool prune = false)
     {
-        if (string.IsNullOrEmpty(nodeName))
-            throw new ArgumentException("Node name cannot be null or empty", nameof(nodeName));
+        ArgumentNullException.ThrowIfNullOrEmpty(nodeName);
 
         // Cannot remove ourselves
         if (nodeName == Config.NodeName)
@@ -944,10 +881,11 @@ public partial class Serf : IDisposable, IAsyncDisposable
         // Witness the Lamport time
         Clock.Witness(leave.LTime);
 
-        WithWriteLock(_memberLock, () =>
+        _memberManager.ExecuteUnderLock(accessor =>
         {
             // Mark member as leaving/left if it exists
-            if (MemberStates.TryGetValue(leave.Node, out var memberInfo))
+            var memberInfo = accessor.GetMember(leave.Node);
+            if (memberInfo != null)
             {
                 // Don't downgrade Left back to Leaving
                 // Once memberlist has confirmed the node is Left (via Dead message), 
@@ -957,48 +895,39 @@ public partial class Serf : IDisposable, IAsyncDisposable
                     Logger?.LogDebug("[Serf] Ignoring leave intent for already-left member {Node}", leave.Node);
                     return;
                 }
-                
-                // Only update if this is newer than current status
-                if (leave.LTime > memberInfo.StatusLTime)
+
+                // Try to transition using StateMachine
+                accessor.UpdateMember(leave.Node, m =>
                 {
-                    // If node is currently Failed, transition to Left (for RemoveFailedNode)
-                    // Otherwise mark as Leaving (for graceful leave)
-                    if (memberInfo.Status == MemberStatus.Failed)
-                    {
-                        memberInfo.Status = MemberStatus.Left;
-                        memberInfo.StatusLTime = leave.LTime;
+                    var result = m.StateMachine.TryTransitionOnLeaveIntent(leave.LTime);
 
-                        // Move from FailedMembers to LeftMembers
-                        FailedMembers.RemoveAll(m => m.Name == leave.Node);
-                        if (!LeftMembers.Any(m => m.Name == leave.Node))
-                        {
-                            LeftMembers.Add(memberInfo);
-                        }
-
-                        Logger?.LogInformation("[Serf] Failed member {Node} marked as left", leave.Node);
-                    }
-                    else
+                    // Update Member.Status to match for backward compatibility
+                    if (result.WasStateChanged && m.Member != null)
                     {
-                        memberInfo.Status = MemberStatus.Leaving;
-                        memberInfo.StatusLTime = leave.LTime;
-                        Logger?.LogDebug("[Serf] Member {Node} marked as leaving", leave.Node);
+                        m.Member.Status = m.StateMachine.CurrentState;
                     }
 
-                    // Update the stored Member object if it exists
-                    if (memberInfo.Member != null)
+                    if (result.WasStateChanged)
                     {
-                        memberInfo.Member.Status = memberInfo.Status;
+                        Logger?.LogInformation("[Serf] {Reason}", result.Reason);
                     }
-                }
+                    else if (result.WasLTimeUpdated)
+                    {
+                        Logger?.LogDebug("[Serf] {Reason}", result.Reason);
+                    }
+                });
             }
             else
             {
                 // Node not yet in members - store the intent
-                SetMemberState(leave.Node, new MemberInfo
+                accessor.AddMember(new MemberInfo
                 {
                     Name = leave.Node,
-                    Status = MemberStatus.Leaving,
-                    StatusLTime = leave.LTime
+                    StateMachine = new StateMachine.MemberStateMachine(
+                        leave.Node,
+                        MemberStatus.Leaving,
+                        leave.LTime,
+                        Logger)
                 });
                 Logger?.LogDebug("[Serf] Stored leave intent for unknown member: {Node}", leave.Node);
             }
@@ -1010,28 +939,31 @@ public partial class Serf : IDisposable, IAsyncDisposable
     internal bool HandleNodeJoinIntent(MessageJoin join)
     {
         Logger?.LogDebug("[Serf] HandleNodeJoinIntent: {Node} at LTime {LTime}", join.Node, join.LTime);
-        
+
         // Witness a potentially newer time
         Clock.Witness(join.LTime);
 
-        return WithWriteLock(_memberLock, () =>
+        return _memberManager.ExecuteUnderLock(accessor =>
         {
             // Check if we know about this member
-            if (!MemberStates.TryGetValue(join.Node, out var memberInfo))
+            var memberInfo = accessor.GetMember(join.Node);
+            if (memberInfo == null)
             {
                 // Create a basic MemberInfo entry for push-pull state synchronization
                 // NOTE: We don't emit a MemberJoin event here because we don't have the address yet.
                 // The event will be emitted when HandleNodeJoin is called with the full Node object.
-                memberInfo = new MemberInfo
+                accessor.AddMember(new MemberInfo
                 {
                     Name = join.Node,
-                    StatusLTime = join.LTime,
-                    Status = MemberStatus.Alive
+                    StateMachine = new StateMachine.MemberStateMachine(
+                        join.Node,
+                        MemberStatus.Alive,
+                        join.LTime,
+                        Logger)
                     // Member will be populated by HandleNodeJoin with full address info
-                };
-                SetMemberState(join.Node, memberInfo);
-                
-                Logger?.LogDebug("[Serf] HandleNodeJoinIntent: Created placeholder for unknown member {Node} with LTime {LTime}", 
+                });
+
+                Logger?.LogDebug("[Serf] HandleNodeJoinIntent: Created placeholder for unknown member {Node} with LTime {LTime}",
                     join.Node, join.LTime);
                 return true; // Rebroadcast since this is new information
             }
@@ -1044,10 +976,6 @@ public partial class Serf : IDisposable, IAsyncDisposable
                 return false;
             }
 
-            // Update the LTime
-            var oldStatus = memberInfo.Status;
-            memberInfo.StatusLTime = join.LTime;
-
             // IMPORTANT: Do NOT update a Left/Failed member back to Alive based solely on join intents.
             // Join intent messages may still be propagating in the network after a node has left.
             // We should only update back to Alive when we receive an actual NotifyJoin from memberlist,
@@ -1055,35 +983,49 @@ public partial class Serf : IDisposable, IAsyncDisposable
             // 
             // In Go's implementation, the join intent only updates statusLTime and may change Leaving -> Alive,
             // but does NOT change Left/Failed -> Alive. That transition only happens via handleNodeJoin.
-            if (memberInfo.Status == MemberStatus.Leaving)
+
+            // Try state machine transition and capture result
+            StateMachine.TransitionResult? transitionResult = null;
+
+            accessor.UpdateMember(join.Node, m =>
             {
-                // Leaving -> Alive is OK, since the leave broadcast may have been preempted by a newer join
-                Logger?.LogInformation("[Serf] HandleNodeJoinIntent: Member {Node} was Leaving, updating to Alive due to newer join intent",
-                    join.Node);
-                    
-                memberInfo.Status = MemberStatus.Alive;
-                if (memberInfo.Member != null)
+                transitionResult = m.StateMachine.TryTransitionOnJoinIntent(join.LTime);
+
+                // Update Member.Status to match for backward compatibility
+                if (transitionResult.WasStateChanged && m.Member != null)
                 {
-                    memberInfo.Member.Status = MemberStatus.Alive;
+                    m.Member.Status = m.StateMachine.CurrentState;
                 }
 
-                // Emit a member join event
+                if (transitionResult.WasStateChanged)
+                {
+                    Logger?.LogInformation("[Serf] {Reason}", transitionResult.Reason);
+                }
+                else if (transitionResult.WasLTimeUpdated)
+                {
+                    Logger?.LogDebug("[Serf] {Reason}", transitionResult.Reason);
+                }
+            });
+
+            // Emit event if state actually changed
+            if (transitionResult?.WasStateChanged == true)
+            {
                 var memberEvent = new MemberEvent
                 {
                     Type = EventType.MemberJoin,
                     Members = new List<Member> { memberInfo.Member ?? new Member { Name = join.Node, Status = MemberStatus.Alive } }
                 };
                 EmitEvent(memberEvent);
+                return true; // Rebroadcast
             }
-            else if (memberInfo.Status == MemberStatus.Left || memberInfo.Status == MemberStatus.Failed)
+            else if (transitionResult?.WasLTimeUpdated == true &&
+                     (memberInfo.Status == MemberStatus.Left || memberInfo.Status == MemberStatus.Failed))
             {
-                // Do NOT update Left/Failed back to Alive based on join intent alone
-                Logger?.LogDebug("[Serf] HandleNodeJoinIntent: Ignoring join intent for {Status} member {Node} (old intents may still be propagating)",
-                    memberInfo.Status, join.Node);
-                return false; // Don't rebroadcast stale join intents for left/failed nodes
+                // Left/Failed members had LTime updated but no state change - don't rebroadcast
+                return false;
             }
 
-            // Rebroadcast since we updated the LTime
+            // For all other cases, rebroadcast
             return true;
         });
     }
@@ -1188,7 +1130,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
         // to filter old user events during auto-rejoin. Member join events are
         // always processed.
 
-        WithWriteLock(_memberLock, () =>
+        _memberManager.ExecuteUnderLock(accessor =>
         {
             // Create the full member object
             var member = new Member
@@ -1207,24 +1149,27 @@ public partial class Serf : IDisposable, IAsyncDisposable
             };
 
             // Update or create member state
-            if (!MemberStates.TryGetValue(node.Name, out var memberInfo))
+            var memberInfo = accessor.GetMember(node.Name);
+            if (memberInfo == null)
             {
-                memberInfo = new MemberInfo
+                accessor.AddMember(new MemberInfo
                 {
                     Name = node.Name,
-                    StatusLTime = Clock.Time(),
-                    Status = MemberStatus.Alive,
+                    StateMachine = new StateMachine.MemberStateMachine(
+                        node.Name,
+                        MemberStatus.Alive,
+                        Clock.Time(),
+                        Logger),
                     Member = member
-                };
-                SetMemberState(node.Name, memberInfo);
+                });
                 Logger?.LogInformation("[Serf/Join] NEW member joined: {Name} at {Address}:{Port} (Total members: {Count})",
-                    node.Name, node.Addr, node.Port, MemberStates.Count);
+                    node.Name, node.Addr, node.Port, accessor.GetMemberCount());
             }
             else
             {
                 // Update existing member (rejoin)
                 var oldStatus = memberInfo.Status;
-                
+
                 // Check for flap (Go serf.go:969-971)
                 if (oldStatus == MemberStatus.Failed && memberInfo.LeaveTime != default)
                 {
@@ -1234,12 +1179,15 @@ public partial class Serf : IDisposable, IAsyncDisposable
                         Config.Metrics.IncrCounter(new[] { "serf", "member", "flap" }, 1, Config.MetricLabels);
                     }
                 }
-                
-                memberInfo.StatusLTime = Clock.Time();
-                memberInfo.Status = MemberStatus.Alive;
-                memberInfo.Member = member;
-                Logger?.LogInformation("[Serf/Join] Member rejoined: {Name} (Old status: {OldStatus}, Total members: {Count})",
-                    node.Name, oldStatus, MemberStates.Count);
+
+                accessor.UpdateMember(node.Name, m =>
+                {
+                    var result = m.StateMachine.TransitionOnMemberlistJoin();
+                    m.Member = member;
+
+                    Logger?.LogInformation("[Serf/Join] Member rejoined: {Name} ({Reason}, Total members: {Count})",
+                        node.Name, result.Reason, accessor.GetMemberCount());
+                });
             }
         });
 
@@ -1314,17 +1262,14 @@ public partial class Serf : IDisposable, IAsyncDisposable
 
         try
         {
-            WithWriteLock(_memberLock, () =>
+            _memberManager.ExecuteUnderLock(accessor =>
             {
                 // Update member state if it exists
-                if (MemberStates.TryGetValue(node.Name, out var memberInfo))
+                var memberInfo = accessor.GetMember(node.Name);
+                if (memberInfo != null)
                 {
-                    memberInfo.StatusLTime = Clock.Time();
-                    memberInfo.Status = memberStatus;
-                    memberInfo.LeaveTime = DateTimeOffset.UtcNow;
-
                     // Store the full member info for reaper and reconnect
-                    memberInfo.Member = new Member
+                    var member = new Member
                     {
                         Name = node.Name,
                         Addr = node.Addr,
@@ -1339,15 +1284,17 @@ public partial class Serf : IDisposable, IAsyncDisposable
                         DelegateCur = node.DCur
                     };
 
-                    // Add to appropriate list for reaper
-                    if (memberStatus == MemberStatus.Failed)
+                    accessor.UpdateMember(node.Name, m =>
                     {
-                        FailedMembers.Add(memberInfo);
-                    }
-                    else if (memberStatus == MemberStatus.Left)
-                    {
-                        LeftMembers.Add(memberInfo);
-                    }
+                        var isDead = (memberStatus == MemberStatus.Failed);
+                        var result = m.StateMachine.TransitionOnMemberlistLeave(isDead);
+                        m.LeaveTime = DateTimeOffset.UtcNow;
+                        m.Member = member;
+
+                        Logger?.LogDebug("[Serf] {Reason}", result.Reason);
+                    });
+
+                    // Status is tracked in MemberManager - no separate list management needed
 
                     Logger?.LogInformation("[Serf] Member {Status}: {Name}",
                         eventType == EventType.MemberFailed ? "failed" : "left", node.Name);
@@ -1395,38 +1342,46 @@ public partial class Serf : IDisposable, IAsyncDisposable
 
         Logger?.LogDebug("[Serf] HandleNodeUpdate: {Name}", node.Name);
 
-        Member? updatedMember = null;
-        
-        WithWriteLock(_memberLock, () =>
+        Member? updatedMember = _memberManager.ExecuteUnderLock(accessor =>
         {
             // Update member metadata if it exists
-            if (MemberStates.TryGetValue(node.Name, out var memberInfo))
+            var memberInfo = accessor.GetMember(node.Name);
+            if (memberInfo != null)
             {
                 // Update the stored Member object with new data from node
                 if (memberInfo.Member != null)
                 {
-                    memberInfo.Member.Addr = node.Addr;
-                    memberInfo.Member.Port = node.Port;
-                    memberInfo.Member.Tags = DecodeTags(node.Meta);
-                    memberInfo.Member.ProtocolMin = node.PMin;
-                    memberInfo.Member.ProtocolMax = node.PMax;
-                    memberInfo.Member.ProtocolCur = node.PCur;
-                    memberInfo.Member.DelegateMin = node.DMin;
-                    memberInfo.Member.DelegateMax = node.DMax;
-                    memberInfo.Member.DelegateCur = node.DCur;
-                    
-                    updatedMember = memberInfo.Member;
+                    accessor.UpdateMember(node.Name, m =>
+                    {
+                        // Note: StatusLTime is managed by StateMachine during state transitions
+                        // Metadata updates (address, tags, etc.) don't change state or LTime
+                        if (m.Member != null)
+                        {
+                            m.Member.Addr = node.Addr;
+                            m.Member.Port = node.Port;
+                            m.Member.Tags = DecodeTags(node.Meta);
+                            m.Member.ProtocolMin = node.PMin;
+                            m.Member.ProtocolMax = node.PMax;
+                            m.Member.ProtocolCur = node.PCur;
+                            m.Member.DelegateMin = node.DMin;
+                            m.Member.DelegateMax = node.DMax;
+                            m.Member.DelegateCur = node.DCur;
+                        }
+                    });
+
+                    Logger?.LogInformation("[Serf] Member updated: {Name}, Tags: {Tags}",
+                        node.Name, string.Join(", ", DecodeTags(node.Meta).Select(kvp => $"{kvp.Key}={kvp.Value}")));
+
+                    return memberInfo.Member;
                 }
-                
-                memberInfo.StatusLTime = Clock.Time();
-                Logger?.LogInformation("[Serf] Member updated: {Name}, Tags: {Tags}", 
-                    node.Name, string.Join(", ", DecodeTags(node.Meta).Select(kvp => $"{kvp.Key}={kvp.Value}")));
             }
             else
             {
                 // Member doesn't exist yet - ignore the update
-                Logger?.LogWarning("[Serf] HandleNodeUpdate: Member {Name} not found in MemberStates", node.Name);
+                Logger?.LogWarning("[Serf] HandleNodeUpdate: Member {Name} not found", node.Name);
             }
+
+            return null;
         });
 
         // Emit metrics
@@ -1472,7 +1427,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
         // If automatic resolution is enabled, kick off the resolution
         if (Config.EnableNameConflictResolution)
         {
-            _ = Task.Run(async () => await ResolveNodeConflictAsync());
+            _ = Task.Run(ResolveNodeConflictAsync);
         }
     }
 
@@ -1496,14 +1451,14 @@ public partial class Serf : IDisposable, IAsyncDisposable
             // Start a name resolution query
             var queryName = $"_serf_conflict";
             var payload = System.Text.Encoding.UTF8.GetBytes(Config.NodeName);
-            
+
             var queryParams = new QueryParam
             {
                 Timeout = TimeSpan.FromSeconds(5)
             };
 
             Logger?.LogInformation("[Serf] Starting conflict resolution query for '{NodeName}'", Config.NodeName);
-            
+
             var resp = await QueryAsync(queryName, payload, queryParams);
 
             // Counter to determine winner
@@ -1522,8 +1477,8 @@ public partial class Serf : IDisposable, IAsyncDisposable
 
                 try
                 {
-                    var member = MessagePackSerializer.Deserialize<Member>(r.Payload[1..]);
-                    
+                    var member = MessagePackSerializer.Deserialize<Member>(r.Payload.AsMemory()[1..]);
+
                     // Update the counters
                     responses++;
                     if (member.Addr.Equals(local.Addr) && member.Port == local.Port)
@@ -1550,7 +1505,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
             // Since we lost the vote, we need to exit
             Logger?.LogWarning("[Serf] minority in name conflict resolution, quitting [{Matching} / {Responses}]",
                 matching, responses);
-            
+
             await ShutdownAsync();
         }
         catch (Exception ex)
@@ -1583,15 +1538,15 @@ public partial class Serf : IDisposable, IAsyncDisposable
         {
             // Get the current coordinate before update
             var before = _coordClient.GetCoordinate();
-            
+
             // Update coordinate based on the observation
             var updated = _coordClient.Update(nodeName, coordinate, rtt);
-            
+
             // Emit coordinate adjustment metric (Go ping_delegate.go:86-87)
             // Calculate distance between old and new coordinate in milliseconds
             var adjustment = (float)(before.DistanceTo(updated).TotalMilliseconds);
             Config.Metrics.AddSample(new[] { "serf", "coordinate", "adjustment-ms" }, adjustment, Config.MetricLabels);
-            
+
             // Cache the latest coordinate for this node
             _coordCacheLock.EnterWriteLock();
             try
@@ -1602,7 +1557,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
             {
                 _coordCacheLock.ExitWriteLock();
             }
-            
+
             Logger?.LogTrace("[Serf] Updated coordinate for {Node}, RTT: {RTT}ms, New position: {Vec}",
                 nodeName, rtt.TotalMilliseconds, string.Join(",", updated.Vec.Select(v => v.ToString("F4"))));
         }
@@ -1710,22 +1665,6 @@ public partial class Serf : IDisposable, IAsyncDisposable
     }
 
     /// <summary>
-    /// Executes a function while holding a read lock. Ensures lock is released.
-    /// </summary>
-    private T WithReadLock<T>(ReaderWriterLockSlim lockObj, Func<T> func)
-    {
-        lockObj.EnterReadLock();
-        try
-        {
-            return func();
-        }
-        finally
-        {
-            lockObj.ExitReadLock();
-        }
-    }
-
-    /// <summary>
     /// Executes an action while holding a write lock. Ensures lock is released.
     /// Pattern: C# try-finally equivalent of Go's defer lock.Unlock()
     /// </summary>
@@ -1755,23 +1694,6 @@ public partial class Serf : IDisposable, IAsyncDisposable
         finally
         {
             lockObj.ExitWriteLock();
-        }
-    }
-
-    /// <summary>
-    /// Executes an action while holding a semaphore lock. Ensures lock is released.
-    /// Pattern: C# equivalent of Go's sync.Mutex with defer
-    /// </summary>
-    private void WithLock(SemaphoreSlim semaphore, Action action)
-    {
-        semaphore.Wait();
-        try
-        {
-            action();
-        }
-        finally
-        {
-            semaphore.Release();
         }
     }
 
@@ -1845,11 +1767,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
             return;
         }
 
-        var keyring = Config.MemberlistConfig?.Keyring;
-        if (keyring == null)
-        {
-            throw new InvalidOperationException("No keyring available to write");
-        }
+        var keyring = (Config.MemberlistConfig?.Keyring) ?? throw new InvalidOperationException("No keyring available to write");
 
         // Get all keys and encode them to base64
         var keysRaw = keyring.GetKeys();
@@ -1873,8 +1791,6 @@ public partial class Serf : IDisposable, IAsyncDisposable
     }
 
     // Legacy lock management for backward compatibility (Phase 6 delegates)
-    internal void AcquireMemberLock() => _memberLock.EnterReadLock();
-    internal void ReleaseMemberLock() => _memberLock.ExitReadLock();
     internal void AcquireEventLock() => _eventLock.EnterReadLock();
     internal void ReleaseEventLock() => _eventLock.ExitReadLock();
 
@@ -1896,7 +1812,6 @@ public partial class Serf : IDisposable, IAsyncDisposable
             }
         }
 
-        _memberLock?.Dispose();
         _eventLock?.Dispose();
         _queryLock?.Dispose();
         _stateLock?.Dispose();
@@ -1914,63 +1829,3 @@ public partial class Serf : IDisposable, IAsyncDisposable
     }
 }
 
-/// <summary>
-/// Internal member state tracking for Serf.
-/// Tracks member status and Lamport time for state changes.
-/// </summary>
-internal class MemberInfo
-{
-    public string Name { get; set; } = string.Empty;
-    
-    /// <summary>
-    /// State machine managing member status transitions.
-    /// </summary>
-    public StateMachine.MemberStateMachine? StateMachine { get; set; }
-    
-    /// <summary>
-    /// Current status of the member - delegates to StateMachine if available.
-    /// </summary>
-    public MemberStatus Status
-    {
-        get => StateMachine?.CurrentState ?? _status;
-        set
-        {
-            if (StateMachine != null)
-            {
-                // When StateMachine exists, status is managed by it
-                // This setter is for backward compatibility only
-            }
-            else
-            {
-                _status = value;
-            }
-        }
-    }
-    
-    /// <summary>
-    /// Lamport time of last status update - delegates to StateMachine if available.
-    /// </summary>
-    public LamportTime StatusLTime
-    {
-        get => StateMachine?.StatusLTime ?? _statusLTime;
-        set
-        {
-            if (StateMachine != null)
-            {
-                // When StateMachine exists, LTime is managed by it
-                // This setter is for backward compatibility only
-            }
-            else
-            {
-                _statusLTime = value;
-            }
-        }
-    }
-    
-    public DateTimeOffset LeaveTime { get; set; }
-    public Member Member { get; set; } = new Member();
-    
-    // Backing fields - used when StateMachine is null (backward compatibility)
-    private MemberStatus _status = MemberStatus.Alive;
-    private LamportTime _statusLTime;
-}

@@ -137,7 +137,7 @@ public class MemberManagerTests
             var member = accessor.GetMember("node1");
             if (member?.Status == MemberStatus.Alive)
             {
-                accessor.UpdateMember("node1", m => m.Status = MemberStatus.Leaving);
+                accessor.UpdateMember("node1", m => m.StateMachine.TryTransitionOnLeaveIntent(200));
                 var updated = accessor.GetMember("node1");
                 return updated?.Status == MemberStatus.Leaving;
             }
@@ -182,18 +182,14 @@ public class MemberManagerTests
         // Act
         manager.ExecuteUnderLock(accessor =>
         {
-            accessor.UpdateMember("node1", m => 
-            {
-                m.Status = MemberStatus.Leaving;
-                m.StatusLTime = new LamportTime(100);
-            });
+            accessor.UpdateMember("node1", m => m.StateMachine.TryTransitionOnLeaveIntent(200));
         });
         
         // Assert
         var member = manager.ExecuteUnderLock(accessor => accessor.GetMember("node1"));
         Assert.NotNull(member);
         Assert.Equal(MemberStatus.Leaving, member.Status);
-        Assert.Equal(new LamportTime(100), member.StatusLTime);
+        Assert.Equal(new LamportTime(200), member.StatusLTime); // LTime updated by transition
     }
     
     [Fact]
@@ -344,8 +340,11 @@ public class MemberManagerTests
         return new MemberInfo
         {
             Name = name,
-            Status = status,
-            StatusLTime = new LamportTime(0),
+            StateMachine = new NSerf.Serf.StateMachine.MemberStateMachine(
+                name,
+                status,
+                new LamportTime(100),
+                null),
             Member = new Member { Name = name, Status = status }
         };
     }

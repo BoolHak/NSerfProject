@@ -143,11 +143,13 @@ public class ConcurrencyTest
                 {
                     for (int j = 0; j < iterations && !cts.Token.IsCancellationRequested; j++)
                     {
-                        // Acquire and release member lock
-                        serf.AcquireMemberLock();
-                        lockAcquisitions.Add(("member", DateTime.UtcNow));
-                        Thread.Sleep(1); // Hold lock briefly
-                        serf.ReleaseMemberLock();
+                        // Test MemberManager's internal locking through its API
+                        serf._memberManager.ExecuteUnderLock(accessor =>
+                        {
+                            lockAcquisitions.Add(("member", DateTime.UtcNow));
+                            Thread.Sleep(1); // Hold lock briefly
+                            var count = accessor.GetMemberCount();
+                        });
 
                         // Acquire and release event lock
                         serf.AcquireEventLock();

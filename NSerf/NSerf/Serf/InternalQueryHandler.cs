@@ -243,20 +243,12 @@ public class SerfQueries
 
             _logger?.LogDebug("[InternalQueryHandler] Got conflict resolution query for '{NodeName}'", nodeName);
 
-            // Look for the member info
-            _serf.AcquireMemberLock();
-            Member? member = null;
-            try
+            // Look for the member info from MemberManager
+            Member? member = _serf._memberManager.ExecuteUnderLock(accessor =>
             {
-                if (_serf.MemberStates.TryGetValue(nodeName, out var memberInfo))
-                {
-                    member = memberInfo.Member;
-                }
-            }
-            finally
-            {
-                _serf.ReleaseMemberLock();
-            }
+                var memberInfo = accessor.GetMember(nodeName);
+                return memberInfo?.Member;
+            });
 
             // Encode the response (null if we don't know the node)
             var buf = member != null 

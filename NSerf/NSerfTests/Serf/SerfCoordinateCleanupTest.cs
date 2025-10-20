@@ -59,6 +59,11 @@ public class SerfCoordinateCleanupTest : IDisposable
         var expired = new NSerf.Serf.MemberInfo
         {
             Name = "nodeX",
+            StateMachine = new NSerf.Serf.StateMachine.MemberStateMachine(
+                "nodeX",
+                MemberStatus.Failed,
+                100,
+                null),
             LeaveTime = DateTimeOffset.UtcNow.AddMilliseconds(-500),
             Member = new NSerf.Serf.Member
             {
@@ -68,8 +73,7 @@ public class SerfCoordinateCleanupTest : IDisposable
                 Status = MemberStatus.Failed
             }
         };
-        serf.FailedMembers.Add(expired);
-        serf.MemberStates["nodeX"] = expired;
+        serf.AddMember(expired);
 
         // Act - wait for reaper to run
         await Task.Delay(400);

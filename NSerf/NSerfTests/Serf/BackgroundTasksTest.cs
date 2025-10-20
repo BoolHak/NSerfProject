@@ -95,6 +95,11 @@ public class BackgroundTasksTest : IDisposable
         var expiredMember = new MemberInfo
         {
             Name = "expired-node",
+            StateMachine = new NSerf.Serf.StateMachine.MemberStateMachine(
+                "expired-node",
+                MemberStatus.Failed,
+                100,
+                null),
             LeaveTime = DateTimeOffset.UtcNow.AddMilliseconds(-300),
             Member = new Member 
             { 
@@ -105,17 +110,16 @@ public class BackgroundTasksTest : IDisposable
             }
         };
         
-        // Add to failed members list
-        serf.FailedMembers.Add(expiredMember);
-        serf.MemberStates["expired-node"] = expiredMember;
+        // Add to failed members (via MemberManager)
+        serf.AddMember(expiredMember);
         
         // Act - wait for reaper to run (100ms interval + processing time)
         await Task.Delay(300);
         
         // Assert - expired member should be removed
-        serf.FailedMembers.Should().NotContain(m => m.Name == "expired-node",
+        serf.FailedMembers().Should().NotContain(m => m.Name == "expired-node",
             "reaper should remove expired members");
-        serf.MemberStates.Should().NotContainKey("expired-node",
+        serf.HasMember("expired-node").Should().BeFalse(
             "member should be erased from state");
     }
 
@@ -136,6 +140,11 @@ public class BackgroundTasksTest : IDisposable
         var failedMember = new MemberInfo
         {
             Name = "failed-node",
+            StateMachine = new NSerf.Serf.StateMachine.MemberStateMachine(
+                "failed-node",
+                MemberStatus.Failed,
+                100,
+                null),
             LeaveTime = DateTimeOffset.UtcNow,
             Member = new Member
             {
@@ -145,7 +154,7 @@ public class BackgroundTasksTest : IDisposable
                 Status = MemberStatus.Failed
             }
         };
-        serf.FailedMembers.Add(failedMember);
+        serf.AddMember(failedMember);
         
         // Let reconnect task potentially start
         await Task.Delay(30);
@@ -178,6 +187,11 @@ public class BackgroundTasksTest : IDisposable
         var recentMember = new MemberInfo
         {
             Name = "recent-node",
+            StateMachine = new NSerf.Serf.StateMachine.MemberStateMachine(
+                "recent-node",
+                MemberStatus.Failed,
+                100,
+                null),
             LeaveTime = DateTimeOffset.UtcNow.AddMilliseconds(-50),  // Only 50ms ago
             Member = new Member
             {
@@ -188,16 +202,15 @@ public class BackgroundTasksTest : IDisposable
             }
         };
         
-        serf.FailedMembers.Add(recentMember);
-        serf.MemberStates["recent-node"] = recentMember;
+        serf.AddMember(recentMember);
         
         // Act - wait for reaper to run
         await Task.Delay(300);
         
         // Assert - recent member should still be present
-        serf.FailedMembers.Should().Contain(m => m.Name == "recent-node",
+        serf.FailedMembers().Should().Contain(m => m.Name == "recent-node",
             "reaper should preserve non-expired members");
-        serf.MemberStates.Should().ContainKey("recent-node",
+        serf.HasMember("recent-node").Should().BeTrue(
             "non-expired member should remain in state");
     }
 }

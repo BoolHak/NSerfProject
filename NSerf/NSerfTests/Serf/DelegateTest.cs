@@ -136,9 +136,13 @@ public class DelegateTest
         var testMember = new MemberInfo
         {
             Name = "test-node",
-            StatusLTime = 5
+            StateMachine = new NSerf.Serf.StateMachine.MemberStateMachine(
+                "test-node",
+                MemberStatus.Alive,
+                5,
+                null)
         };
-        serf.MemberStates[testMember.Name] = testMember;
+        serf.AddMember(testMember);
 
         // Act
         var stateBytes = delegateObj.LocalState(join: false);
@@ -249,13 +253,13 @@ public class DelegateTest
         
         // Verify StatusLTimes were applied to member states
         // "test" should be processed as join intent
-        serf.MemberStates.Should().ContainKey("test", "StatusLTime for 'test' should create/update member");
-        serf.MemberStates["test"].StatusLTime.Should().Be(20, "StatusLTime should be applied");
+        serf.HasMember("test").Should().BeTrue("StatusLTime for 'test' should create/update member");
+        serf.GetMember("test")!.StatusLTime.Should().Be(20, "StatusLTime should be applied");
         
         // Verify LeftMembers were processed
         // "foo" is in LeftMembers, so it should be marked as leaving/left
-        serf.MemberStates.Should().ContainKey("foo", "LeftMember 'foo' should be processed");
-        serf.MemberStates["foo"].Status.Should().BeOneOf(MemberStatus.Leaving, MemberStatus.Left);
+        serf.HasMember("foo").Should().BeTrue("LeftMember 'foo' should be processed");
+        serf.GetMember("foo")!.Status.Should().BeOneOf(MemberStatus.Leaving, MemberStatus.Left);
         // foo should be marked as Leaving or Left
         
         // Verify Events were queued to EventBuffer
@@ -330,13 +334,15 @@ public class DelegateTest
         var delegateObj = new SerfDelegate(serf);
         
         // Add the node first so leave intent can be processed
-        serf.MemberStates["leaving-node"] = new MemberInfo
+        serf.AddMember(new MemberInfo
         {
             Name = "leaving-node",
-            Status = MemberStatus.Alive,
-            StatusLTime = 5,
-            Member = new Member { Name = "leaving-node", Status = MemberStatus.Alive }
-        };
+            StateMachine = new NSerf.Serf.StateMachine.MemberStateMachine(
+                "leaving-node",
+                MemberStatus.Alive,
+                5,
+                null)
+        });
 
         var leaveMsg = new MessageLeave
         {
@@ -359,11 +365,13 @@ public class DelegateTest
         serf.Clock.Time().Should().BeGreaterOrEqualTo(10, "clock should witness LTime from leave message");
         serf.Clock.Time().Should().BeGreaterThan(initialClockTime, "clock should have advanced");
         
-        // 2. Member status should be updated to Leaving
-        serf.MemberStates.Should().ContainKey("leaving-node");
-        serf.MemberStates["leaving-node"].Status.Should().Be(MemberStatus.Leaving, 
-            "member should be marked as Leaving after leave intent");
-        serf.MemberStates["leaving-node"].StatusLTime.Should().Be(10, 
+        // 2. Member status should be updated to Leaving (Alive -> Leaving transition)
+        serf.HasMember("leaving-node").Should().BeTrue();
+        var memberInfo = serf.GetMember("leaving-node");
+        memberInfo.Should().NotBeNull();
+        memberInfo!.Status.Should().Be(MemberStatus.Leaving, 
+            "member should transition from Alive to Leaving after leave intent");
+        memberInfo.StatusLTime.Should().Be(10, 
             "StatusLTime should be updated to leave message LTime");
     }
 
@@ -376,7 +384,7 @@ public class DelegateTest
         var delegateObj = new SerfDelegate(serf);
         
         var initialClockTime = serf.Clock.Time();
-        var initialMemberCount = serf.MemberStates.Count;
+        var initialMemberCount = serf.NumMembers();
 
         // Act
         delegateObj.NotifyMsg(Array.Empty<byte>());
@@ -386,7 +394,7 @@ public class DelegateTest
         serf.Clock.Time().Should().Be(initialClockTime, "clock should not change with empty buffer");
         
         // 2. No members added or changed
-        serf.MemberStates.Count.Should().Be(initialMemberCount, "member count should not change");
+        serf.NumMembers().Should().Be(initialMemberCount, "member count should not change");
         
         // Empty buffer should be handled gracefully without throwing
     }

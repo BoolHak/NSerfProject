@@ -244,7 +244,6 @@ internal class Delegate : IDelegate
     /// </summary>
     public byte[] LocalState(bool join)
     {
-        _serf.AcquireMemberLock();
         _serf.AcquireEventLock();
 
         try
@@ -253,21 +252,25 @@ internal class Delegate : IDelegate
             var pushPull = new MessagePushPull
             {
                 LTime = _serf.Clock.Time(),
-                StatusLTimes = new Dictionary<string, LamportTime>(_serf.MemberStates.Count),
-                LeftMembers = new List<string>(_serf.LeftMembers.Count),
+                StatusLTimes = new Dictionary<string, LamportTime>(_serf.NumMembers()),
+                LeftMembers = new List<string>(),
                 EventLTime = _serf.EventClock.Time(),
                 Events = _serf.EventBuffer.Values.ToList(),
                 QueryLTime = _serf.QueryClock.Time()
             };
 
-            // Add all the join LTimes
-            foreach (var (name, member) in _serf.MemberStates)
+            // Add all the join LTimes from MemberManager
+            _serf._memberManager.ExecuteUnderLock(accessor =>
             {
-                pushPull.StatusLTimes[name] = member.StatusLTime;
-            }
+                foreach (var memberInfo in accessor.GetAllMembers())
+                {
+                    pushPull.StatusLTimes[memberInfo.Name] = memberInfo.StatusLTime;
+                }
+            });
 
-            // Add all the left nodes
-            foreach (var member in _serf.LeftMembers)
+            // Add all the left nodes from MemberManager
+            var leftMembers = _serf._memberManager.ExecuteUnderLock(accessor => accessor.GetLeftMembers());
+            foreach (var member in leftMembers)
             {
                 pushPull.LeftMembers.Add(member.Name);
             }
@@ -283,7 +286,6 @@ internal class Delegate : IDelegate
         finally
         {
             _serf.ReleaseEventLock();
-            _serf.ReleaseMemberLock();
         }
     }
 
