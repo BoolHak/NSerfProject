@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using NSerf.Memberlist;
 using NSerf.Serf.Events;
 using NSerf.Serf.Managers;
+using NSerf.Serf.Helpers;
 using MessagePack;
 using System.Threading.Channels;
 
@@ -45,6 +46,10 @@ public partial class Serf : IDisposable, IAsyncDisposable
 
     // Phase 2: MemberManager with transaction pattern
     internal readonly IMemberManager _memberManager;
+
+    // Helper utilities
+    private SerfMetricsRecorder? _metricsRecorder;
+    private SerfQueryHelper? _queryHelper;
 
     // Event configuration
     internal bool EventJoinIgnore { get; set; }
@@ -142,8 +147,6 @@ public partial class Serf : IDisposable, IAsyncDisposable
         return _memberManager.ExecuteUnderLock(accessor => accessor.GetMemberCount());
     }
 
-    // ========== Phase 2: Helper Methods for Member State Management ==========
-
     /// <summary>
     /// Sets a member using MemberManager transaction pattern.
     /// </summary>
@@ -198,7 +201,6 @@ public partial class Serf : IDisposable, IAsyncDisposable
         });
     }
 
-    // ========== Helper Methods ==========
 
     /// <summary>
     /// Emits an event to both the Snapshotter and the user's EventCh.
@@ -246,34 +248,26 @@ public partial class Serf : IDisposable, IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(config);
 
-        // Validate protocol version
-        if (config.ProtocolVersion < ProtocolVersionMin)
-        {
-            throw new ArgumentException(
-                $"Protocol version '{config.ProtocolVersion}' too low. Must be in range: [{ProtocolVersionMin}, {ProtocolVersionMax}]");
-        }
-        if (config.ProtocolVersion > ProtocolVersionMax)
-        {
-            throw new ArgumentException(
-                $"Protocol version '{config.ProtocolVersion}' too high. Must be in range: [{ProtocolVersionMin}, {ProtocolVersionMax}]");
-        }
+        // Validate protocol version using helper
+        SerfValidationHelper.ValidateProtocolVersion(config.ProtocolVersion, ProtocolVersionMin, ProtocolVersionMax);
 
-        // Validate user event size limit
-        if (config.UserEventSizeLimit > UserEventSizeLimit)
-        {
-            throw new ArgumentException(
-                $"User event size limit exceeds limit of {UserEventSizeLimit} bytes");
-        }
+        // Validate user event size limit using helper
+        SerfValidationHelper.ValidateUserEventSizeLimit(config.UserEventSizeLimit, UserEventSizeLimit);
 
         var serf = new Serf(config);
+
+        // Initialize helper utilities
+        serf._metricsRecorder = new SerfMetricsRecorder(config.Metrics, config.MetricLabels, serf.Logger);
+        serf._queryHelper = new SerfQueryHelper(
+            () => serf.Memberlist?.NumMembers() ?? 1,
+            () => config.MemberlistConfig?.GossipInterval ?? TimeSpan.FromMilliseconds(500),
+            config.QueryTimeoutMult);
 
         // Ensure clocks start at least at 1
         serf.Clock.Increment();
         serf.EventClock.Increment();
         serf.QueryClock.Increment();
 
-        // Phase 6: Setup internal query handler to intercept _serf_* queries
-        // This sits between Serf and the user's EventCh, filtering internal queries
         ChannelWriter<Event>? eventDestination = config.EventCh;
         ChannelWriter<Event>? internalQueryInput = null;
 
@@ -850,28 +844,22 @@ public partial class Serf : IDisposable, IAsyncDisposable
 
     internal byte[] EncodeTags(Dictionary<string, string> tags)
     {
-        return TagEncoder.EncodeTags(tags, Config.ProtocolVersion);
+        return SerfMessageEncoder.EncodeTags(tags, Config.ProtocolVersion);
     }
 
     internal Dictionary<string, string> DecodeTags(byte[] buffer)
     {
-        return TagEncoder.DecodeTags(buffer);
+        return SerfMessageEncoder.DecodeTags(buffer);
     }
 
     internal void RecordMessageReceived(int size)
     {
-        // Emit metrics
-        // Reference: Go delegate.go:36
-        Config.Metrics.AddSample(new[] { "serf", "msgs", "received" }, size, Config.MetricLabels);
-        Logger?.LogTrace("[Serf] Message received: {Size} bytes", size);
+        _metricsRecorder?.RecordMessageReceived(size);
     }
 
     internal void RecordMessageSent(int size)
     {
-        // Emit metrics
-        // Reference: Go delegate.go:148
-        Config.Metrics.AddSample(new[] { "serf", "msgs", "sent" }, size, Config.MetricLabels);
-        Logger?.LogTrace("[Serf] Message sent: {Size} bytes", size);
+        _metricsRecorder?.RecordMessageSent(size);
     }
 
     internal bool HandleNodeLeaveIntent(MessageLeave leave)
@@ -998,8 +986,6 @@ public partial class Serf : IDisposable, IAsyncDisposable
             return true; // Rebroadcast this event
         });
     }
-
-    // HandleQuery and HandleQueryResponse are now implemented in Query.cs
 
     internal void HandleNodeJoin(Memberlist.State.Node? node)
     {
@@ -1341,25 +1327,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
 
     internal string? ValidateNodeName(string nodeName)
     {
-        // Only validate if enabled in config
-        if (!Config.ValidateNodeNames)
-        {
-            return null;
-        }
-
-        // Check for invalid characters (spaces, control characters, etc.)
-        if (string.IsNullOrWhiteSpace(nodeName) || nodeName.Any(c => char.IsWhiteSpace(c) || char.IsControl(c)))
-        {
-            return "Node name contains invalid characters";
-        }
-
-        // Check length (max 128 characters as per Serf specification)
-        if (nodeName.Length > 128)
-        {
-            return $"Node name is {nodeName.Length} characters. Node name must be 128 characters or less";
-        }
-
-        return null;
+        return SerfValidationHelper.ValidateNodeName(nodeName, Config.ValidateNodeNames);
     }
 
     /// <summary>
@@ -1368,20 +1336,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
     /// </summary>
     public TimeSpan DefaultQueryTimeout()
     {
-        // Determine current cluster size N
-        int n = Memberlist?.NumMembers() ?? 1;
-
-        // Base gossip interval and multiplier
-        var gossip = Config.MemberlistConfig?.GossipInterval ?? TimeSpan.FromMilliseconds(500);
-        int mult = Config.QueryTimeoutMult;
-
-        // Factor = ceil(log10(N+1)), minimum 1
-        int factor = (int)Math.Ceiling(Math.Log10(n + 1));
-        if (factor <= 0) factor = 1;
-
-        // Compute as ticks to avoid TimeSpan arithmetic limitations
-        long ticks = gossip.Ticks * mult * factor;
-        return new TimeSpan(ticks);
+        return _queryHelper?.CalculateDefaultQueryTimeout() ?? TimeSpan.FromSeconds(5);
     }
 
     /// <summary>
@@ -1389,30 +1344,18 @@ public partial class Serf : IDisposable, IAsyncDisposable
     /// </summary>
     public QueryParam DefaultQueryParams()
     {
-        return new QueryParam
+        return _queryHelper?.CreateDefaultQueryParams() ?? new QueryParam
         {
             FilterNodes = null,
             FilterTags = null,
             RequestAck = false,
-            Timeout = DefaultQueryTimeout()
+            Timeout = TimeSpan.FromSeconds(5)
         };
     }
 
     internal byte[] EncodeMessage(MessageType messageType, object message)
     {
-        try
-        {
-            var payload = MessagePackSerializer.Serialize(message);
-            var result = new byte[payload.Length + 1];
-            result[0] = (byte)messageType;
-            Array.Copy(payload, 0, result, 1, payload.Length);
-            return result;
-        }
-        catch (Exception ex)
-        {
-            Logger?.LogError(ex, "[Serf] Failed to encode message of type {Type}", messageType);
-            return [];
-        }
+        return SerfMessageEncoder.EncodeMessage(messageType, message, Logger);
     }
 
     // Lock management helpers - Use try-finally pattern (C# equivalent of Go's defer)
@@ -1423,15 +1366,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
     /// </summary>
     private void WithReadLock(ReaderWriterLockSlim lockObj, Action action)
     {
-        lockObj.EnterReadLock();
-        try
-        {
-            action();
-        }
-        finally
-        {
-            lockObj.ExitReadLock();
-        }
+        LockHelper.WithReadLock(lockObj, action);
     }
 
     /// <summary>
@@ -1440,15 +1375,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
     /// </summary>
     private void WithWriteLock(ReaderWriterLockSlim lockObj, Action action)
     {
-        lockObj.EnterWriteLock();
-        try
-        {
-            action();
-        }
-        finally
-        {
-            lockObj.ExitWriteLock();
-        }
+        LockHelper.WithWriteLock(lockObj, action);
     }
 
     /// <summary>
@@ -1456,15 +1383,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
     /// </summary>
     private T WithWriteLock<T>(ReaderWriterLockSlim lockObj, Func<T> func)
     {
-        lockObj.EnterWriteLock();
-        try
-        {
-            return func();
-        }
-        finally
-        {
-            lockObj.ExitWriteLock();
-        }
+        return LockHelper.WithWriteLock(lockObj, func);
     }
 
     /// <summary>
@@ -1472,15 +1391,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
     /// </summary>
     private T WithLock<T>(SemaphoreSlim semaphore, Func<T> func)
     {
-        semaphore.Wait();
-        try
-        {
-            return func();
-        }
-        finally
-        {
-            semaphore.Release();
-        }
+        return LockHelper.WithLock(semaphore, func);
     }
 
     /// <summary>
@@ -1488,15 +1399,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
     /// </summary>
     private async Task WithLockAsync(SemaphoreSlim semaphore, Func<Task> action)
     {
-        await semaphore.WaitAsync();
-        try
-        {
-            await action();
-        }
-        finally
-        {
-            semaphore.Release();
-        }
+        await LockHelper.WithLockAsync(semaphore, action);
     }
 
     /// <summary>
@@ -1504,15 +1407,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
     /// </summary>
     private async Task<T> WithLockAsync<T>(SemaphoreSlim semaphore, Func<Task<T>> func)
     {
-        await semaphore.WaitAsync();
-        try
-        {
-            return await func();
-        }
-        finally
-        {
-            semaphore.Release();
-        }
+        return await LockHelper.WithLockAsync(semaphore, func);
     }
 
     /// <summary>
