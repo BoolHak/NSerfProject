@@ -96,8 +96,8 @@ public partial class Serf : IDisposable, IAsyncDisposable
         QueryBroadcasts = new BroadcastQueue(new TransmitLimitedQueue());
 
         // Member state fully migrated to MemberManager
-        EventBuffer = new Dictionary<LamportTime, UserEventCollection>();
-        QueryBuffer = new Dictionary<LamportTime, QueryCollection>();
+        EventBuffer = [];
+        QueryBuffer = [];
 
         // Phase 2: Initialize MemberManager with transaction pattern
         _memberManager = new MemberManager();
@@ -1003,114 +1003,62 @@ public partial class Serf : IDisposable, IAsyncDisposable
 
     internal void HandleNodeJoin(Memberlist.State.Node? node)
     {
-        if (node == null)
+        // Delegate to NodeEventHandler (Go-aligned implementation)
+        var tempEvents = new List<Events.Event>();
+
+        var handler = new Handlers.NodeEventHandler(
+            _memberManager,
+            tempEvents,
+            Clock,
+            Logger,
+            () => DecodeTags(node?.Meta ?? []));
+
+        // Check for flap detection before processing
+        var shouldCheckFlap = false;
+        MemberStatus? oldStatus = null;
+        DateTimeOffset? leaveTime = null;
+
+        if (node != null)
         {
-            Logger?.LogWarning("[Serf] HandleNodeJoin called with null node");
-            return;
+            _memberManager.ExecuteUnderLock(accessor =>
+            {
+                var memberInfo = accessor.GetMember(node.Name);
+                if (memberInfo != null)
+                {
+                    oldStatus = memberInfo.Status;
+                    leaveTime = memberInfo.LeaveTime;
+                    shouldCheckFlap = (oldStatus == MemberStatus.Failed && leaveTime != default);
+                }
+            });
         }
 
-        Logger?.LogDebug("[Serf] HandleNodeJoin: {Name}", node.Name);
+        // Process the join
+        handler.HandleNodeJoin(node);
 
-        // NOTE: EventJoinIgnore only affects USER EVENTS, not member join events!
-        // In Go, eventJoinIgnore is only used to set eventMinTime in the delegate
-        // to filter old user events during auto-rejoin. Member join events are
-        // always processed.
-
-        _memberManager.ExecuteUnderLock(accessor =>
+        // Flap detection (Go serf.go:969-971)
+        if (shouldCheckFlap && leaveTime.HasValue)
         {
-            // Create the full member object
-            var member = new Member
+            var deadTime = DateTimeOffset.UtcNow - leaveTime.Value;
+            if (deadTime < Config.FlapTimeout)
             {
-                Name = node.Name,
-                Addr = node.Addr,
-                Port = node.Port,
-                Tags = DecodeTags(node.Meta),
-                Status = MemberStatus.Alive,
-                ProtocolMin = node.PMin,
-                ProtocolMax = node.PMax,
-                ProtocolCur = node.PCur,
-                DelegateMin = node.DMin,
-                DelegateMax = node.DMax,
-                DelegateCur = node.DCur
-            };
-
-            // Update or create member state
-            var memberInfo = accessor.GetMember(node.Name);
-            if (memberInfo == null)
-            {
-                accessor.AddMember(new MemberInfo
-                {
-                    Name = node.Name,
-                    StateMachine = new StateMachine.MemberStateMachine(
-                        node.Name,
-                        MemberStatus.Alive,
-                        Clock.Time(),
-                        Logger),
-                    Member = member
-                });
-                Logger?.LogInformation("[Serf/Join] NEW member joined: {Name} at {Address}:{Port} (Total members: {Count})",
-                    node.Name, node.Addr, node.Port, accessor.GetMemberCount());
+                Config.Metrics.IncrCounter(new[] { "serf", "member", "flap" }, 1, Config.MetricLabels);
             }
-            else
-            {
-                // Update existing member (rejoin)
-                var oldStatus = memberInfo.Status;
-
-                // Check for flap (Go serf.go:969-971)
-                if (oldStatus == MemberStatus.Failed && memberInfo.LeaveTime != default)
-                {
-                    var deadTime = DateTimeOffset.UtcNow - memberInfo.LeaveTime;
-                    if (deadTime < Config.FlapTimeout)
-                    {
-                        Config.Metrics.IncrCounter(new[] { "serf", "member", "flap" }, 1, Config.MetricLabels);
-                    }
-                }
-
-                accessor.UpdateMember(node.Name, m =>
-                {
-                    var result = m.StateMachine.TransitionOnMemberlistJoin();
-                    m.Member = member;
-
-                    Logger?.LogInformation("[Serf/Join] Member rejoined: {Name} ({Reason}, Total members: {Count})",
-                        node.Name, result.Reason, accessor.GetMemberCount());
-                });
-            }
-        });
+        }
 
         // Emit metrics
-        // Reference: Go serf.go:997
         Config.Metrics.IncrCounter(new[] { "serf", "member", "join" }, 1, Config.MetricLabels);
 
-        // Emit join event to both Snapshotter and EventCh
-        var member = new Member
+        // Emit any events generated
+        foreach (var evt in tempEvents)
         {
-            Name = node.Name,
-            Addr = node.Addr,
-            Port = node.Port,
-            Tags = DecodeTags(node.Meta),
-            Status = MemberStatus.Alive,
-            ProtocolMin = node.PMin,
-            ProtocolMax = node.PMax,
-            ProtocolCur = node.PCur,
-            DelegateMin = node.DMin,
-            DelegateMax = node.DMax,
-            DelegateCur = node.DCur
-        };
-
-        var memberEvent = new MemberEvent
-        {
-            Type = EventType.MemberJoin,
-            Members = new List<Member> { member }
-        };
-
-        EmitEvent(memberEvent);
+            EmitEvent(evt);
+        }
     }
 
     internal void HandleNodeLeave(Memberlist.State.Node? node)
     {
         if (node == null)
         {
-            Logger?.LogWarning("[Serf] HandleNodeLeave called with null node");
             return;
         }
 
@@ -1120,102 +1068,38 @@ public partial class Serf : IDisposable, IAsyncDisposable
             return;
         }
 
-        Logger?.LogDebug("[Serf] HandleNodeLeave: {Name}, NodeState={State}", node.Name, node.State);
+        // Delegate to NodeEventHandler (Go-aligned implementation)
+        var tempEvents = new List<Events.Event>();
 
-        // Determine event type based on memberlist's determination
-        // Memberlist sets State to Left for graceful leave (node == from in Dead message)
-        // and Dead for actual failure
-        var eventType = EventType.MemberLeave;
-        var memberStatus = MemberStatus.Left;
-
-        // Check the node's state from memberlist
-        if (node.State == NSerf.Memberlist.State.NodeStateType.Dead)
-        {
-            // This is an actual failure, not a graceful leave
-            eventType = EventType.MemberFailed;
-            memberStatus = MemberStatus.Failed;
-        }
-        else if (node.State == NSerf.Memberlist.State.NodeStateType.Left)
-        {
-            // This is a graceful leave
-            eventType = EventType.MemberLeave;
-            memberStatus = MemberStatus.Left;
-        }
-
-        // Emit metrics
-        // Reference: Go serf.go:1047 - metrics by status (failed or left)
-        Config.Metrics.IncrCounter(new[] { "serf", "member", memberStatus.ToStatusString() }, 1, Config.MetricLabels);
+        var handler = new Handlers.NodeEventHandler(
+            _memberManager,
+            tempEvents,
+            Clock,
+            Logger,
+            () => DecodeTags(node?.Meta ?? []));
 
         try
         {
-            _memberManager.ExecuteUnderLock(accessor =>
+            handler.HandleNodeLeave(node);
+
+            // Determine status for metrics
+            var memberStatus = (node.State == NSerf.Memberlist.State.NodeStateType.Dead)
+                ? MemberStatus.Failed
+                : MemberStatus.Left;
+
+            // Emit metrics (Go serf.go:1047)
+            Config.Metrics.IncrCounter(new[] { "serf", "member", memberStatus.ToStatusString() }, 1, Config.MetricLabels);
+
+            // Emit any events generated
+            foreach (var evt in tempEvents)
             {
-                // Update member state if it exists
-                var memberInfo = accessor.GetMember(node.Name);
-                if (memberInfo != null)
-                {
-                    // Store the full member info for reaper and reconnect
-                    var member = new Member
-                    {
-                        Name = node.Name,
-                        Addr = node.Addr,
-                        Port = node.Port,
-                        Tags = DecodeTags(node.Meta),
-                        Status = memberStatus,
-                        ProtocolMin = node.PMin,
-                        ProtocolMax = node.PMax,
-                        ProtocolCur = node.PCur,
-                        DelegateMin = node.DMin,
-                        DelegateMax = node.DMax,
-                        DelegateCur = node.DCur
-                    };
-
-                    accessor.UpdateMember(node.Name, m =>
-                    {
-                        var isDead = (memberStatus == MemberStatus.Failed);
-                        var result = m.StateMachine.TransitionOnMemberlistLeave(isDead);
-                        m.LeaveTime = DateTimeOffset.UtcNow;
-                        m.Member = member;
-
-                        Logger?.LogDebug("[Serf] {Reason}", result.Reason);
-                    });
-
-                    // Status is tracked in MemberManager - no separate list management needed
-
-                    Logger?.LogInformation("[Serf] Member {Status}: {Name}",
-                        eventType == EventType.MemberFailed ? "failed" : "left", node.Name);
-                }
-            });
+                EmitEvent(evt);
+            }
         }
         catch (ObjectDisposedException)
         {
             // Ignore - we're shutting down
-            return;
         }
-
-        // Emit event to both Snapshotter and EventCh
-        var member = new Member
-        {
-            Name = node.Name,
-            Addr = node.Addr,
-            Port = node.Port,
-            Tags = DecodeTags(node.Meta),
-            Status = memberStatus,
-            ProtocolMin = node.PMin,
-            ProtocolMax = node.PMax,
-            ProtocolCur = node.PCur,
-            DelegateMin = node.DMin,
-            DelegateMax = node.DMax,
-            DelegateCur = node.DCur
-        };
-
-        var memberEvent = new MemberEvent
-        {
-            Type = eventType,
-            Members = new List<Member> { member }
-        };
-
-        EmitEvent(memberEvent);
     }
 
     internal void HandleNodeUpdate(Memberlist.State.Node? node)
