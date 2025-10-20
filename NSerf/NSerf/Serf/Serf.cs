@@ -41,11 +41,13 @@ public partial class Serf : IDisposable, IAsyncDisposable
     internal BroadcastQueue QueryBroadcasts { get; private set; }
 
     // Member state - fully migrated to MemberManager
-    internal Dictionary<LamportTime, UserEventCollection> EventBuffer { get; private set; }
     internal Dictionary<LamportTime, QueryCollection> QueryBuffer { get; private set; }
 
     // Phase 2: MemberManager with transaction pattern
     internal readonly IMemberManager _memberManager;
+
+    // Phase 5: EventManager for user event handling
+    internal EventManager? _eventManager;
 
     // Helper utilities
     private SerfMetricsRecorder? _metricsRecorder;
@@ -53,7 +55,6 @@ public partial class Serf : IDisposable, IAsyncDisposable
 
     // Event configuration
     internal bool EventJoinIgnore { get; set; }
-    internal LamportTime EventMinTime { get; set; }
     internal LamportTime QueryMinTime { get; set; }
 
     // Query tracking - maps LTime to QueryResponse
@@ -76,7 +77,6 @@ public partial class Serf : IDisposable, IAsyncDisposable
     // - No strict global order, but acquire lock at start of handler
     // - When multiple locks needed, acquire in nested fashion
     // - Most handlers acquire single lock protecting their data
-    private readonly ReaderWriterLockSlim _eventLock = new();   // Protects: eventBuffer, eventMinTime
     private readonly ReaderWriterLockSlim _queryLock = new();   // Protects: queryBuffer, queryMinTime, queryResponse
     private readonly SemaphoreSlim _stateLock = new(1, 1);      // Protects: state field (SerfAlive, SerfLeaving, etc.)
     private readonly ReaderWriterLockSlim _coordCacheLock = new(); // Protects: coordCache
@@ -101,14 +101,18 @@ public partial class Serf : IDisposable, IAsyncDisposable
         QueryBroadcasts = new BroadcastQueue(new TransmitLimitedQueue());
 
         // Member state fully migrated to MemberManager
-        EventBuffer = [];
         QueryBuffer = [];
 
         // Phase 2: Initialize MemberManager with transaction pattern
         _memberManager = new MemberManager();
 
+        // Phase 5: Initialize EventManager (needed for tests using constructor)
+        _eventManager = new EventManager(
+            eventCh: config.EventCh,
+            eventBufferSize: config.EventBuffer,
+            logger: Logger);
+
         EventJoinIgnore = false;
-        EventMinTime = 0;
         QueryMinTime = 0;
     }
 
@@ -225,19 +229,8 @@ public partial class Serf : IDisposable, IAsyncDisposable
             }
         }
 
-        // Send to user's event channel (if configured)
-        if (Config.EventCh != null)
-        {
-            try
-            {
-                Config.EventCh.TryWrite(evt);
-                Logger?.LogTrace("[Serf/EmitEvent] Emitted event to EventCh: {Type}", evt.GetType().Name);
-            }
-            catch (Exception ex)
-            {
-                Logger?.LogError(ex, "[Serf/EmitEvent] Failed to emit event to EventCh");
-            }
-        }
+        // Delegate to EventManager for event channel emission
+        _eventManager?.EmitEvent(evt);
     }
 
     /// <summary>
@@ -285,6 +278,17 @@ public partial class Serf : IDisposable, IAsyncDisposable
             eventDestination = queryInputCh; // Events now go to internal query handler first
 
             serf.Logger?.LogInformation("[Serf/InternalQuery] ✓ Internal query handler created");
+        }
+
+        // Phase 5: Re-initialize EventManager with query handler destination if configured
+        // (Constructor initializes with config.EventCh, but we need eventDestination for query routing)
+        if (eventDestination != config.EventCh)
+        {
+            serf._eventManager = new EventManager(
+                eventCh: eventDestination,
+                eventBufferSize: config.EventBuffer,
+                logger: serf.Logger);
+            serf.Logger?.LogInformation("[Serf/EventManager] ✓ EventManager re-initialized with query handler routing");
         }
 
         List<PreviousNode>? previousNodes = null;
@@ -906,85 +910,23 @@ public partial class Serf : IDisposable, IAsyncDisposable
 
     internal bool HandleUserEvent(MessageUserEvent userEvent)
     {
-        // Witness a potentially newer time
-        EventClock.Witness(userEvent.LTime);
-
-        return WithWriteLock(_eventLock, () =>
+        if (_eventManager == null)
         {
-            // Ignore if it is before our minimum event time
-            if (userEvent.LTime < EventMinTime)
-            {
-                return false;
-            }
+            Logger?.LogWarning("[Serf] EventManager not initialized");
+            return false;
+        }
 
-            // Check if this message is too old
-            var curTime = EventClock.Time();
-            var bufferSize = (ulong)Config.EventBuffer;
-            if (curTime > bufferSize && userEvent.LTime < (curTime - bufferSize))
-            {
-                Logger?.LogWarning(
-                    "[Serf] Received old event {Name} from time {LTime} (current: {CurTime})",
-                    userEvent.Name, userEvent.LTime, curTime);
-                return false;
-            }
+        // Delegate to EventManager for full event handling
+        var shouldRebroadcast = _eventManager.HandleUserEvent(userEvent);
 
-            // Check if we've already seen this event
-            if (EventBuffer.TryGetValue(userEvent.LTime, out var seen))
-            {
-                // Check for duplicate
-                foreach (var previous in seen.Events)
-                {
-                    if (previous.Name == userEvent.Name &&
-                        previous.Payload.SequenceEqual(userEvent.Payload))
-                    {
-                        // Already seen this event
-                        return false;
-                    }
-                }
-            }
-            else
-            {
-                // Create new collection for this LTime
-                seen = new UserEventCollection { LTime = userEvent.LTime };
-                EventBuffer[userEvent.LTime] = seen;
-            }
-
-            // Add to recent events
-            seen.Events.Add(new UserEventData
-            {
-                Name = userEvent.Name,
-                Payload = userEvent.Payload
-            });
-
-            // Emit metrics
-            // Reference: Go serf.go:1289-1290
+        // Emit metrics if event was processed
+        if (shouldRebroadcast)
+        {
             Config.Metrics.IncrCounter(new[] { "serf", "events" }, 1, Config.MetricLabels);
             Config.Metrics.IncrCounter(new[] { "serf", "events", userEvent.Name }, 1, Config.MetricLabels);
+        }
 
-            // Send to EventCh if configured
-            if (Config.EventCh != null)
-            {
-                var evt = new Events.UserEvent
-                {
-                    LTime = userEvent.LTime,
-                    Name = userEvent.Name,
-                    Payload = userEvent.Payload,
-                    Coalesce = userEvent.CC
-                };
-
-                try
-                {
-                    Config.EventCh.TryWrite(evt);
-                    Logger?.LogTrace("[Serf] Emitted UserEvent: {Name} at LTime {LTime}", userEvent.Name, userEvent.LTime);
-                }
-                catch (Exception ex)
-                {
-                    Logger?.LogError(ex, "[Serf] Failed to emit UserEvent: {Name}", userEvent.Name);
-                }
-            }
-
-            return true; // Rebroadcast this event
-        });
+        return shouldRebroadcast;
     }
 
     internal void HandleNodeJoin(Memberlist.State.Node? node)
@@ -1300,8 +1242,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
 
             // Emit coordinate adjustment metric (Go ping_delegate.go:86-87)
             // Calculate distance between old and new coordinate in milliseconds
-            var adjustment = (float)(before.DistanceTo(updated).TotalMilliseconds);
-            Config.Metrics.AddSample(new[] { "serf", "coordinate", "adjustment-ms" }, adjustment, Config.MetricLabels);
+            Config.Metrics.AddSample(new[] { "serf", "coordinate", "adjustment-ms" }, (float)before.DistanceTo(updated).TotalMilliseconds, Config.MetricLabels);
 
             // Cache the latest coordinate for this node
             _coordCacheLock.EnterWriteLock();
@@ -1455,9 +1396,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
         Logger?.LogDebug("[Serf] Wrote keyring file: {Path}", Config.KeyringFile);
     }
 
-    // Legacy lock management for backward compatibility (Phase 6 delegates)
-    internal void AcquireEventLock() => _eventLock.EnterReadLock();
-    internal void ReleaseEventLock() => _eventLock.ExitReadLock();
+    // Phase 5: Event lock management delegated to EventManager
 
     /// <summary>
     /// Disposes the Serf instance and releases all locks.
@@ -1481,7 +1420,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
             }
         }
 
-        _eventLock?.Dispose();
+        _eventManager?.Dispose();
         _queryLock?.Dispose();
         _stateLock?.Dispose();
         _coordCacheLock?.Dispose();
@@ -1498,4 +1437,3 @@ public partial class Serf : IDisposable, IAsyncDisposable
         return ValueTask.CompletedTask;
     }
 }
-

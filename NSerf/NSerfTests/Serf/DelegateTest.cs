@@ -170,25 +170,24 @@ public class DelegateTest
         pushPull.LeftMembers.Should().NotBeNull();
         
         // Verify events are included in serialization
-        // Add a test event to EventBuffer
-        var testEvent = new UserEventCollection
+        // Add a test event via HandleUserEvent (which adds to EventManager's buffer)
+        var userEventMsg = new MessageUserEvent
         {
             LTime = 100,
-            Events = new List<UserEventData>
-            {
-                new UserEventData { Name = "test-event", Payload = new byte[] { 1, 2, 3 } }
-            }
+            Name = "test-event",
+            Payload = new byte[] { 1, 2, 3 },
+            CC = false
         };
-        serf.EventBuffer[100] = testEvent;
+        serf.HandleUserEvent(userEventMsg);
         
         // Serialize again with event
         var stateWithEvent = delegateObj.LocalState(join: false);
         var pushPullWithEvent = MessagePackSerializer.Deserialize<MessagePushPull>(stateWithEvent.AsMemory(1));
         
-        // Verify EventBuffer events are included in push/pull state
+        // Verify EventManager events are included in push/pull state
         pushPullWithEvent.Events.Should().NotBeNull("Events should be serialized");
         pushPullWithEvent.Events.Should().Contain(e => e.LTime == 100, 
-            "EventBuffer events should be included in serialized state");
+            "EventManager events should be included in serialized state");
         
         var serializedEvent = pushPullWithEvent.Events.First(e => e.LTime == 100);
         serializedEvent.Events.Should().ContainSingle("should have one event");
@@ -262,10 +261,11 @@ public class DelegateTest
         serf.GetMember("foo")!.Status.Should().BeOneOf(MemberStatus.Leaving, MemberStatus.Left);
         // foo should be marked as Leaving or Left
         
-        // Verify Events were queued to EventBuffer
-        // Event with LTime=45 should be added to EventBuffer
-        serf.EventBuffer.Should().ContainKey(45, "Event should be queued to EventBuffer");
-        var queuedEvent = serf.EventBuffer[45];
+        // Verify Events were queued to EventManager
+        // Event with LTime=45 should be added to EventManager's buffer
+        var events = serf._eventManager?.GetEventCollectionsForPushPull() ?? new List<UserEventCollection>();
+        events.Should().Contain(e => e.LTime == 45, "Event should be queued to EventManager");
+        var queuedEvent = events.First(e => e.LTime == 45);
         queuedEvent.Events.Should().ContainSingle("should have one event");
         queuedEvent.Events[0].Name.Should().Be("test-event", "event name should match");
         queuedEvent.Events[0].Payload.Should().Equal(Array.Empty<byte>(), "event payload should match");

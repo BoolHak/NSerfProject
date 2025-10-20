@@ -244,8 +244,6 @@ internal class Delegate : IDelegate
     /// </summary>
     public byte[] LocalState(bool join)
     {
-        _serf.AcquireEventLock();
-
         try
         {
             // Create the push/pull message
@@ -255,7 +253,7 @@ internal class Delegate : IDelegate
                 StatusLTimes = new Dictionary<string, LamportTime>(_serf.NumMembers()),
                 LeftMembers = new List<string>(),
                 EventLTime = _serf.EventClock.Time(),
-                Events = _serf.EventBuffer.Values.ToList(),
+                Events = _serf._eventManager?.GetEventCollectionsForPushPull() ?? new List<UserEventCollection>(),
                 QueryLTime = _serf.QueryClock.Time()
             };
 
@@ -282,10 +280,6 @@ internal class Delegate : IDelegate
         {
             _serf.Logger?.LogError(ex, "[Serf] Failed to encode local state");
             return Array.Empty<byte>();
-        }
-        finally
-        {
-            _serf.ReleaseEventLock();
         }
     }
 
@@ -369,17 +363,13 @@ internal class Delegate : IDelegate
         // Handle event join ignore
         if (join && _serf.EventJoinIgnore)
         {
-            _serf.AcquireEventLock();
-            try
+            if (_serf._eventManager != null)
             {
-                if (pushPull.EventLTime > _serf.EventMinTime)
+                var currentMinTime = _serf._eventManager.GetEventMinTime();
+                if (pushPull.EventLTime > currentMinTime)
                 {
-                    _serf.EventMinTime = pushPull.EventLTime;
+                    _serf._eventManager.SetEventMinTime(pushPull.EventLTime);
                 }
-            }
-            finally
-            {
-                _serf.ReleaseEventLock();
             }
         }
 

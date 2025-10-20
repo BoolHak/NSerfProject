@@ -151,11 +151,10 @@ public class ConcurrencyTest
                             var count = accessor.GetMemberCount();
                         });
 
-                        // Acquire and release event lock
-                        serf.AcquireEventLock();
+                        // Event lock is now encapsulated in EventManager
+                        // Test event manager operation instead
+                        var eventTime = serf._eventManager?.GetEventClockTime() ?? 0;
                         lockAcquisitions.Add(("event", DateTime.UtcNow));
-                        Thread.Sleep(1); // Hold lock briefly
-                        serf.ReleaseEventLock();
                     }
                 }
                 catch (Exception ex)
