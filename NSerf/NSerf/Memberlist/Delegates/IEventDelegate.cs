@@ -19,13 +19,13 @@ public interface IEventDelegate
     /// The Node argument must not be modified.
     /// </summary>
     void NotifyJoin(Node node);
-    
+
     /// <summary>
     /// Invoked when a node is detected to have left.
     /// The Node argument must not be modified.
     /// </summary>
     void NotifyLeave(Node node);
-    
+
     /// <summary>
     /// Invoked when a node is detected to have updated, usually involving metadata.
     /// The Node argument must not be modified.
@@ -42,12 +42,12 @@ public enum NodeEventType
     /// Node joined the cluster.
     /// </summary>
     NodeJoin = 0,
-    
+
     /// <summary>
     /// Node left the cluster.
     /// </summary>
     NodeLeave = 1,
-    
+
     /// <summary>
     /// Node updated (usually metadata).
     /// </summary>
@@ -63,7 +63,7 @@ public class NodeEvent
     /// Type of event.
     /// </summary>
     public NodeEventType EventType { get; set; }
-    
+
     /// <summary>
     /// Node involved in the event. Should not be directly modified.
     /// </summary>
@@ -78,12 +78,12 @@ public class NodeEvent
 public class ChannelEventDelegate : IEventDelegate
 {
     private readonly ChannelWriter<NodeEvent> _channel;
-    
+
     public ChannelEventDelegate(ChannelWriter<NodeEvent> channel)
     {
         _channel = channel;
     }
-    
+
     public void NotifyJoin(Node node)
     {
         // Create a copy to avoid modification issues
@@ -94,7 +94,7 @@ public class ChannelEventDelegate : IEventDelegate
             Node = nodeCopy
         });
     }
-    
+
     public void NotifyLeave(Node node)
     {
         var nodeCopy = CloneNode(node);
@@ -104,7 +104,7 @@ public class ChannelEventDelegate : IEventDelegate
             Node = nodeCopy
         });
     }
-    
+
     public void NotifyUpdate(Node node)
     {
         var nodeCopy = CloneNode(node);
@@ -114,7 +114,7 @@ public class ChannelEventDelegate : IEventDelegate
             Node = nodeCopy
         });
     }
-    
+
     private static Node CloneNode(Node node)
     {
         return new Node
@@ -122,7 +122,7 @@ public class ChannelEventDelegate : IEventDelegate
             Name = node.Name,
             Addr = node.Addr,
             Port = node.Port,
-            Meta = node.Meta.ToArray(),
+            Meta = [.. node.Meta],
             State = node.State,
             PMin = node.PMin,
             PMax = node.PMax,
