@@ -876,158 +876,44 @@ public partial class Serf : IDisposable, IAsyncDisposable
 
     internal bool HandleNodeLeaveIntent(MessageLeave leave)
     {
-        Logger?.LogDebug("[Serf] HandleNodeLeaveIntent: {Node} at LTime {LTime}", leave.Node, leave.LTime);
+        // Delegate to IntentHandler (Go-aligned implementation)
+        var tempEvents = new List<Events.Event>();
 
-        // Witness the Lamport time
-        Clock.Witness(leave.LTime);
+        var handler = new Handlers.IntentHandler(
+            _memberManager,
+            tempEvents,
+            Clock,
+            Logger,
+            Config.NodeName,
+            () => _state,
+            null);
 
-        _memberManager.ExecuteUnderLock(accessor =>
+        var result = handler.HandleLeaveIntent(leave);
+
+        // Emit any events that were generated (e.g., Failed→Left emits EventMemberLeave)
+        foreach (var evt in tempEvents)
         {
-            // Mark member as leaving/left if it exists
-            var memberInfo = accessor.GetMember(leave.Node);
-            if (memberInfo != null)
-            {
-                // Don't downgrade Left back to Leaving
-                // Once memberlist has confirmed the node is Left (via Dead message), 
-                // stale leave intent messages should not override that
-                if (memberInfo.Status == MemberStatus.Left)
-                {
-                    Logger?.LogDebug("[Serf] Ignoring leave intent for already-left member {Node}", leave.Node);
-                    return;
-                }
+            EmitEvent(evt);
+        }
 
-                // Try to transition using StateMachine
-                accessor.UpdateMember(leave.Node, m =>
-                {
-                    var result = m.StateMachine.TryTransitionOnLeaveIntent(leave.LTime);
-
-                    // Update Member.Status to match for backward compatibility
-                    if (result.WasStateChanged && m.Member != null)
-                    {
-                        m.Member.Status = m.StateMachine.CurrentState;
-                    }
-
-                    if (result.WasStateChanged)
-                    {
-                        Logger?.LogInformation("[Serf] {Reason}", result.Reason);
-                    }
-                    else if (result.WasLTimeUpdated)
-                    {
-                        Logger?.LogDebug("[Serf] {Reason}", result.Reason);
-                    }
-                });
-            }
-            else
-            {
-                // Node not yet in members - store the intent
-                accessor.AddMember(new MemberInfo
-                {
-                    Name = leave.Node,
-                    StateMachine = new StateMachine.MemberStateMachine(
-                        leave.Node,
-                        MemberStatus.Leaving,
-                        leave.LTime,
-                        Logger)
-                });
-                Logger?.LogDebug("[Serf] Stored leave intent for unknown member: {Node}", leave.Node);
-            }
-        });
-
-        return false; // No rebroadcast for now
+        return result;
     }
 
     internal bool HandleNodeJoinIntent(MessageJoin join)
     {
-        Logger?.LogDebug("[Serf] HandleNodeJoinIntent: {Node} at LTime {LTime}", join.Node, join.LTime);
+        // Delegate to IntentHandler (Go-aligned implementation)
+        // NOTE: IntentHandler does NOT emit events (per Go implementation)
+        // Events are only emitted by HandleNodeJoin (memberlist callback)
+        var handler = new Handlers.IntentHandler(
+            _memberManager,
+            [],
+            Clock,
+            Logger,
+            Config.NodeName,
+            () => _state,
+            null);
 
-        // Witness a potentially newer time
-        Clock.Witness(join.LTime);
-
-        return _memberManager.ExecuteUnderLock(accessor =>
-        {
-            // Check if we know about this member
-            var memberInfo = accessor.GetMember(join.Node);
-            if (memberInfo == null)
-            {
-                // Create a basic MemberInfo entry for push-pull state synchronization
-                // NOTE: We don't emit a MemberJoin event here because we don't have the address yet.
-                // The event will be emitted when HandleNodeJoin is called with the full Node object.
-                accessor.AddMember(new MemberInfo
-                {
-                    Name = join.Node,
-                    StateMachine = new StateMachine.MemberStateMachine(
-                        join.Node,
-                        MemberStatus.Alive,
-                        join.LTime,
-                        Logger)
-                    // Member will be populated by HandleNodeJoin with full address info
-                });
-
-                Logger?.LogDebug("[Serf] HandleNodeJoinIntent: Created placeholder for unknown member {Node} with LTime {LTime}",
-                    join.Node, join.LTime);
-                return true; // Rebroadcast since this is new information
-            }
-
-            // Check if this time is newer than what we have
-            if (join.LTime <= memberInfo.StatusLTime)
-            {
-                Logger?.LogDebug("[Serf] HandleNodeJoinIntent: Ignoring old join intent for {Node} (LTime {LTime} <= {StatusLTime})",
-                    join.Node, join.LTime, memberInfo.StatusLTime);
-                return false;
-            }
-
-            // IMPORTANT: Do NOT update a Left/Failed member back to Alive based solely on join intents.
-            // Join intent messages may still be propagating in the network after a node has left.
-            // We should only update back to Alive when we receive an actual NotifyJoin from memberlist,
-            // which indicates the node has genuinely reconnected at the memberlist level.
-            // 
-            // In Go's implementation, the join intent only updates statusLTime and may change Leaving -> Alive,
-            // but does NOT change Left/Failed -> Alive. That transition only happens via handleNodeJoin.
-
-            // Try state machine transition and capture result
-            StateMachine.TransitionResult? transitionResult = null;
-
-            accessor.UpdateMember(join.Node, m =>
-            {
-                transitionResult = m.StateMachine.TryTransitionOnJoinIntent(join.LTime);
-
-                // Update Member.Status to match for backward compatibility
-                if (transitionResult.WasStateChanged && m.Member != null)
-                {
-                    m.Member.Status = m.StateMachine.CurrentState;
-                }
-
-                if (transitionResult.WasStateChanged)
-                {
-                    Logger?.LogInformation("[Serf] {Reason}", transitionResult.Reason);
-                }
-                else if (transitionResult.WasLTimeUpdated)
-                {
-                    Logger?.LogDebug("[Serf] {Reason}", transitionResult.Reason);
-                }
-            });
-
-            // Emit event if state actually changed
-            if (transitionResult?.WasStateChanged == true)
-            {
-                var memberEvent = new MemberEvent
-                {
-                    Type = EventType.MemberJoin,
-                    Members = new List<Member> { memberInfo.Member ?? new Member { Name = join.Node, Status = MemberStatus.Alive } }
-                };
-                EmitEvent(memberEvent);
-                return true; // Rebroadcast
-            }
-            else if (transitionResult?.WasLTimeUpdated == true &&
-                     (memberInfo.Status == MemberStatus.Left || memberInfo.Status == MemberStatus.Failed))
-            {
-                // Left/Failed members had LTime updated but no state change - don't rebroadcast
-                return false;
-            }
-
-            // For all other cases, rebroadcast
-            return true;
-        });
+        return handler.HandleJoinIntent(join);
     }
 
     internal bool HandleUserEvent(MessageUserEvent userEvent)
@@ -1641,7 +1527,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
         catch (Exception ex)
         {
             Logger?.LogError(ex, "[Serf] Failed to encode message of type {Type}", messageType);
-            return Array.Empty<byte>();
+            return [];
         }
     }
 
@@ -1799,12 +1685,16 @@ public partial class Serf : IDisposable, IAsyncDisposable
     /// </summary>
     public void Dispose()
     {
-        // Dispose Snapshotter to flush buffered writes (ignore if already disposed)
+        if (_shutdownCts != null && !_shutdownCts.IsCancellationRequested)
+        {
+            _shutdownCts.Cancel();
+        }
+
         if (Snapshotter != null)
         {
             try
             {
-                Snapshotter.Dispose();
+                Snapshotter?.Dispose();
             }
             catch (ObjectDisposedException)
             {
@@ -1817,6 +1707,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
         _stateLock?.Dispose();
         _coordCacheLock?.Dispose();
         _joinLock?.Dispose();
+        _shutdownCts?.Dispose();
     }
 
     /// <summary>
