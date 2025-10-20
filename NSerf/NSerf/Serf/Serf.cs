@@ -1917,8 +1917,56 @@ public partial class Serf : IDisposable, IAsyncDisposable
 internal class MemberInfo
 {
     public string Name { get; set; } = string.Empty;
-    public LamportTime StatusLTime { get; set; }
-    public MemberStatus Status { get; set; } = MemberStatus.Alive;
+    
+    /// <summary>
+    /// State machine managing member status transitions.
+    /// </summary>
+    public StateMachine.MemberStateMachine? StateMachine { get; set; }
+    
+    /// <summary>
+    /// Current status of the member - delegates to StateMachine if available.
+    /// </summary>
+    public MemberStatus Status
+    {
+        get => StateMachine?.CurrentState ?? _status;
+        set
+        {
+            if (StateMachine != null)
+            {
+                // When StateMachine exists, status is managed by it
+                // This setter is for backward compatibility only
+            }
+            else
+            {
+                _status = value;
+            }
+        }
+    }
+    
+    /// <summary>
+    /// Lamport time of last status update - delegates to StateMachine if available.
+    /// </summary>
+    public LamportTime StatusLTime
+    {
+        get => StateMachine?.StatusLTime ?? _statusLTime;
+        set
+        {
+            if (StateMachine != null)
+            {
+                // When StateMachine exists, LTime is managed by it
+                // This setter is for backward compatibility only
+            }
+            else
+            {
+                _statusLTime = value;
+            }
+        }
+    }
+    
     public DateTimeOffset LeaveTime { get; set; }
     public Member Member { get; set; } = new Member();
+    
+    // Backing fields - used when StateMachine is null (backward compatibility)
+    private MemberStatus _status = MemberStatus.Alive;
+    private LamportTime _statusLTime;
 }
