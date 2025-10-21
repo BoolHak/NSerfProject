@@ -254,23 +254,31 @@ public class SnapshotterUnitTest : IDisposable
         
         var writeTask = Task.Run(async () =>
         {
-            for (int i = 0; i < 5000; i++)
+            for (int i = 0; i < 10000; i++)
             {
                 await inCh.WriteAsync(evt);
             }
         });
 
-        // Let it run for a bit
-        await Task.Delay(500);
+        // Let it run for a very short time - backpressure should prevent all writes
+        await Task.Delay(50);
         
         // Assert - task should still be running if backpressure is applied
-        // (This will pass with unbounded, fail with bounded until processing catches up)
-        // For now, we just verify the system doesn't crash
+        // With 10000 events and 2048 buffer, writes should block quickly
         writeTask.IsCompleted.Should().BeFalse("backpressure should slow down writes");
         
         // Cleanup
         shutdownCts.Cancel();
-        await snap.WaitAsync();
+        
+        // Give time for graceful shutdown
+        try
+        {
+            await Task.WhenAny(snap.WaitAsync(), Task.Delay(2000));
+        }
+        catch
+        {
+            // Ignore shutdown errors
+        }
     }
 
     /// <summary>

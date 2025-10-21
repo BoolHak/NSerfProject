@@ -95,6 +95,54 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
     }
 
     /// <summary>
+    /// Join variant that accepts explicit node names with addresses.
+    /// Use this when RequireNodeNames is true so the remote can validate our identity.
+    /// </summary>
+    public async Task<(int NumJoined, Exception? Error)> JoinWithNamedAddressesAsync(IEnumerable<(string Name, string Addr)> existing, CancellationToken cancellationToken = default)
+    {
+        int numSuccess = 0;
+        var errors = new List<Exception>();
+
+        foreach (var exist in existing)
+        {
+            try
+            {
+                var address = new Address
+                {
+                    Addr = exist.Addr,
+                    Name = exist.Name
+                };
+
+                try
+                {
+                    await PushPullNodeAsync(address, join: true, cancellationToken);
+                    numSuccess++;
+                    break; // Successfully joined one node, that's enough
+                }
+                catch (Exception ex)
+                {
+                    var err = new Exception($"failed to join {address.Name}@{address.Addr}: {ex.Message}", ex);
+                    errors.Add(err);
+                    _logger?.LogDebug(ex, "Failed to join node at {Address}", $"{address.Name}@{address.Addr}");
+                }
+            }
+            catch (Exception ex)
+            {
+                errors.Add(ex);
+                _logger?.LogWarning(ex, "Failed to join {Address}", $"{exist.Name}@{exist.Addr}");
+            }
+        }
+
+        Exception? finalError = null;
+        if (numSuccess == 0 && errors.Count > 0)
+        {
+            finalError = new AggregateException("Failed to join any nodes", errors);
+        }
+
+        return (numSuccess, finalError);
+    }
+
+    /// <summary>
     /// Creates a new Memberlist using the given configuration.
     /// This will not connect to any other node yet, but will start all the listeners
     /// to allow other nodes to join this memberlist.
@@ -1113,13 +1161,39 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
 
     /// <summary>
     /// Sends a raw UDP packet to a given Address via the transport, adding label header if configured.
+    /// Also encrypts the packet if encryption is enabled and GossipVerifyOutgoing is true.
     /// </summary>
     internal async Task SendPacketAsync(byte[] buffer, Transport.Address addr, CancellationToken cancellationToken = default)
     {
-        // Add label header if configured
-        if (!string.IsNullOrEmpty(_config.Label))
+        // Get label for both header and auth data
+        string label = _config.Label ?? "";
+        
+        // Encrypt UDP packet if enabled (before adding label header)
+        // This matches the TCP encryption behavior in RawSendMsgStreamAsync
+        if (_config.EncryptionEnabled() && _config.GossipVerifyOutgoing)
         {
-            buffer = LabelHandler.AddLabelHeaderToPacket(buffer, _config.Label);
+            try
+            {
+                if (_config.Keyring == null)
+                {
+                    throw new InvalidOperationException("Encryption is enabled but no keyring is configured");
+                }
+
+                var authData = System.Text.Encoding.UTF8.GetBytes(label);
+                var primaryKey = _config.Keyring.GetPrimaryKey() ?? throw new InvalidOperationException("No primary key available");
+                buffer = Security.EncryptPayload(1, primaryKey, buffer, authData);
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "Failed to encrypt UDP packet");
+                throw;
+            }
+        }
+        
+        // Add label header if configured (after encryption, so label is not encrypted)
+        if (!string.IsNullOrEmpty(label))
+        {
+            buffer = LabelHandler.AddLabelHeaderToPacket(buffer, label);
         }
 
         await _transport.WriteToAddressAsync(buffer, addr, cancellationToken);

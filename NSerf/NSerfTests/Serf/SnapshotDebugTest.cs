@@ -92,7 +92,7 @@ public class SnapshotDebugTest : IDisposable
         Console.WriteLine("[DEBUG TEST] Checking snapshot file BEFORE shutdown...");
         if (File.Exists(_snapshotPath))
         {
-            var content = await File.ReadAllTextAsync(_snapshotPath);
+            var content = await ReadSnapshotWithRetryAsync(_snapshotPath);
             Console.WriteLine($"[DEBUG TEST] Snapshot exists, size: {content.Length} bytes");
             Console.WriteLine($"[DEBUG TEST] Snapshot content:\n{content}");
         }
@@ -147,5 +147,23 @@ public class SnapshotDebugTest : IDisposable
         await s1.ShutdownAsync();
         await s2Restarted.ShutdownAsync();
         Console.WriteLine("[DEBUG TEST] === Test complete ===");
+    }
+
+    private static async Task<string> ReadSnapshotWithRetryAsync(string path, int maxRetries = 10)
+    {
+        for (int i = 0; i < maxRetries; i++)
+        {
+            try
+            {
+                using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                using var reader = new StreamReader(fs);
+                return await reader.ReadToEndAsync();
+            }
+            catch (IOException) when (i < maxRetries - 1)
+            {
+                await Task.Delay(100);
+            }
+        }
+        throw new IOException($"Could not read snapshot file after {maxRetries} attempts");
     }
 }

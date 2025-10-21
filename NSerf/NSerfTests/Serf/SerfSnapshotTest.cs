@@ -67,7 +67,8 @@ public class SerfSnapshotTest : IDisposable
                 BindAddr = "127.0.0.1",
                 BindPort = 0,
                 ProbeInterval = TimeSpan.FromMilliseconds(100),
-                ProbeTimeout = TimeSpan.FromMilliseconds(50)
+                ProbeTimeout = TimeSpan.FromMilliseconds(50),
+                RequireNodeNames = false
             }
         };
         
@@ -75,13 +76,15 @@ public class SerfSnapshotTest : IDisposable
         {
             NodeName = "node2",
             SnapshotPath = snapshotPath,
+            RejoinAfterLeave = true, // CRITICAL: Must be true to auto-rejoin after restart
             MemberlistConfig = new MemberlistConfig
             {
                 Name = "node2",
                 BindAddr = "127.0.0.1",
                 BindPort = 0,
                 ProbeInterval = TimeSpan.FromMilliseconds(100),
-                ProbeTimeout = TimeSpan.FromMilliseconds(50)
+                ProbeTimeout = TimeSpan.FromMilliseconds(50),
+                RequireNodeNames = false
             }
         };
 
@@ -104,35 +107,11 @@ public class SerfSnapshotTest : IDisposable
         await Task.Delay(200);
         
         // Wait longer than snapshot flush interval (500ms) before checking file
-        Console.WriteLine("[TEST] Waiting for snapshot flush...");
         await Task.Delay(1200);
         
         // Extra small buffer to reduce flakiness
         await Task.Delay(300);
         
-        // DEBUG: Write diagnostic info
-        var diagFile = snapshotPath + ".diag";
-        await File.WriteAllTextAsync(diagFile, 
-            $"s2.Snapshotter != null: {s2.Snapshotter != null}\n" +
-            $"s2 NumMembers: {s2.NumMembers()}\n" +
-            $"s2 Members: {string.Join(", ", s2.Members().Select(m => $"{m.Name}:{m.Status}"))}\n");
-        
-        // DEBUG: Check snapshot file contents before shutdown
-        Console.WriteLine($"[TEST] Checking snapshot file: {snapshotPath}");
-        if (File.Exists(snapshotPath))
-        {
-            var snapshotContents = await File.ReadAllTextAsync(snapshotPath);
-            Console.WriteLine($"[TEST] Snapshot contents ({snapshotContents.Length} bytes):");
-            Console.WriteLine(snapshotContents);
-            
-            await File.AppendAllTextAsync(diagFile, $"Snapshot size before shutdown: {snapshotContents.Length}\n");
-        }
-        else
-        {
-            Console.WriteLine("[TEST] WARNING: Snapshot file does not exist!");
-            await File.AppendAllTextAsync(diagFile, "Snapshot file MISSING\n");
-        }
-
         // Act - Simulate s2 failure by shutting it down
         await s2.ShutdownAsync();
         s2.Dispose();
@@ -160,13 +139,15 @@ public class SerfSnapshotTest : IDisposable
         {
             NodeName = "node2",
             SnapshotPath = snapshotPath, // Use same snapshot path
+            RejoinAfterLeave = true, // CRITICAL: Must be true to auto-rejoin after restart
             MemberlistConfig = new MemberlistConfig
             {
                 Name = "node2",
                 BindAddr = "127.0.0.1",
                 BindPort = s2Port, // Use same port
                 ProbeInterval = TimeSpan.FromMilliseconds(100),
-                ProbeTimeout = TimeSpan.FromMilliseconds(50)
+                ProbeTimeout = TimeSpan.FromMilliseconds(50),
+                RequireNodeNames = false
             }
         };
 
@@ -378,5 +359,23 @@ public class SerfSnapshotTest : IDisposable
 
         await s1.ShutdownAsync();
         await s2Restarted.ShutdownAsync();
+    }
+
+    private static async Task<string> ReadSnapshotWithRetryAsync(string path, int maxRetries = 10)
+    {
+        for (int i = 0; i < maxRetries; i++)
+        {
+            try
+            {
+                using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                using var reader = new StreamReader(fs);
+                return await reader.ReadToEndAsync();
+            }
+            catch (IOException) when (i < maxRetries - 1)
+            {
+                await Task.Delay(100);
+            }
+        }
+        throw new IOException($"Could not read snapshot file after {maxRetries} attempts");
     }
 }

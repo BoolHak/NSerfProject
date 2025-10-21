@@ -418,7 +418,7 @@ public class SerfJoinLeaveTest
 
         // Verify broadcast queue increased (join intent was broadcast)
         var finalBroadcasts = s2.Broadcasts.Count;
-        finalBroadcasts.Should().BeGreaterThan(initialBroadcasts, 
+        finalBroadcasts.Should().BeGreaterThan(initialBroadcasts,
             "join broadcast should be queued after successful join");
 
         // Verify both nodes see each other

@@ -42,7 +42,7 @@ public class StateHandlers
             if (target == local.Incarnation) return; // Already at or above
 
             local.Incarnation = target;
-            _logger?.LogInformation("Auto-refuted incarnation: {OldInc} → {NewInc} (detected stuck state)", 
+            _logger?.LogInformation("Auto-refuted incarnation: {OldInc} → {NewInc} (detected stuck state)",
                 local.Incarnation - 1, target);
 
             // Broadcast immediate Alive with bumped incarnation
@@ -332,7 +332,7 @@ public class StateHandlers
                 // This handles the case where cluster has a higher incarnation for us (e.g., after restart)
                 RefuteNode(state, alive.Incarnation);
                 var ip = new IPAddress(alive.Addr);
-                
+
                 if (alive.Incarnation > state.Incarnation)
                 {
                     _logger?.LogWarning("Refuting alive message for '{Node}' ({IP}:{Port}) - cluster has higher incarnation {ClusterInc} vs our {OurInc}",
@@ -643,24 +643,21 @@ public class StateHandlers
     /// </summary>
     public void MergeRemoteState(List<PushNodeState> remoteNodes)
     {
-        // SURGICAL FIX: Check if we're stuck (remote has us as Dead/Left with >= incarnation)
-        // If so, auto-increment our incarnation to break free and allow rejoin.
-        // This is the standard refutation mechanism in SWIM/memberlist protocols.
+        // This will bump our incarnation and broadcast an Alive message to break the tombstone.
         var ourState = remoteNodes.FirstOrDefault(n => n.Name == _memberlist._config.Name);
 
-        if (ourState != null && 
+        if (ourState != null &&
             (ourState.State == NodeStateType.Dead || ourState.State == NodeStateType.Left))
         {
             if (_memberlist._nodeMap.TryGetValue(_memberlist._config.Name, out var localState))
             {
-                // If remote thinks we're Dead/Left with >= incarnation, we're stuck!
                 if (ourState.Incarnation >= localState.Incarnation)
                 {
-                    _logger?.LogWarning("Detected stuck state: Remote has us as {State} with Inc={RemoteInc}, our Inc={OurInc}. Auto-refuting!",
+                    _logger?.LogWarning("Detected stuck state: Remote has us as {State} with Inc={RemoteInc}, our Inc={OurInc}. Refuting now",
                         ourState.State, ourState.Incarnation, localState.Incarnation);
 
-                    // Atomically bump incarnation strictly above remote's view
-                    BumpIncarnationAtLeast(ourState.Incarnation);
+                    // Proper refutation: bump incarnation and broadcast Alive
+                    RefuteNode(localState, ourState.Incarnation);
                 }
             }
         }

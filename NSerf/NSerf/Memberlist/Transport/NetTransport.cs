@@ -34,6 +34,10 @@ public class NetTransport : INodeAwareTransport
     private int _shutdown;
     private bool _disposed;
     
+    // Static lock and port counter for thread-safe port allocation across instances
+    private static readonly object _portLock = new();
+    private static int _nextPort = 20000; // Start above Windows reserved ranges
+    
     private NetTransport(NetTransportConfig config)
     {
         _config = config;
@@ -71,6 +75,13 @@ public class NetTransport : INodeAwareTransport
     {
         int port = _config.BindPort;
         
+        // On Windows, if port is 0, try to get a port from safe range to avoid reserved ports
+        if (port == 0 && RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            port = GetAvailablePortOnWindows();
+            _logger?.LogDebug("[NetTransport] Windows: Selected port {Port} from safe range", port);
+        }
+        
         // Build all TCP and UDP listeners
         foreach (var addr in _config.BindAddrs)
         {
@@ -87,10 +98,11 @@ public class NetTransport : INodeAwareTransport
             tcpListener.Start();
             _tcpListeners.Add(tcpListener);
             
-            // If port was 0, use the assigned port for all listeners
+            // If port was still 0 (non-Windows), use the OS-assigned port for all listeners
             if (port == 0)
             {
                 port = ((IPEndPoint)tcpListener.LocalEndpoint).Port;
+                _logger?.LogDebug("[NetTransport] OS-assigned port: {Port}", port);
             }
             
             // Create UDP listener with SO_REUSEADDR to avoid TIME_WAIT issues
@@ -132,6 +144,54 @@ public class NetTransport : INodeAwareTransport
             
             _backgroundTasks.Add(Task.Run(() => TcpListenAsync(tcpListener)));
             _backgroundTasks.Add(Task.Run(() => UdpListenAsync(udpListener)));
+        }
+    }
+    
+    /// <summary>
+    /// Gets an available port on Windows from a safe range (20000-30000)
+    /// to avoid Windows reserved port ranges caused by Hyper-V/Docker/WSL2.
+    /// Thread-safe for parallel test execution.
+    /// Reference: https://github.com/dotnet/runtime/issues/28667
+    /// </summary>
+    private int GetAvailablePortOnWindows()
+    {
+        lock (_portLock)
+        {
+            const int maxAttempts = 100;
+            const int minPort = 20000; // Above Windows reserved ranges
+            const int maxPort = 30000; // Stay within safe range
+            
+            for (int attempt = 0; attempt < maxAttempts; attempt++)
+            {
+                var port = _nextPort++;
+                
+                // Wrap around if we exceed max port
+                if (_nextPort > maxPort)
+                {
+                    _nextPort = minPort;
+                }
+                
+                // Try to bind a test socket to verify port is available
+                try
+                {
+                    using var testSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+                    testSocket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+                    testSocket.Bind(new IPEndPoint(IPAddress.Loopback, port));
+                    _logger?.LogTrace("[NetTransport] Windows: Port {Port} is available", port);
+                    return port;
+                }
+                catch (SocketException ex)
+                {
+                    // Port not available or in Windows reserved range, try next
+                    _logger?.LogTrace("[NetTransport] Windows: Port {Port} not available: {Error}", port, ex.Message);
+                    continue;
+                }
+            }
+            
+            // If we exhausted attempts, fall back to OS assignment (port 0)
+            // This will let the OS pick but may still hit reserved ranges
+            _logger?.LogWarning("[NetTransport] Windows: Could not find available port in safe range after {Attempts} attempts, falling back to OS assignment", maxAttempts);
+            return 0;
         }
     }
     

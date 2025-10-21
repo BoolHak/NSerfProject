@@ -2253,6 +2253,161 @@ public class StateTests
         }
     }
 
+    /// <summary>
+    /// Tests that MergeRemoteState refutes when remote state shows local node as Dead/Left
+    /// with equal or higher incarnation. This is critical for auto-rejoin after restart.
+    /// Scenario: Node restarts (inc=0), joins peer, peer sends push/pull with us as Left(inc=10).
+    /// Expected: We refute by broadcasting Alive(inc=11+).
+    /// </summary>
+    [Fact]
+    public async Task MergeRemoteState_LocalNodeInTombstoneState_ShouldRefute()
+    {
+        var network = CreateMockNetwork();
+        var config = CreateTestConfig("node1");
+        config.Transport = network.CreateTransport("node1");
+        
+        var m = NSerf.Memberlist.Memberlist.Create(config);
+
+        try
+        {
+            var stateHandler = new StateHandlers(m, config.Logger);
+            
+            // Capture initial incarnation (should be 0 for new node)
+            var initialIncarnation = m.Incarnation;
+            initialIncarnation.Should().Be(0, "new memberlist should start at incarnation 0");
+            
+            // Simulate receiving push/pull state where remote has us as Left with higher incarnation
+            // This happens when we restart after being removed from cluster
+            var remoteStates = new List<PushNodeState>
+            {
+                new PushNodeState
+                {
+                    Name = "node1", // Our own node name
+                    Addr = IPAddress.Parse("127.0.0.1").GetAddressBytes(),
+                    Port = (ushort)config.BindPort,
+                    Incarnation = 10, // Remote thinks we have incarnation 10
+                    State = NodeStateType.Left, // Remote thinks we left
+                    Meta = Array.Empty<byte>(),
+                    Vsn = new byte[] { 
+                        ProtocolVersion.Min, ProtocolVersion.Max, config.ProtocolVersion,
+                        config.DelegateProtocolMin, config.DelegateProtocolMax, config.DelegateProtocolVersion
+                    }
+                }
+            };
+            
+            // Act - Merge remote state (simulates receiving push/pull response during rejoin)
+            stateHandler.MergeRemoteState(remoteStates);
+            
+            // Assert - We should have refuted by incrementing incarnation strictly above remote's view
+            m.Incarnation.Should().BeGreaterThan(10, 
+                "should refute by incrementing incarnation above remote's tombstone incarnation");
+            
+            // Local node should remain Alive (not Left)
+            m._nodeMap.TryGetValue("node1", out var localState).Should().BeTrue();
+            localState!.State.Should().Be(NodeStateType.Alive, 
+                "local node should remain alive after refuting tombstone");
+            localState.Incarnation.Should().Be(m.Incarnation,
+                "local state incarnation should match memberlist incarnation");
+        }
+        finally
+        {
+            await m.ShutdownAsync();
+        }
+    }
+
+    /// <summary>
+    /// Tests refutation when remote state shows us as Dead (not just Left).
+    /// </summary>
+    [Fact]
+    public async Task MergeRemoteState_LocalNodeDead_ShouldRefute()
+    {
+        var network = CreateMockNetwork();
+        var config = CreateTestConfig("node1");
+        config.Transport = network.CreateTransport("node1");
+        
+        var m = NSerf.Memberlist.Memberlist.Create(config);
+
+        try
+        {
+            var stateHandler = new StateHandlers(m, config.Logger);
+            
+            var remoteStates = new List<PushNodeState>
+            {
+                new PushNodeState
+                {
+                    Name = "node1",
+                    Addr = IPAddress.Parse("127.0.0.1").GetAddressBytes(),
+                    Port = (ushort)config.BindPort,
+                    Incarnation = 5,
+                    State = NodeStateType.Dead, // Remote thinks we're dead
+                    Meta = Array.Empty<byte>(),
+                    Vsn = new byte[] { 
+                        ProtocolVersion.Min, ProtocolVersion.Max, config.ProtocolVersion,
+                        config.DelegateProtocolMin, config.DelegateProtocolMax, config.DelegateProtocolVersion
+                    }
+                }
+            };
+            
+            // Act
+            stateHandler.MergeRemoteState(remoteStates);
+            
+            // Assert
+            m.Incarnation.Should().BeGreaterThan(5, "should refute Dead state");
+            m._nodeMap.TryGetValue("node1", out var localState).Should().BeTrue();
+            localState!.State.Should().Be(NodeStateType.Alive);
+        }
+        finally
+        {
+            await m.ShutdownAsync();
+        }
+    }
+
+    /// <summary>
+    /// Tests that refutation does NOT occur when remote shows us as Alive (normal case).
+    /// </summary>
+    [Fact]
+    public async Task MergeRemoteState_LocalNodeAlive_NoRefutation()
+    {
+        var network = CreateMockNetwork();
+        var config = CreateTestConfig("node1");
+        config.Transport = network.CreateTransport("node1");
+        
+        var m = NSerf.Memberlist.Memberlist.Create(config);
+
+        try
+        {
+            var stateHandler = new StateHandlers(m, config.Logger);
+            var initialIncarnation = m.Incarnation;
+            
+            var remoteStates = new List<PushNodeState>
+            {
+                new PushNodeState
+                {
+                    Name = "node1",
+                    Addr = IPAddress.Parse("127.0.0.1").GetAddressBytes(),
+                    Port = (ushort)config.BindPort,
+                    Incarnation = 0,
+                    State = NodeStateType.Alive, // Remote agrees we're alive
+                    Meta = Array.Empty<byte>(),
+                    Vsn = new byte[] { 
+                        ProtocolVersion.Min, ProtocolVersion.Max, config.ProtocolVersion,
+                        config.DelegateProtocolMin, config.DelegateProtocolMax, config.DelegateProtocolVersion
+                    }
+                }
+            };
+            
+            // Act
+            stateHandler.MergeRemoteState(remoteStates);
+            
+            // Assert - No refutation should occur (incarnation stays same)
+            m.Incarnation.Should().Be(initialIncarnation, "should not refute when remote shows us as Alive");
+        }
+        finally
+        {
+            await m.ShutdownAsync();
+        }
+    }
+
     [Fact]
     public async Task NodeMap_LargeScale_Handles100Nodes()
     {

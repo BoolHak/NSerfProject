@@ -18,70 +18,36 @@ namespace NSerf.Serf;
 /// </summary>
 public partial class Serf : IDisposable, IAsyncDisposable
 {
-    // Protocol version constants (from Go serf.go)
     public const byte ProtocolVersionMin = 2;
     public const byte ProtocolVersionMax = 5;
     public const int UserEventSizeLimit = 9 * 1024; // 9KB
-
-    // Shutdown channel for graceful termination
     private readonly CancellationTokenSource _shutdownCts = new();
-    private SerfState _state = SerfState.SerfAlive;
-    // Configuration
+    private readonly ClusterCoordinator _clusterCoordinator;
     internal Config Config { get; private set; }
     internal ILogger? Logger { get; private set; }
-
-    // Clocks for Lamport timestamps
     internal LamportClock Clock { get; private set; }
     internal LamportClock EventClock { get; private set; }
     internal LamportClock QueryClock { get; private set; }
-
-    // Broadcast queues
     internal BroadcastQueue Broadcasts { get; private set; }
     internal BroadcastQueue EventBroadcasts { get; private set; }
     internal BroadcastQueue QueryBroadcasts { get; private set; }
-
-    // Member state - fully migrated to MemberManager
     internal Dictionary<LamportTime, QueryCollection> QueryBuffer { get; private set; }
-
-    // Phase 2: MemberManager with transaction pattern
     internal readonly IMemberManager _memberManager;
-
-    // Phase 5: EventManager for user event handling
     internal EventManager? _eventManager;
-
-    // Helper utilities
     private SerfMetricsRecorder? _metricsRecorder;
-    private SerfQueryHelper? _queryHelper;
-
-    // Event configuration
-    internal bool EventJoinIgnore { get; set; }
+    private SerfQueryHelper? _queryHelper; internal bool EventJoinIgnore { get; set; }
     internal LamportTime QueryMinTime { get; set; }
-
-    // Query tracking - maps LTime to QueryResponse
     private readonly Dictionary<LamportTime, QueryResponse> _queryResponses = new();
     private readonly Random _queryRandom = new();
-
-    // Memberlist integration
     internal Memberlist.Memberlist? Memberlist { get; private set; }
     private Memberlist.Delegates.IEventDelegate? _eventDelegate;
-
-    // Snapshot integration
     internal Snapshotter? Snapshotter { get; private set; }
     private ChannelWriter<Event>? _snapshotInCh;
-
-    // Coordinate client for Vivaldi network coordinates
     private Coordinate.CoordinateClient? _coordClient;
-
-    // Locks - Thread-safety for concurrent access
-    // Lock Ordering Pattern (from DeepWiki analysis):
-    // - No strict global order, but acquire lock at start of handler
-    // - When multiple locks needed, acquire in nested fashion
-    // - Most handlers acquire single lock protecting their data
-    private readonly ReaderWriterLockSlim _queryLock = new();   // Protects: queryBuffer, queryMinTime, queryResponse
-    private readonly SemaphoreSlim _stateLock = new(1, 1);      // Protects: state field (SerfAlive, SerfLeaving, etc.)
-    private readonly ReaderWriterLockSlim _coordCacheLock = new(); // Protects: coordCache
+    private readonly ReaderWriterLockSlim _queryLock = new();
+    private readonly ReaderWriterLockSlim _coordCacheLock = new();
     private readonly Dictionary<string, Coordinate.Coordinate> _coordCache = new();
-    private readonly SemaphoreSlim _joinLock = new(1, 1);       // Protects: eventJoinIgnore during Join operation
+    private readonly SemaphoreSlim _joinLock = new(1, 1);
 
     /// <summary>
     /// Internal constructor for testing - use CreateAsync() factory method for production.
@@ -90,28 +56,19 @@ public partial class Serf : IDisposable, IAsyncDisposable
     {
         Config = config ?? throw new ArgumentNullException(nameof(config));
         Logger = logger ?? config.Logger;
-
         Clock = new LamportClock();
         EventClock = new LamportClock();
         QueryClock = new LamportClock();
-
-        // Initialize broadcast queues with transmit-limited queues
         Broadcasts = new BroadcastQueue(new TransmitLimitedQueue());
         EventBroadcasts = new BroadcastQueue(new TransmitLimitedQueue());
         QueryBroadcasts = new BroadcastQueue(new TransmitLimitedQueue());
-
-        // Member state fully migrated to MemberManager
         QueryBuffer = [];
-
-        // Phase 2: Initialize MemberManager with transaction pattern
         _memberManager = new MemberManager();
-
-        // Phase 5: Initialize EventManager (needed for tests using constructor)
         _eventManager = new EventManager(
             eventCh: config.EventCh,
             eventBufferSize: config.EventBuffer,
             logger: Logger);
-
+        _clusterCoordinator = new ClusterCoordinator(logger: Logger);
         EventJoinIgnore = false;
         QueryMinTime = 0;
     }
@@ -122,19 +79,13 @@ public partial class Serf : IDisposable, IAsyncDisposable
     /// </summary>
     internal void BroadcastJoin(LamportTime ltime)
     {
-        // Construct message to update our lamport clock
         var msg = new MessageJoin
         {
             LTime = ltime,
             Node = Config.NodeName
         };
-
-        // Witness clock and update local intent
         Clock.Witness(ltime);
-
         HandleNodeJoinIntent(msg);
-
-        // Start broadcasting the update
         var raw = EncodeMessage(MessageType.Join, msg);
         if (raw.Length > 0)
         {
@@ -146,10 +97,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
     /// Returns the number of members known to this Serf instance.
     /// Thread-safe read operation using MemberManager transaction pattern.
     /// </summary>
-    public int NumMembers()
-    {
-        return _memberManager.ExecuteUnderLock(accessor => accessor.GetMemberCount());
-    }
+    public int NumMembers() => _memberManager.ExecuteUnderLock(accessor => accessor.GetMemberCount());
 
     /// <summary>
     /// Sets a member using MemberManager transaction pattern.
@@ -215,7 +163,6 @@ public partial class Serf : IDisposable, IAsyncDisposable
         Logger?.LogInformation("[Serf/EmitEvent] Emitting {EventType}, _snapshotInCh is {IsNull}",
             evt.GetType().Name, _snapshotInCh == null ? "NULL" : "SET");
 
-        // Send to snapshotter's input channel (if configured)
         if (_snapshotInCh != null)
         {
             try
@@ -228,8 +175,6 @@ public partial class Serf : IDisposable, IAsyncDisposable
                 Logger?.LogError(ex, "[Serf/EmitEvent] Failed to emit event to snapshotter");
             }
         }
-
-        // Delegate to EventManager for event channel emission
         _eventManager?.EmitEvent(evt);
     }
 
@@ -240,23 +185,16 @@ public partial class Serf : IDisposable, IAsyncDisposable
     public static async Task<Serf> CreateAsync(Config? config)
     {
         ArgumentNullException.ThrowIfNull(config);
-
-        // Validate protocol version using helper
         SerfValidationHelper.ValidateProtocolVersion(config.ProtocolVersion, ProtocolVersionMin, ProtocolVersionMax);
-
-        // Validate user event size limit using helper
         SerfValidationHelper.ValidateUserEventSizeLimit(config.UserEventSizeLimit, UserEventSizeLimit);
 
         var serf = new Serf(config);
-
-        // Initialize helper utilities
         serf._metricsRecorder = new SerfMetricsRecorder(config.Metrics, config.MetricLabels, serf.Logger);
         serf._queryHelper = new SerfQueryHelper(
             () => serf.Memberlist?.NumMembers() ?? 1,
             () => config.MemberlistConfig?.GossipInterval ?? TimeSpan.FromMilliseconds(500),
             config.QueryTimeoutMult);
 
-        // Ensure clocks start at least at 1
         serf.Clock.Increment();
         serf.EventClock.Increment();
         serf.QueryClock.Increment();
@@ -267,21 +205,17 @@ public partial class Serf : IDisposable, IAsyncDisposable
         if (config.EventCh != null)
         {
             serf.Logger?.LogInformation("[Serf/InternalQuery] Setting up internal query handler");
-
-            // Create internal query handler - it will intercept _serf_* queries
             var (queryInputCh, queryHandler) = SerfQueries.Create(
                 serf,
-                config.EventCh, // Non-internal events pass through to user's EventCh
+                config.EventCh,
                 serf._shutdownCts.Token);
 
             internalQueryInput = queryInputCh;
-            eventDestination = queryInputCh; // Events now go to internal query handler first
+            eventDestination = queryInputCh;
 
             serf.Logger?.LogInformation("[Serf/InternalQuery] ✓ Internal query handler created");
         }
 
-        // Phase 5: Re-initialize EventManager with query handler destination if configured
-        // (Constructor initializes with config.EventCh, but we need eventDestination for query routing)
         if (eventDestination != config.EventCh)
         {
             serf._eventManager = new EventManager(
@@ -310,21 +244,14 @@ public partial class Serf : IDisposable, IAsyncDisposable
 
             serf.Snapshotter = snapshotter;
             serf._snapshotInCh = inCh;
-
             serf.Logger?.LogInformation("[Serf/Snapshot] ✓ Snapshotter created successfully for node {NodeName}", config.NodeName);
             serf.Logger?.LogInformation("[Serf/Snapshot] ✓ _snapshotInCh is {Status}", serf._snapshotInCh == null ? "NULL (ERROR!)" : "READY");
-
-            // Restore clock values from snapshot
             serf.Clock.Witness(snapshotter.LastClock);
             serf.EventClock.Witness(snapshotter.LastEventClock);
             serf.QueryClock.Witness(snapshotter.LastQueryClock);
-
             serf.Logger?.LogInformation("[Serf/Snapshot] Clock restored - Clock: {Clock}, EventClock: {EventClock}, QueryClock: {QueryClock}",
                 snapshotter.LastClock, snapshotter.LastEventClock, snapshotter.LastQueryClock);
-
-            // Get previous nodes for auto-rejoin
             previousNodes = snapshotter.AliveNodes();
-
             serf.Logger?.LogInformation("[Serf/Snapshot] Loaded {Count} previous nodes from snapshot", previousNodes.Count);
             foreach (var node in previousNodes)
             {
@@ -337,7 +264,6 @@ public partial class Serf : IDisposable, IAsyncDisposable
             serf.Logger?.LogInformation("[Serf/Snapshot] No snapshot path configured for node {NodeName}", config.NodeName);
         }
 
-        // Initialize coordinate client if coordinates are enabled
         if (!config.DisableCoordinates)
         {
             serf.Logger?.LogInformation("[Serf/Coordinates] Initializing coordinate client");
@@ -352,15 +278,11 @@ public partial class Serf : IDisposable, IAsyncDisposable
 
         if (config.MemberlistConfig != null)
         {
-            // Create event delegate that routes to Serf for membership events
             serf._eventDelegate = new SerfEventDelegate(serf);
             config.MemberlistConfig.Events = serf._eventDelegate;
-
-            // Create main delegate for gossip messages (GetBroadcasts, NotifyMsg, etc.)
             var serfDelegate = new Delegate(serf);
             config.MemberlistConfig.Delegate = serfDelegate;
 
-            // Setup PingDelegate for coordinate updates if coordinates are enabled
             if (!config.DisableCoordinates)
             {
                 var pingDelegate = new PingDelegate(serf);
@@ -368,7 +290,6 @@ public partial class Serf : IDisposable, IAsyncDisposable
                 serf.Logger?.LogInformation("[Serf/Coordinates] ✓ PingDelegate configured for RTT tracking");
             }
 
-            // Initialize transport if not provided
             if (config.MemberlistConfig.Transport == null)
             {
                 var transportConfig = new NSerf.Memberlist.Transport.NetTransportConfig
@@ -380,11 +301,8 @@ public partial class Serf : IDisposable, IAsyncDisposable
                 config.MemberlistConfig.Transport = NSerf.Memberlist.Transport.NetTransport.Create(transportConfig);
             }
 
-            // Create memberlist
             serf.Memberlist = NSerf.Memberlist.Memberlist.Create(config.MemberlistConfig);
 
-            // Add local node to members list with full Member object
-            // The memberlist will have the local node, so we need to track it in Serf's Members
             var localNode = serf.Memberlist.LocalNode;
             var localMember = new MemberInfo
             {
@@ -418,24 +336,48 @@ public partial class Serf : IDisposable, IAsyncDisposable
         {
             serf.Logger?.LogInformation("[Serf/AutoRejoin] Starting auto-rejoin task for {Count} nodes", previousNodes.Count);
 
+            // Synchronous best-effort attempt before returning
+            // This ensures refutation happens during CreateAsync, making tests deterministic
+            try
+            {
+                await Task.Delay(300);
+                var addrs = previousNodes.Select(n => n.Addr).ToArray();
+                var joinedNow = await serf.JoinAsync(addrs, ignoreOld: true);
+                serf.Logger?.LogInformation("[Serf/AutoRejoin] Synchronous attempt joined {Joined}/{Total}", joinedNow, addrs.Length);
+            }
+            catch (Exception ex)
+            {
+                serf.Logger?.LogDebug(ex, "[Serf/AutoRejoin] Synchronous attempt failed (will retry in background)");
+            }
+
+            // Background resilience task for production scenarios
             _ = Task.Run(async () =>
             {
                 try
                 {
-                    serf.Logger?.LogInformation("[Serf/AutoRejoin] Waiting 500ms for memberlist initialization...");
-                    await Task.Delay(500);
+                    await Task.Delay(1000);
 
                     var addrs = previousNodes.Select(n => n.Addr).ToArray();
-                    serf.Logger?.LogInformation("[Serf/AutoRejoin] Attempting to join {Count} addresses: [{Addrs}]",
+                    serf.Logger?.LogInformation("[Serf/AutoRejoin] Will attempt to join {Count} addresses: [{Addrs}]",
                         addrs.Length, string.Join(", ", addrs));
 
-                    var joined = await serf.JoinAsync(addrs, ignoreOld: true);
-                    serf.Logger?.LogInformation("[Serf/AutoRejoin] Auto-rejoin completed, successfully joined {Joined}/{Total} nodes",
-                        joined, addrs.Length);
-
-                    if (joined == 0)
+                    var attempts = 10;
+                    for (int i = 1; i <= attempts; i++)
                     {
-                        serf.Logger?.LogWarning("[Serf/AutoRejoin] Failed to join any nodes during auto-rejoin");
+                        try
+                        {
+                            var joined = await serf.JoinAsync(addrs, ignoreOld: true);
+                            serf.Logger?.LogInformation("[Serf/AutoRejoin] Attempt {Attempt}: joined {Joined}/{Total}", i, joined, addrs.Length);
+                            if (joined > 0)
+                            {
+                                break;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            serf.Logger?.LogWarning(ex, "[Serf/AutoRejoin] Attempt {Attempt} failed", i);
+                        }
+                        await Task.Delay(500);
                     }
                 }
                 catch (Exception ex)
@@ -455,20 +397,15 @@ public partial class Serf : IDisposable, IAsyncDisposable
 
     /// <summary>
     /// Returns the current state of the Serf instance.
-    /// Thread-safe read of state.
+    /// Maps to: Go's State() method
+    /// Thread-safe via ClusterCoordinator.
     /// </summary>
-    public SerfState State()
-    {
-        return WithLock(_stateLock, () => _state);
-    }
+    public SerfState State() => _clusterCoordinator.GetCurrentState();
 
     /// <summary>
     /// Returns the protocol version being used by this Serf instance.
     /// </summary>
-    public byte ProtocolVersion()
-    {
-        return Config.ProtocolVersion;
-    }
+    public byte ProtocolVersion() => Config.ProtocolVersion;
 
     /// <summary>
     /// Returns information about the local member.
@@ -498,15 +435,9 @@ public partial class Serf : IDisposable, IAsyncDisposable
     public async Task SetTagsAsync(Dictionary<string, string>? tags)
     {
         ArgumentNullException.ThrowIfNull(tags);
-
-        // Update the configuration
         Config.Tags = new Dictionary<string, string>(tags);
-
-        // Broadcast the tag update to the cluster via memberlist
         if (Memberlist != null)
-        {
             await Memberlist.UpdateNodeAsync(Config.BroadcastTimeout);
-        }
     }
 
     /// <summary>
@@ -526,7 +457,6 @@ public partial class Serf : IDisposable, IAsyncDisposable
 
         var payloadSizeBeforeEncoding = name.Length + payload.Length;
 
-        // Check size before encoding to prevent needless encoding
         if (payloadSizeBeforeEncoding > Config.UserEventSizeLimit)
         {
             throw new InvalidOperationException(
@@ -539,7 +469,6 @@ public partial class Serf : IDisposable, IAsyncDisposable
                 $"User event exceeds sane limit of {UserEventSizeLimit} bytes before encoding");
         }
 
-        // Create a message
         var msg = new MessageUserEvent
         {
             LTime = EventClock.Time(),
@@ -548,10 +477,8 @@ public partial class Serf : IDisposable, IAsyncDisposable
             CC = coalesce
         };
 
-        // Start broadcasting the event
         var raw = EncodeMessage(MessageType.UserEvent, msg);
 
-        // Check the size after encoding
         if (raw.Length > Config.UserEventSizeLimit)
         {
             throw new InvalidOperationException(
@@ -565,11 +492,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
         }
 
         EventClock.Increment();
-
-        // Process update locally
         HandleUserEvent(msg);
-
-        // Queue for broadcast
         Logger?.LogInformation("[Serf] *** Queuing user event '{Name}' ({Size} bytes) for broadcast ***", name, raw.Length);
         EventBroadcasts.QueueBytes(raw);
 
@@ -588,17 +511,12 @@ public partial class Serf : IDisposable, IAsyncDisposable
     {
         if (existing == null || existing.Length == 0)
             throw new ArgumentException("Must provide at least one node address to join", nameof(existing));
-
-        // Check state
         if (State() != SerfState.SerfAlive)
-        {
             throw new InvalidOperationException("Serf can't join after Leave or Shutdown");
-        }
 
-        // Hold the join lock to make eventJoinIgnore safe
+
         return await WithLockAsync(_joinLock, async () =>
         {
-            // Ignore any events from a potential join if requested
             if (ignoreOld)
             {
                 EventJoinIgnore = true;
@@ -606,15 +524,11 @@ public partial class Serf : IDisposable, IAsyncDisposable
 
             try
             {
-                // Have memberlist attempt to join
                 if (Memberlist == null)
-                {
                     throw new InvalidOperationException("Memberlist not initialized");
-                }
 
                 var (numJoined, error) = await Memberlist.JoinAsync(existing);
 
-                // If we joined any nodes, broadcast the join message
                 if (numJoined > 0)
                 {
                     try
@@ -628,19 +542,13 @@ public partial class Serf : IDisposable, IAsyncDisposable
                     }
                 }
 
-                if (error != null && numJoined == 0)
-                {
-                    throw error;
-                }
+                if (error != null && numJoined == 0) throw error;
 
                 return numJoined;
             }
             finally
             {
-                if (ignoreOld)
-                {
-                    EventJoinIgnore = false;
-                }
+                if (ignoreOld) EventJoinIgnore = false;
             }
         });
     }
@@ -651,32 +559,26 @@ public partial class Serf : IDisposable, IAsyncDisposable
     /// </summary>
     public async Task LeaveAsync()
     {
-        await WithLockAsync(_stateLock, async () =>
+        if (!_clusterCoordinator.TryTransitionToLeaving())
         {
-            if (_state == SerfState.SerfLeft || _state == SerfState.SerfShutdown)
-            {
-                return; // Already left or shutdown
-            }
+            Logger?.LogWarning("[Serf] Cannot leave - already in {State} state", _clusterCoordinator.GetCurrentState());
+            return;
+        }
 
-            _state = SerfState.SerfLeaving;
+        try
+        {
 
-            // Notify snapshotter about the leave (Phase 9.8)
             if (Snapshotter != null)
-            {
                 await Snapshotter.LeaveAsync();
-            }
 
-            // Broadcast leave intent to cluster
             var leaveMsg = new MessageLeave
             {
                 LTime = Clock.Increment(),
                 Node = Config.NodeName
             };
 
-            // Handle our own leave intent locally
             HandleNodeLeaveIntent(leaveMsg);
 
-            // Broadcast the leave message
             var encoded = EncodeMessage(MessageType.Leave, leaveMsg);
             if (encoded.Length > 0)
             {
@@ -684,16 +586,14 @@ public partial class Serf : IDisposable, IAsyncDisposable
                 Logger?.LogDebug("[Serf] Broadcasted leave intent for: {Node}", Config.NodeName);
             }
 
-            // Notify memberlist to gracefully leave (matching Go implementation)
             if (Memberlist != null)
             {
                 try
                 {
                     var error = await Memberlist.LeaveAsync(Config.BroadcastTimeout);
                     if (error != null)
-                    {
                         Logger?.LogWarning("[Serf] Error during memberlist leave: {Error}", error.Message);
-                    }
+
                 }
                 catch (Exception ex)
                 {
@@ -701,13 +601,15 @@ public partial class Serf : IDisposable, IAsyncDisposable
                 }
             }
 
-            // Wait for leave message to propagate through the cluster (matching Go's LeavePropagateDelay)
-            // This is CRITICAL - ensures other nodes have time to process the leave before we fully shutdown
             Logger?.LogDebug("[Serf] Waiting {Delay}ms for leave propagation", Config.LeavePropagateDelay.TotalMilliseconds);
             await Task.Delay(Config.LeavePropagateDelay);
-
-            _state = SerfState.SerfLeft;
-        });
+            _clusterCoordinator.TryTransitionToLeft();
+        }
+        catch (Exception ex)
+        {
+            Logger?.LogError(ex, "[Serf] Error during leave operation");
+            throw;
+        }
     }
 
     /// <summary>
@@ -716,24 +618,14 @@ public partial class Serf : IDisposable, IAsyncDisposable
     /// </summary>
     public async Task ShutdownAsync()
     {
-        await WithLockAsync(_stateLock, () =>
+        if (!_clusterCoordinator.TryTransitionToShutdown())
         {
-            if (_state == SerfState.SerfShutdown)
-            {
-                return Task.CompletedTask; // Already shutdown
-            }
+            Logger?.LogDebug("[Serf] Already shutdown");
+            return;
+        }
 
-            // Signal shutdown
-            if (!_shutdownCts.IsCancellationRequested)
-            {
-                _shutdownCts.Cancel();
-            }
+        if (!_shutdownCts.IsCancellationRequested) _shutdownCts.Cancel();
 
-            _state = SerfState.SerfShutdown;
-            return Task.CompletedTask;
-        });
-
-        // Wait for background tasks to complete
         if (_reapTask != null)
         {
             try
@@ -770,7 +662,6 @@ public partial class Serf : IDisposable, IAsyncDisposable
             }
         }
 
-        // Shutdown memberlist AFTER state transition to prevent race conditions
         if (Memberlist != null)
         {
             try
@@ -783,7 +674,6 @@ public partial class Serf : IDisposable, IAsyncDisposable
             }
         }
 
-        // Wait for snapshotter to finish flushing (CRITICAL for auto-rejoin)
         if (Snapshotter != null)
         {
             try
@@ -798,7 +688,6 @@ public partial class Serf : IDisposable, IAsyncDisposable
             }
         }
 
-        // Give a moment for any pending callbacks to complete
         await Task.Delay(50);
     }
 
@@ -813,13 +702,9 @@ public partial class Serf : IDisposable, IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNullOrEmpty(nodeName);
 
-        // Cannot remove ourselves
         if (nodeName == Config.NodeName)
-        {
             throw new InvalidOperationException("Cannot remove local node");
-        }
 
-        // Force leave - broadcast a leave message for the node
         var leaveMsg = new MessageLeave
         {
             LTime = Clock.Increment(),
@@ -827,16 +712,12 @@ public partial class Serf : IDisposable, IAsyncDisposable
             Prune = prune
         };
 
-        // Handle locally first
         HandleNodeLeaveIntent(leaveMsg);
 
-        // Broadcast to cluster if we have other alive members
         if (Memberlist != null && Memberlist.NumMembers() > 1)
         {
             var encoded = EncodeMessage(MessageType.Leave, leaveMsg);
             Broadcasts.QueueBytes(encoded);
-
-            // Wait for broadcast with timeout
             await Task.Delay(Config.BroadcastTimeout);
         }
 
@@ -844,31 +725,17 @@ public partial class Serf : IDisposable, IAsyncDisposable
         return true;
     }
 
-    // ========== Methods called by Delegate ==========
-
     internal byte[] EncodeTags(Dictionary<string, string> tags)
-    {
-        return SerfMessageEncoder.EncodeTags(tags, Config.ProtocolVersion);
-    }
+        => SerfMessageEncoder.EncodeTags(tags, Config.ProtocolVersion);
 
-    internal Dictionary<string, string> DecodeTags(byte[] buffer)
-    {
-        return SerfMessageEncoder.DecodeTags(buffer);
-    }
+    internal Dictionary<string, string> DecodeTags(byte[] buffer) => SerfMessageEncoder.DecodeTags(buffer);
 
-    internal void RecordMessageReceived(int size)
-    {
-        _metricsRecorder?.RecordMessageReceived(size);
-    }
+    internal void RecordMessageReceived(int size) => _metricsRecorder?.RecordMessageReceived(size);
 
-    internal void RecordMessageSent(int size)
-    {
-        _metricsRecorder?.RecordMessageSent(size);
-    }
+    internal void RecordMessageSent(int size) => _metricsRecorder?.RecordMessageSent(size);
 
     internal bool HandleNodeLeaveIntent(MessageLeave leave)
     {
-        // Delegate to IntentHandler (Go-aligned implementation)
         var tempEvents = new List<Events.Event>();
 
         var handler = new Handlers.IntentHandler(
@@ -877,32 +744,25 @@ public partial class Serf : IDisposable, IAsyncDisposable
             Clock,
             Logger,
             Config.NodeName,
-            () => _state,
+            () => _clusterCoordinator.GetCurrentState(),
             null);
 
         var result = handler.HandleLeaveIntent(leave);
 
-        // Emit any events that were generated (e.g., Failed→Left emits EventMemberLeave)
-        foreach (var evt in tempEvents)
-        {
-            EmitEvent(evt);
-        }
+        foreach (var evt in tempEvents) EmitEvent(evt);
 
         return result;
     }
 
     internal bool HandleNodeJoinIntent(MessageJoin join)
     {
-        // Delegate to IntentHandler (Go-aligned implementation)
-        // NOTE: IntentHandler does NOT emit events (per Go implementation)
-        // Events are only emitted by HandleNodeJoin (memberlist callback)
         var handler = new Handlers.IntentHandler(
             _memberManager,
             [],
             Clock,
             Logger,
             Config.NodeName,
-            () => _state,
+            () => _clusterCoordinator.GetCurrentState(),
             null);
 
         return handler.HandleJoinIntent(join);
@@ -916,10 +776,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
             return false;
         }
 
-        // Delegate to EventManager for full event handling
         var shouldRebroadcast = _eventManager.HandleUserEvent(userEvent);
-
-        // Emit metrics if event was processed
         if (shouldRebroadcast)
         {
             Config.Metrics.IncrCounter(new[] { "serf", "events" }, 1, Config.MetricLabels);
@@ -931,9 +788,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
 
     internal void HandleNodeJoin(Memberlist.State.Node? node)
     {
-        // Delegate to NodeEventHandler (Go-aligned implementation)
         var tempEvents = new List<Events.Event>();
-
         var handler = new Handlers.NodeEventHandler(
             _memberManager,
             tempEvents,
@@ -941,7 +796,6 @@ public partial class Serf : IDisposable, IAsyncDisposable
             Logger,
             () => DecodeTags(node?.Meta ?? []));
 
-        // Check for flap detection before processing
         var shouldCheckFlap = false;
         MemberStatus? oldStatus = null;
         DateTimeOffset? leaveTime = null;
@@ -955,15 +809,13 @@ public partial class Serf : IDisposable, IAsyncDisposable
                 {
                     oldStatus = memberInfo.Status;
                     leaveTime = memberInfo.LeaveTime;
-                    shouldCheckFlap = (oldStatus == MemberStatus.Failed && leaveTime != default);
+                    shouldCheckFlap = oldStatus == MemberStatus.Failed && leaveTime != default;
                 }
             });
         }
 
-        // Process the join
         handler.HandleNodeJoin(node);
 
-        // Flap detection (Go serf.go:969-971)
         if (shouldCheckFlap && leaveTime.HasValue)
         {
             var deadTime = DateTimeOffset.UtcNow - leaveTime.Value;
@@ -973,30 +825,16 @@ public partial class Serf : IDisposable, IAsyncDisposable
             }
         }
 
-        // Emit metrics
         Config.Metrics.IncrCounter(new[] { "serf", "member", "join" }, 1, Config.MetricLabels);
 
-        // Emit any events generated
-        foreach (var evt in tempEvents)
-        {
-            EmitEvent(evt);
-        }
+        foreach (var evt in tempEvents) EmitEvent(evt);
+
     }
 
     internal void HandleNodeLeave(Memberlist.State.Node? node)
     {
-        if (node == null)
-        {
-            return;
-        }
+        if (node == null || _clusterCoordinator.IsShutdown()) return;
 
-        // Check if we're shutdown - don't process events after shutdown
-        if (_state == SerfState.SerfShutdown)
-        {
-            return;
-        }
-
-        // Delegate to NodeEventHandler (Go-aligned implementation)
         var tempEvents = new List<Events.Event>();
 
         var handler = new Handlers.NodeEventHandler(
@@ -1010,23 +848,17 @@ public partial class Serf : IDisposable, IAsyncDisposable
         {
             handler.HandleNodeLeave(node);
 
-            // Determine status for metrics
             var memberStatus = (node.State == NSerf.Memberlist.State.NodeStateType.Dead)
                 ? MemberStatus.Failed
                 : MemberStatus.Left;
 
-            // Emit metrics (Go serf.go:1047)
             Config.Metrics.IncrCounter(new[] { "serf", "member", memberStatus.ToStatusString() }, 1, Config.MetricLabels);
 
-            // Emit any events generated
-            foreach (var evt in tempEvents)
-            {
-                EmitEvent(evt);
-            }
+            foreach (var evt in tempEvents) EmitEvent(evt);
+
         }
         catch (ObjectDisposedException)
         {
-            // Ignore - we're shutting down
         }
     }
 
@@ -1042,17 +874,13 @@ public partial class Serf : IDisposable, IAsyncDisposable
 
         Member? updatedMember = _memberManager.ExecuteUnderLock(accessor =>
         {
-            // Update member metadata if it exists
             var memberInfo = accessor.GetMember(node.Name);
             if (memberInfo != null)
             {
-                // Update the stored Member object with new data from node
                 if (memberInfo.Member != null)
                 {
                     accessor.UpdateMember(node.Name, m =>
                     {
-                        // Note: StatusLTime is managed by StateMachine during state transitions
-                        // Metadata updates (address, tags, etc.) don't change state or LTime
                         if (m.Member != null)
                         {
                             m.Member.Addr = node.Addr;
@@ -1075,21 +903,16 @@ public partial class Serf : IDisposable, IAsyncDisposable
             }
             else
             {
-                // Member doesn't exist yet - ignore the update
                 Logger?.LogWarning("[Serf] HandleNodeUpdate: Member {Name} not found", node.Name);
             }
 
             return null;
         });
 
-        // Emit metrics
         // Reference: Go serf.go:1091
         if (updatedMember != null)
-        {
             Config.Metrics.IncrCounter(new[] { "serf", "member", "update" }, 1, Config.MetricLabels);
-        }
 
-        // Emit update event if we successfully updated a member
         if (updatedMember != null)
         {
             var memberEvent = new MemberEvent
@@ -1110,7 +933,6 @@ public partial class Serf : IDisposable, IAsyncDisposable
             return;
         }
 
-        // Log a basic warning if the node is not us...
         if (existing.Name != Config.NodeName)
         {
             Logger?.LogWarning("[Serf] Name conflict for '{Name}' both {Addr1}:{Port1} and {Addr2}:{Port2} are claiming",
@@ -1118,15 +940,11 @@ public partial class Serf : IDisposable, IAsyncDisposable
             return;
         }
 
-        // The current node is conflicting! This is an error
         Logger?.LogError("[Serf] Node name conflicts with another node at {Addr}:{Port}. Names must be unique! (Resolution enabled: {Enabled})",
             other.Addr, other.Port, Config.EnableNameConflictResolution);
 
-        // If automatic resolution is enabled, kick off the resolution
         if (Config.EnableNameConflictResolution)
-        {
             _ = Task.Run(ResolveNodeConflictAsync);
-        }
     }
 
     /// <summary>
@@ -1138,7 +956,6 @@ public partial class Serf : IDisposable, IAsyncDisposable
     {
         try
         {
-            // Get the local node
             var local = Memberlist?.LocalNode;
             if (local == null)
             {
@@ -1146,7 +963,6 @@ public partial class Serf : IDisposable, IAsyncDisposable
                 return;
             }
 
-            // Start a name resolution query
             var queryName = $"_serf_conflict";
             var payload = System.Text.Encoding.UTF8.GetBytes(Config.NodeName);
 
@@ -1158,15 +974,11 @@ public partial class Serf : IDisposable, IAsyncDisposable
             Logger?.LogInformation("[Serf] Starting conflict resolution query for '{NodeName}'", Config.NodeName);
 
             var resp = await QueryAsync(queryName, payload, queryParams);
-
-            // Counter to determine winner
             int responses = 0;
             int matching = 0;
 
-            // Gather responses
             await foreach (var r in resp.ResponseCh.ReadAllAsync())
             {
-                // Decode the response
                 if (r.Payload.Length < 1 || (MessageType)r.Payload[0] != MessageType.ConflictResponse)
                 {
                     Logger?.LogError("[Serf] Invalid conflict query response type: {Type}", r.Payload.Length > 0 ? r.Payload[0] : -1);
@@ -1176,13 +988,8 @@ public partial class Serf : IDisposable, IAsyncDisposable
                 try
                 {
                     var member = MessagePackSerializer.Deserialize<Member>(r.Payload.AsMemory()[1..]);
-
-                    // Update the counters
                     responses++;
-                    if (member.Addr.Equals(local.Addr) && member.Port == local.Port)
-                    {
-                        matching++;
-                    }
+                    if (member.Addr.Equals(local.Addr) && member.Port == local.Port) matching++;
                 }
                 catch (Exception ex)
                 {
@@ -1191,7 +998,6 @@ public partial class Serf : IDisposable, IAsyncDisposable
                 }
             }
 
-            // Query over, determine if we should live
             int majority = (responses / 2) + 1;
             if (matching >= majority)
             {
@@ -1200,7 +1006,6 @@ public partial class Serf : IDisposable, IAsyncDisposable
                 return;
             }
 
-            // Since we lost the vote, we need to exit
             Logger?.LogWarning("[Serf] minority in name conflict resolution, quitting [{Matching} / {Responses}]",
                 matching, responses);
 
@@ -1214,37 +1019,25 @@ public partial class Serf : IDisposable, IAsyncDisposable
 
     internal Coordinate.Coordinate GetCoordinate()
     {
-        // If coordinates are disabled or client not initialized, return default coordinate
         if (Config.DisableCoordinates || _coordClient == null)
-        {
             return new Coordinate.Coordinate();
-        }
 
-        // Get coordinate from client (returns a copy, so thread-safe)
         return _coordClient.GetCoordinate();
     }
 
     internal void UpdateCoordinate(string nodeName, Coordinate.Coordinate coordinate, TimeSpan rtt)
     {
-        // Early return if coordinates are disabled or client not initialized
-        if (Config.DisableCoordinates || _coordClient == null)
-        {
-            return;
-        }
+        if (Config.DisableCoordinates || _coordClient == null) return;
 
         try
         {
-            // Get the current coordinate before update
             var before = _coordClient.GetCoordinate();
 
-            // Update coordinate based on the observation
             var updated = _coordClient.Update(nodeName, coordinate, rtt);
 
             // Emit coordinate adjustment metric (Go ping_delegate.go:86-87)
-            // Calculate distance between old and new coordinate in milliseconds
             Config.Metrics.AddSample(new[] { "serf", "coordinate", "adjustment-ms" }, (float)before.DistanceTo(updated).TotalMilliseconds, Config.MetricLabels);
 
-            // Cache the latest coordinate for this node
             _coordCacheLock.EnterWriteLock();
             try
             {
@@ -1267,99 +1060,69 @@ public partial class Serf : IDisposable, IAsyncDisposable
     }
 
     internal string? ValidateNodeName(string nodeName)
-    {
-        return SerfValidationHelper.ValidateNodeName(nodeName, Config.ValidateNodeNames);
-    }
+        => SerfValidationHelper.ValidateNodeName(nodeName, Config.ValidateNodeNames);
 
     /// <summary>
     /// DefaultQueryTimeout returns the default timeout value for a query.
     /// Computed as GossipInterval * QueryTimeoutMult * log(N+1)
     /// </summary>
     public TimeSpan DefaultQueryTimeout()
-    {
-        return _queryHelper?.CalculateDefaultQueryTimeout() ?? TimeSpan.FromSeconds(5);
-    }
+        => _queryHelper?.CalculateDefaultQueryTimeout() ?? TimeSpan.FromSeconds(5);
 
     /// <summary>
     /// DefaultQueryParams is used to return the default query parameters.
     /// </summary>
-    public QueryParam DefaultQueryParams()
+    public QueryParam DefaultQueryParams() => _queryHelper?.CreateDefaultQueryParams() ?? new QueryParam
     {
-        return _queryHelper?.CreateDefaultQueryParams() ?? new QueryParam
-        {
-            FilterNodes = null,
-            FilterTags = null,
-            RequestAck = false,
-            Timeout = TimeSpan.FromSeconds(5)
-        };
-    }
+        FilterNodes = null,
+        FilterTags = null,
+        RequestAck = false,
+        Timeout = TimeSpan.FromSeconds(5)
+    };
 
     internal byte[] EncodeMessage(MessageType messageType, object message)
-    {
-        return SerfMessageEncoder.EncodeMessage(messageType, message, Logger);
-    }
-
-    // Lock management helpers - Use try-finally pattern (C# equivalent of Go's defer)
+        => SerfMessageEncoder.EncodeMessage(messageType, message, Logger);
 
     /// <summary>
     /// Executes an action while holding a read lock. Ensures lock is released.
-    /// Pattern: C# try-finally equivalent of Go's defer lock.RUnlock()
+    /// Used by Query.cs for _queryLock.
     /// </summary>
     private void WithReadLock(ReaderWriterLockSlim lockObj, Action action)
-    {
-        LockHelper.WithReadLock(lockObj, action);
-    }
+        => LockHelper.WithReadLock(lockObj, action);
 
     /// <summary>
     /// Executes an action while holding a write lock. Ensures lock is released.
-    /// Pattern: C# try-finally equivalent of Go's defer lock.Unlock()
+    /// Used by Query.cs for _queryLock.
     /// </summary>
     private void WithWriteLock(ReaderWriterLockSlim lockObj, Action action)
-    {
-        LockHelper.WithWriteLock(lockObj, action);
-    }
+        => LockHelper.WithWriteLock(lockObj, action);
 
     /// <summary>
     /// Executes a function while holding a write lock. Ensures lock is released.
+    /// Used by Query.cs for _queryLock.
     /// </summary>
     private T WithWriteLock<T>(ReaderWriterLockSlim lockObj, Func<T> func)
-    {
-        return LockHelper.WithWriteLock(lockObj, func);
-    }
-
-    /// <summary>
-    /// Executes a function while holding a semaphore lock. Ensures lock is released.
-    /// </summary>
-    private T WithLock<T>(SemaphoreSlim semaphore, Func<T> func)
-    {
-        return LockHelper.WithLock(semaphore, func);
-    }
+        => LockHelper.WithWriteLock(lockObj, func);
 
     /// <summary>
     /// Executes an async action while holding a semaphore lock. Ensures lock is released.
+    /// Used for _joinLock to protect eventJoinIgnore during Join operation.
     /// </summary>
     private async Task WithLockAsync(SemaphoreSlim semaphore, Func<Task> action)
-    {
-        await LockHelper.WithLockAsync(semaphore, action);
-    }
+        => await LockHelper.WithLockAsync(semaphore, action);
 
     /// <summary>
     /// Executes an async function while holding a semaphore lock. Ensures lock is released.
     /// </summary>
     private async Task<T> WithLockAsync<T>(SemaphoreSlim semaphore, Func<Task<T>> func)
-    {
-        return await LockHelper.WithLockAsync(semaphore, func);
-    }
+        => await LockHelper.WithLockAsync(semaphore, func);
 
     /// <summary>
     /// Checks if encryption is enabled for this Serf instance.
     /// Encryption is enabled if a keyring is configured.
     /// Maps to: Go's EncryptionEnabled() method
     /// </summary>
-    public bool EncryptionEnabled()
-    {
-        return Config.MemberlistConfig?.Keyring != null;
-    }
+    public bool EncryptionEnabled() => Config.MemberlistConfig?.Keyring != null;
 
     /// <summary>
     /// Writes the current keyring to the configured keyring file.
@@ -1396,8 +1159,6 @@ public partial class Serf : IDisposable, IAsyncDisposable
         Logger?.LogDebug("[Serf] Wrote keyring file: {Path}", Config.KeyringFile);
     }
 
-    // Phase 5: Event lock management delegated to EventManager
-
     /// <summary>
     /// Disposes the Serf instance and releases all locks.
     /// </summary>
@@ -1421,8 +1182,8 @@ public partial class Serf : IDisposable, IAsyncDisposable
         }
 
         _eventManager?.Dispose();
+        _clusterCoordinator?.Dispose();
         _queryLock?.Dispose();
-        _stateLock?.Dispose();
         _coordCacheLock?.Dispose();
         _joinLock?.Dispose();
         _shutdownCts?.Dispose();
