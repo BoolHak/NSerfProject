@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
+using NSerf.Serf;
 
 namespace NSerf.Client;
 
@@ -11,7 +12,7 @@ namespace NSerf.Client;
 /// </summary>
 public partial class AgentIpc : IAsyncDisposable
 {
-    private readonly object _serf;
+    private readonly Serf.Serf _serf;
     private readonly string? _authKey;
     private readonly TcpListener _listener;
     private readonly ILogger? _logger;
@@ -26,7 +27,7 @@ public partial class AgentIpc : IAsyncDisposable
     public int Port { get; private set; }
     
     public AgentIpc(
-        object serf, 
+        Serf.Serf serf, 
         string address, 
         string? authKey = null,
         bool msgpackUseNewTimeFormat = false,
@@ -189,6 +190,14 @@ public partial class AgentIpc : IAsyncDisposable
             IpcProtocol.EventCommand => HandleUserEventAsync(client, header.Seq, reader, cancellationToken),
             IpcProtocol.TagsCommand => HandleTagsAsync(client, header.Seq, reader, cancellationToken),
             IpcProtocol.StatsCommand => HandleStatsAsync(client, header.Seq, cancellationToken),
+            IpcProtocol.GetCoordinateCommand => HandleGetCoordinateAsync(client, header.Seq, reader, cancellationToken),
+            IpcProtocol.InstallKeyCommand => HandleInstallKeyAsync(client, header.Seq, reader, cancellationToken),
+            IpcProtocol.UseKeyCommand => HandleUseKeyAsync(client, header.Seq, reader, cancellationToken),
+            IpcProtocol.RemoveKeyCommand => HandleRemoveKeyAsync(client, header.Seq, reader, cancellationToken),
+            IpcProtocol.ListKeysCommand => HandleListKeysAsync(client, header.Seq, cancellationToken),
+            IpcProtocol.MonitorCommand => HandleMonitorAsync(client, header.Seq, reader, cancellationToken),
+            IpcProtocol.StreamCommand => HandleStreamAsync(client, header.Seq, reader, cancellationToken),
+            IpcProtocol.StopCommand => HandleStopAsync(client, header.Seq, reader, cancellationToken),
             _ => HandleUnsupportedCommandAsync(client, header.Seq, cancellationToken)
         });
     }

@@ -2,6 +2,8 @@ using MessagePack;
 using NSerf.Client;
 using System.Net;
 using System.Net.Sockets;
+using NSerf.Serf;
+using NSerf.Memberlist.Configuration;
 using Xunit;
 
 namespace NSerfTests.Client;
@@ -9,6 +11,7 @@ namespace NSerfTests.Client;
 public class AgentIpcServerTests : IDisposable
 {
     private readonly List<AgentIpc> _servers = new();
+    private readonly List<NSerf.Serf.Serf> _serfInstances = new();
     private readonly MessagePackSerializerOptions _serializerOptions = MessagePackSerializerOptions.Standard
         .WithResolver(MessagePack.Resolvers.ContractlessStandardResolver.Instance);
 
@@ -18,12 +21,28 @@ public class AgentIpcServerTests : IDisposable
         {
             server.DisposeAsync().AsTask().Wait();
         }
+        foreach (var serf in _serfInstances)
+        {
+            serf.Dispose();
+        }
     }
 
     private AgentIpc CreateServer(string? authKey = null)
     {
-        var mockSerf = new MockSerf();
-        var server = new AgentIpc(mockSerf, "127.0.0.1:0", authKey);
+        var nodeName = $"test-node-{Guid.NewGuid()}";
+        var config = new Config
+        {
+            NodeName = nodeName,
+            MemberlistConfig = new MemberlistConfig 
+            { 
+                Name = nodeName,
+                BindAddr = "127.0.0.1", 
+                BindPort = 0 
+            }
+        };
+        var serf = NSerf.Serf.Serf.CreateAsync(config).GetAwaiter().GetResult();
+        _serfInstances.Add(serf);
+        var server = new AgentIpc(serf, "127.0.0.1:0", authKey);
         _servers.Add(server);
         return server;
     }
@@ -147,9 +166,4 @@ public class AgentIpcServerTests : IDisposable
 
         Assert.Equal(IpcProtocol.UnsupportedCommand, response.Error);
     }
-}
-
-// Mock Serf for testing
-public class MockSerf
-{
 }

@@ -13,26 +13,88 @@ Create IPC/RPC server for C# NSerf via TCP + MessagePack, following strict Test-
 ## Phase 1: Core Infrastructure (Week 1)
 
 ### 🔴 RED - Write Tests First (400 lines)
-**File:** `NSerfTests/Client/IpcCoreTests.cs`
+**Files:** `NSerfTests/Client/*`
 
-- [ ] Protocol constants validation tests
-- [ ] Model serialization tests (20+ models)
+- [x] Protocol constants validation tests (`IpcProtocolTests`)
+- [x] Model serialization tests (20+ models) (`IpcModelsTests`)
+- [x] AgentIpc server start/stop tests (`AgentIpcServerTests`)
+- [x] AgentIpc handshake enforcement tests (`AgentIpcServerTests`)
+- [x] Auth enforcement after handshake (`AgentIpcServerTests`)
+- [x] Unsupported command error (`AgentIpcServerTests`)
 - [ ] IpcClient SendAsync tests
 - [ ] IpcClient concurrent write tests
 - [ ] IpcClient query registration tests
-- [ ] AgentIpc server start/stop tests
 - [ ] AgentIpc multiple client tests
-- [ ] AgentIpc handshake enforcement tests
 
-### 🟢 GREEN - Implement (850 lines)
-**Files:** 
-- `IpcProtocol.cs` (80 lines) - Constants
-- `IpcModels.cs` (500 lines) - 20+ request/response models
-- `IpcClient.cs` (200 lines) - Connection handler
-- `AgentIpc.cs` (300 lines) - TCP server, routing
+### 🟢 GREEN - Implement (current status)
+**Done:**
+- `IpcProtocol.cs` - Constants implemented and validated
+- `IpcModels.cs` - Request/response models implemented and validated
+- `AgentIpc.cs` - TCP server + routing implemented
+  - Uses `MessagePackStreamReader` with `leaveOpen: true` for bidirectional reads
+  - Passes the reader to command handlers to read bodies exactly once
+  - Server enforces handshake and auth as per spec
+  - Concurrency: responses serialized via `_writeLock` in `IpcClientHandler`
+- `AgentIpc.Commands.cs` - Implemented handlers for: members, filtered-members, join, leave, force-leave, tags, user-event, stats, key ops, coordinate (all stubbed to Serf integration, but protocol-correct)
+
+**Completed (Phase 2):**
+- ✅ `IpcClient.cs` - Full client implementation with:
+  - Connection management with `MessagePackStreamReader`
+  - Handshake, Auth methods
+  - Command methods: GetMembers, GetStats, Join, Leave, ForceLeave, UserEvent, SetTags
+  - Key management: InstallKey, UseKey, RemoveKey, ListKeys
+  - Proper body reading with `ReadBodyAsync<T>`
+- ✅ `IpcClientTests.cs` - 14 comprehensive tests covering:
+  - Handshake happy path and unsupported version
+  - Command without handshake (HandshakeRequired error)
+  - Auth enforcement and invalid token
+  - Sequential sends with body consumption
+  - Multiple simultaneous clients
+  - Disconnect and cancellation handling
+  - GetMembers with body parsing
+  - GetStats with body parsing
+  - Join request with body
+  - Leave request
+- 🔧 **Key Fix:** Client consumes response bodies to keep stream in sync
+
+**Next (Phase 3):**
+- Add streaming API (monitor/stream/stop) with event callbacks
+- Add query API with response aggregation
+
+### 🔵 REFACTOR (planned)
+- Extract test helpers for stream setup and reader usage
+- Remove temporary Console.WriteLine in production code, keep ILogger
+- Consider pooling buffers for responses
+
+---
+
+## Design Notes (decided)
+- Use `MessagePackStreamReader` for all request reads over `NetworkStream` to avoid whole-stream consumption issues
+- Pass a single reader per-connection down to handlers: `HandleXxxAsync(client, seq, reader, ct)`
+- Keep `NetworkStream` open for writes; `IpcClientHandler.SendAsync` handles serialization under a lock
+- Avoid passing CancellationToken to low-level MessagePack read that may close streams on cancel; rely on outer loop cancellation
+
+## Phase 2: Client Library (Week 2)
+
+### 🔴 RED
+- [ ] `IpcClient` handshake/auth happy path tests
+- [ ] Error propagation tests (Unsupported, AuthRequired, HandshakeRequired)
+- [ ] Streaming API basics (monitor/stream/stop skeleton tests)
+
+### 🟢 GREEN
+- [ ] Implement `IpcClient` with reader loop + callbacks/awaitables
+- [ ] Add cancellation and graceful shutdown
 
 ### 🔵 REFACTOR
-- Extract test helpers, optimize locks
+- [ ] Extract common message framing helpers
+
+## Status
+- **All client/server tests passing: 72/72** ✅
+  - 58 original tests (protocol, models, server, handlers)
+  - 14 IpcClient tests (handshake, auth, commands, errors, concurrency)
+- Warnings addressed: xUnit nullability fixed; MessagePack resolver conflicts are benign (generated)
+- **Client body consumption bug fixed:** Commands that return bodies now properly consume response bodies
+- **Client methods implemented:** All basic commands (members, join, leave, force-leave, tags, events, keys, stats)
 
 ---
 
