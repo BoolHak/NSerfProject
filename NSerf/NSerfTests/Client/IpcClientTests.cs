@@ -33,11 +33,11 @@ public class IpcClientTests : IAsyncDisposable
         var config = new Config
         {
             NodeName = nodeName,
-            MemberlistConfig = new MemberlistConfig 
-            { 
+            MemberlistConfig = new MemberlistConfig
+            {
                 Name = nodeName,
-                BindAddr = "127.0.0.1", 
-                BindPort = 0 
+                BindAddr = "127.0.0.1",
+                BindPort = 0
             }
         };
         var serf = NSerf.Serf.Serf.CreateAsync(config).GetAwaiter().GetResult();
@@ -54,7 +54,7 @@ public class IpcClientTests : IAsyncDisposable
         return client;
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task Client_CanConnectAndHandshake()
     {
         var server = CreateServer();
@@ -69,7 +69,7 @@ public class IpcClientTests : IAsyncDisposable
         Assert.Equal("", response.Error);
     }
 
-    [Fact]
+    [Fact(Timeout = 20000)]
     public async Task Client_HandshakeWithUnsupportedVersion_ReturnsError()
     {
         var server = CreateServer();
@@ -84,7 +84,7 @@ public class IpcClientTests : IAsyncDisposable
         Assert.Equal(IpcProtocol.UnsupportedIPCVersion, response.Error);
     }
 
-    [Fact]
+    [Fact(Timeout = 20000)]
     public async Task Client_CommandWithoutHandshake_ReturnsHandshakeRequired()
     {
         var server = CreateServer();
@@ -100,7 +100,7 @@ public class IpcClientTests : IAsyncDisposable
         Assert.Equal(IpcProtocol.HandshakeRequired, response.Error);
     }
 
-    [Fact]
+    [Fact(Timeout = 20000)]
     public async Task Client_WithAuth_RequiresAuthAfterHandshake()
     {
         var server = CreateServer(authKey: "secret123");
@@ -118,7 +118,7 @@ public class IpcClientTests : IAsyncDisposable
         Assert.Equal(IpcProtocol.AuthRequired, membersResp.Error);
     }
 
-    [Fact]
+    [Fact(Timeout = 20000)]
     public async Task Client_WithAuth_CanAuthenticateSuccessfully()
     {
         var server = CreateServer(authKey: "secret123");
@@ -136,7 +136,7 @@ public class IpcClientTests : IAsyncDisposable
         Assert.Equal("", authResp.Error);
     }
 
-    [Fact]
+    [Fact(Timeout = 20000)]
     public async Task Client_WithAuth_InvalidToken_ReturnsError()
     {
         var server = CreateServer(authKey: "secret123");
@@ -154,7 +154,7 @@ public class IpcClientTests : IAsyncDisposable
         Assert.Equal(IpcProtocol.InvalidAuthToken, authResp.Error);
     }
 
-    [Fact]
+    [Fact(Timeout = 20000)]
     public async Task Client_ConcurrentSends_AreSerializedCorrectly()
     {
         var server = CreateServer();
@@ -177,7 +177,7 @@ public class IpcClientTests : IAsyncDisposable
         Assert.Equal("", resp2.Error);
     }
 
-    [Fact]
+    [Fact(Timeout = 20000)]
     public async Task Client_MultipleClients_CanConnectSimultaneously()
     {
         var server = CreateServer();
@@ -196,7 +196,7 @@ public class IpcClientTests : IAsyncDisposable
         Assert.Equal("", resp2.Error);
     }
 
-    [Fact]
+    [Fact(Timeout = 20000)]
     public async Task Client_DisconnectBeforeResponse_ThrowsException()
     {
         var server = CreateServer();
@@ -221,7 +221,7 @@ public class IpcClientTests : IAsyncDisposable
         Assert.Equal("", resp.Error);
     }
 
-    [Fact]
+    [Fact(Timeout = 20000)]
     public async Task Client_SendWithCancellation_PropagatesCancellation()
     {
         var server = CreateServer();
@@ -238,7 +238,7 @@ public class IpcClientTests : IAsyncDisposable
             await client.HandshakeAsync(1, cts.Token));
     }
 
-    [Fact]
+    [Fact(Timeout = 20000)]
     public async Task Client_CanGetMembersWithBody()
     {
         var server = CreateServer();
@@ -258,7 +258,7 @@ public class IpcClientTests : IAsyncDisposable
         Assert.Equal("alive", body.Members[0].Status);
     }
 
-    [Fact]
+    [Fact(Timeout = 20000)]
     public async Task Client_CanGetStats()
     {
         var server = CreateServer();
@@ -275,7 +275,7 @@ public class IpcClientTests : IAsyncDisposable
         Assert.NotNull(stats);
     }
 
-    [Fact]
+    [Fact(Timeout = 20000)]
     public async Task Client_CanSendJoinRequest()
     {
         var server = CreateServer();
@@ -294,7 +294,7 @@ public class IpcClientTests : IAsyncDisposable
         Assert.Equal(0, body.Num);
     }
 
-    [Fact]
+    [Fact(Timeout = 20000)]
     public async Task Client_CanSendLeaveRequest()
     {
         var server = CreateServer();

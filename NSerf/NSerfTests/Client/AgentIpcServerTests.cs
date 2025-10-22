@@ -33,11 +33,11 @@ public class AgentIpcServerTests : IDisposable
         var config = new Config
         {
             NodeName = nodeName,
-            MemberlistConfig = new MemberlistConfig 
-            { 
+            MemberlistConfig = new MemberlistConfig
+            {
                 Name = nodeName,
-                BindAddr = "127.0.0.1", 
-                BindPort = 0 
+                BindAddr = "127.0.0.1",
+                BindPort = 0
             }
         };
         var serf = NSerf.Serf.Serf.CreateAsync(config).GetAwaiter().GetResult();
@@ -47,7 +47,7 @@ public class AgentIpcServerTests : IDisposable
         return server;
     }
 
-    [Fact]
+    [Fact(Timeout = 20000)]
     public async Task Server_StartsAndAcceptsConnection()
     {
         var server = CreateServer();
@@ -61,7 +61,7 @@ public class AgentIpcServerTests : IDisposable
         Assert.True(client.Connected);
     }
 
-    [Fact]
+    [Fact(Timeout = 20000)]
     public async Task Server_WithoutHandshake_RejectsCommands()
     {
         var server = CreateServer();
@@ -98,7 +98,7 @@ public class AgentIpcServerTests : IDisposable
         Assert.Equal(IpcProtocol.HandshakeRequired, response.Error);
     }
 
-    [Fact]
+    [Fact(Timeout = 20000)]
     public async Task Server_WithAuthKey_RequiresAuthAfterHandshake()
     {
         var server = CreateServer(authKey: "secret123");
@@ -134,7 +134,7 @@ public class AgentIpcServerTests : IDisposable
         Assert.Equal(IpcProtocol.AuthRequired, membersResp.Error);
     }
 
-    [Fact]
+    [Fact(Timeout = 20000)]
     public async Task Server_UnsupportedCommand_ReturnsError()
     {
         var server = CreateServer();

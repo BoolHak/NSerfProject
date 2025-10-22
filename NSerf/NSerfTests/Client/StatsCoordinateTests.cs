@@ -36,11 +36,11 @@ public class StatsCoordinateTests : IAsyncDisposable
         var config = new Config
         {
             NodeName = nodeName,
-            MemberlistConfig = new MemberlistConfig 
-            { 
+            MemberlistConfig = new MemberlistConfig
+            {
                 Name = nodeName,
-                BindAddr = "127.0.0.1", 
-                BindPort = 0 
+                BindAddr = "127.0.0.1",
+                BindPort = 0
             }
         };
         var serf = NSerf.Serf.Serf.CreateAsync(config).GetAwaiter().GetResult();
@@ -57,7 +57,7 @@ public class StatsCoordinateTests : IAsyncDisposable
         return client;
     }
 
-    [Fact]
+    [Fact(Timeout = 20000)]
     public async Task Stats_ReturnsValidMemberlistStats()
     {
         // RED: Test that stats command returns real memberlist statistics
@@ -73,18 +73,18 @@ public class StatsCoordinateTests : IAsyncDisposable
         Assert.Equal(2ul, header.Seq);
         Assert.Equal("", header.Error);
         Assert.NotNull(stats);
-        
+
         // Should have memberlist section
         Assert.True(stats.ContainsKey("memberlist"));
         var memberlistStats = stats["memberlist"];
-        
+
         // Should contain basic counters
         Assert.True(memberlistStats.ContainsKey("msg_alive"));
         Assert.True(memberlistStats.ContainsKey("msg_dead"));
         Assert.True(memberlistStats.ContainsKey("msg_suspect"));
     }
 
-    [Fact]
+    [Fact(Timeout = 20000)]
     public async Task Stats_IncludesSerfAgentInfo()
     {
         // RED: Test that stats include Serf-specific information
@@ -98,16 +98,16 @@ public class StatsCoordinateTests : IAsyncDisposable
         var (header, stats) = await client.GetStatsAsync(2, CancellationToken.None);
 
         Assert.Equal("", header.Error);
-        
+
         // Should have agent section
         Assert.True(stats.ContainsKey("agent"));
         var agentStats = stats["agent"];
-        
+
         // Should contain agent name
         Assert.True(agentStats.ContainsKey("name"));
     }
 
-    [Fact]
+    [Fact(Timeout = 20000)]
     public async Task GetCoordinate_LocalNode_ReturnsCoordinate()
     {
         // RED: Test coordinate retrieval for local node
@@ -125,13 +125,13 @@ public class StatsCoordinateTests : IAsyncDisposable
         // Request coordinate for local node
         // TODO: Need to add GetCoordinateAsync to IpcClient
         // var (header, coord) = await client.GetCoordinateAsync(localNodeName, 3, CancellationToken.None);
-        
+
         // Assert.Equal(3ul, header.Seq);
         // Assert.Equal("", header.Error);
         // Assert.NotNull(coord);
     }
 
-    [Fact]
+    [Fact(Timeout = 20000)]
     public async Task GetCoordinate_NonExistentNode_ReturnsNull()
     {
         // RED: Test coordinate retrieval for non-existent node
@@ -144,7 +144,7 @@ public class StatsCoordinateTests : IAsyncDisposable
 
         // TODO: Need to add GetCoordinateAsync to IpcClient
         // var (header, coord) = await client.GetCoordinateAsync("non-existent-node", 2, CancellationToken.None);
-        
+
         // Assert.Equal(2ul, header.Seq);
         // Assert.Equal("", header.Error);
         // Assert.Null(coord);

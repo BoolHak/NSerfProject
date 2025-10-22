@@ -33,11 +33,11 @@ public class IpcClientStreamingTests : IAsyncDisposable
         var config = new Config
         {
             NodeName = nodeName,
-            MemberlistConfig = new MemberlistConfig 
-            { 
+            MemberlistConfig = new MemberlistConfig
+            {
                 Name = nodeName,
-                BindAddr = "127.0.0.1", 
-                BindPort = 0 
+                BindAddr = "127.0.0.1",
+                BindPort = 0
             }
         };
         var serf = NSerf.Serf.Serf.CreateAsync(config).GetAwaiter().GetResult();
@@ -54,7 +54,7 @@ public class IpcClientStreamingTests : IAsyncDisposable
         return client;
     }
 
-    [Fact]
+    [Fact(Timeout = 20000)]
     public async Task Client_CanStartMonitorStream()
     {
         var server = CreateServer();
@@ -71,7 +71,7 @@ public class IpcClientStreamingTests : IAsyncDisposable
         Assert.Equal(2ul, streamHandle.Seq);
     }
 
-    [Fact]
+    [Fact(Timeout = 20000)]
     public async Task Client_CanStartEventStream()
     {
         var server = CreateServer();
@@ -88,7 +88,7 @@ public class IpcClientStreamingTests : IAsyncDisposable
         Assert.Equal(2ul, streamHandle.Seq);
     }
 
-    [Fact]
+    [Fact(Timeout = 20000)]
     public async Task Client_CanStopStream()
     {
         var server = CreateServer();
@@ -107,9 +107,10 @@ public class IpcClientStreamingTests : IAsyncDisposable
         Assert.Equal("", stopResponse.Error);
     }
 
-    [Fact]
+    [Fact(Timeout = 10000)]
     public async Task Client_MultipleStreams_CanCoexist()
     {
+        // Test that callback handler pattern allows StopAsync to work with background reader
         var server = CreateServer();
         await server.StartAsync(CancellationToken.None);
 
@@ -120,14 +121,18 @@ public class IpcClientStreamingTests : IAsyncDisposable
         var logChannel = Channel.CreateUnbounded<string>();
         var eventChannel = Channel.CreateUnbounded<Dictionary<string, object>>();
 
+        // Start two streams - this starts background reader
         var monitorHandle = await client.MonitorAsync("debug", logChannel.Writer, 2, CancellationToken.None);
         var streamHandle = await client.StreamAsync("user", eventChannel.Writer, 3, CancellationToken.None);
 
         Assert.Equal(2ul, monitorHandle.Seq);
         Assert.Equal(3ul, streamHandle.Seq);
 
-        // Stop both
-        await client.StopAsync(monitorHandle.Seq, 4, CancellationToken.None);
-        await client.StopAsync(streamHandle.Seq, 5, CancellationToken.None);
+        // Stop both - should work with callback handler pattern
+        var stopResp1 = await client.StopAsync(monitorHandle.Seq, 4, CancellationToken.None);
+        var stopResp2 = await client.StopAsync(streamHandle.Seq, 5, CancellationToken.None);
+        
+        Assert.Equal("", stopResp1.Error);
+        Assert.Equal("", stopResp2.Error);
     }
 }

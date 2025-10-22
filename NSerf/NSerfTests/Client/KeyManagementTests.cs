@@ -36,11 +36,11 @@ public class KeyManagementTests : IAsyncDisposable
         var config = new Config
         {
             NodeName = nodeName,
-            MemberlistConfig = new MemberlistConfig 
-            { 
+            MemberlistConfig = new MemberlistConfig
+            {
                 Name = nodeName,
-                BindAddr = "127.0.0.1", 
-                BindPort = 0 
+                BindAddr = "127.0.0.1",
+                BindPort = 0
             }
         };
         var serf = NSerf.Serf.Serf.CreateAsync(config).GetAwaiter().GetResult();
@@ -57,7 +57,7 @@ public class KeyManagementTests : IAsyncDisposable
         return client;
     }
 
-    [Fact]
+    [Fact(Timeout = 20000)]
     public async Task InstallKey_ValidKey_ReturnsSuccessResponse()
     {
         // RED: Test that install-key command works with KeyManager
@@ -79,7 +79,7 @@ public class KeyManagementTests : IAsyncDisposable
         Assert.NotNull(response.Messages);
     }
 
-    [Fact]
+    [Fact(Timeout = 20000)]
     public async Task UseKey_ExistingKey_ReturnsSuccessResponse()
     {
         // RED: Test that use-key command works with KeyManager
@@ -91,10 +91,10 @@ public class KeyManagementTests : IAsyncDisposable
         await client.HandshakeAsync(1, CancellationToken.None);
 
         var testKey = Convert.ToBase64String(new byte[32]);
-        
+
         // First install the key
         await client.InstallKeyAsync(testKey, 2, CancellationToken.None);
-        
+
         // Then use it as primary
         var (header, response) = await client.UseKeyAsync(testKey, 3, CancellationToken.None);
 
@@ -103,7 +103,7 @@ public class KeyManagementTests : IAsyncDisposable
         Assert.NotNull(response);
     }
 
-    [Fact]
+    [Fact(Timeout = 20000)]
     public async Task RemoveKey_ExistingKey_ReturnsSuccessResponse()
     {
         // RED: Test that remove-key command works with KeyManager
@@ -115,10 +115,10 @@ public class KeyManagementTests : IAsyncDisposable
         await client.HandshakeAsync(1, CancellationToken.None);
 
         var testKey = Convert.ToBase64String(new byte[32]);
-        
+
         // Install a key first
         await client.InstallKeyAsync(testKey, 2, CancellationToken.None);
-        
+
         // Then remove it
         var (header, response) = await client.RemoveKeyAsync(testKey, 3, CancellationToken.None);
 
@@ -127,7 +127,7 @@ public class KeyManagementTests : IAsyncDisposable
         Assert.NotNull(response);
     }
 
-    [Fact]
+    [Fact(Timeout = 20000)]
     public async Task ListKeys_ReturnsCurrentKeyring()
     {
         // RED: Test that list-keys command returns keyring state
@@ -149,7 +149,7 @@ public class KeyManagementTests : IAsyncDisposable
         Assert.True(response.NumNodes >= 0);
     }
 
-    [Fact]
+    [Fact(Timeout = 20000)]
     public async Task InstallKey_InvalidKey_ReturnsError()
     {
         // RED: Test that invalid key format is rejected

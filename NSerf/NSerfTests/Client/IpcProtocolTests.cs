@@ -11,12 +11,12 @@ public class IpcProtocolTests
         Assert.Equal(1, IpcProtocol.MinVersion);
         Assert.Equal(1, IpcProtocol.MaxVersion);
     }
-    
+
     [Fact]
     public void AllCommands_ShouldBeUnique()
     {
-        var commands = new[] 
-        { 
+        var commands = new[]
+        {
             IpcProtocol.HandshakeCommand,
             IpcProtocol.AuthCommand,
             IpcProtocol.JoinCommand,
@@ -38,11 +38,11 @@ public class IpcProtocolTests
             IpcProtocol.StatsCommand,
             IpcProtocol.GetCoordinateCommand
         };
-        
+
         Assert.Equal(20, commands.Length);
         Assert.Equal(20, commands.Distinct().Count());
     }
-    
+
     [Fact]
     public void AllErrors_ShouldBeUnique()
     {
@@ -59,11 +59,11 @@ public class IpcProtocolTests
             IpcProtocol.AuthRequired,
             IpcProtocol.InvalidAuthToken
         };
-        
+
         Assert.Equal(10, errors.Length);
         Assert.Equal(10, errors.Distinct().Count());
     }
-    
+
     [Fact]
     public void QueryRecordTypes_ShouldBeValid()
     {
@@ -71,7 +71,7 @@ public class IpcProtocolTests
         Assert.Equal("response", IpcProtocol.QueryRecordResponse);
         Assert.Equal("done", IpcProtocol.QueryRecordDone);
     }
-    
+
     [Fact]
     public void CommandNames_ShouldMatchGoImplementation()
     {

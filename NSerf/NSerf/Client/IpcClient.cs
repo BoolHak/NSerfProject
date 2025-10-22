@@ -1,6 +1,7 @@
 using System.Net.Sockets;
 using System.Threading.Channels;
 using MessagePack;
+using System.Collections.Concurrent;
 
 namespace NSerf.Client;
 
@@ -16,6 +17,10 @@ public class IpcClient : IAsyncDisposable
     private MessagePackStreamReader? _reader;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private readonly MessagePackSerializerOptions _options;
+    private readonly ConcurrentDictionary<ulong, IResponseHandler> _handlers = new();
+    private Task? _backgroundReaderTask;
+    private readonly CancellationTokenSource _disposeCts = new();
+    private bool _disposed;
 
     public IpcClient(MessagePackSerializerOptions? options = null)
     {
@@ -29,6 +34,7 @@ public class IpcClient : IAsyncDisposable
         await _tcpClient.ConnectAsync(host, port, cancellationToken);
         _stream = _tcpClient.GetStream();
         _reader = new MessagePackStreamReader(_stream, leaveOpen: true);
+        // Background reader will be started on first streaming command
     }
 
     public async Task<ResponseHeader> HandshakeAsync(int version, CancellationToken cancellationToken)
@@ -237,18 +243,26 @@ public class IpcClient : IAsyncDisposable
     public async Task<StreamHandle> MonitorAsync(string logLevel, ChannelWriter<string> logWriter, ulong seq, CancellationToken cancellationToken)
     {
         EnsureConnected();
+        EnsureBackgroundReaderStarted(); // Start reader on first streaming command
+        
+        // Register handler BEFORE sending request
+        var handler = new MonitorHandler(logWriter);
+        _handlers[seq] = handler;
+        
         var header = new RequestHeader { Command = IpcProtocol.MonitorCommand, Seq = seq };
         var body = new MonitorRequest { LogLevel = logLevel };
         await SendAsync(header, body, cancellationToken);
-        var responseHeader = await ReadResponseAsync(cancellationToken);
         
-        if (!string.IsNullOrEmpty(responseHeader.Error))
+        // Wait for initialization response
+        try
         {
-            throw new InvalidOperationException($"Monitor failed: {responseHeader.Error}");
+            await handler.InitTask;
         }
-        
-        // TODO: Background task to read log records will be started when server implements streaming
-        // For now, just return handle after successful acknowledgment
+        catch
+        {
+            _handlers.TryRemove(seq, out _);
+            throw;
+        }
         
         return new StreamHandle { Seq = seq };
     }
@@ -256,18 +270,26 @@ public class IpcClient : IAsyncDisposable
     public async Task<StreamHandle> StreamAsync(string eventType, ChannelWriter<Dictionary<string, object>> eventWriter, ulong seq, CancellationToken cancellationToken)
     {
         EnsureConnected();
+        EnsureBackgroundReaderStarted(); // Start reader on first streaming command
+        
+        // Register handler BEFORE sending request
+        var handler = new StreamHandler(eventWriter);
+        _handlers[seq] = handler;
+        
         var header = new RequestHeader { Command = IpcProtocol.StreamCommand, Seq = seq };
         var body = new StreamRequest { Type = eventType };
         await SendAsync(header, body, cancellationToken);
-        var responseHeader = await ReadResponseAsync(cancellationToken);
         
-        if (!string.IsNullOrEmpty(responseHeader.Error))
+        // Wait for initialization response
+        try
         {
-            throw new InvalidOperationException($"Stream failed: {responseHeader.Error}");
+            await handler.InitTask;
         }
-        
-        // TODO: Background task to read event records will be started when server implements streaming
-        // For now, just return handle after successful acknowledgment
+        catch
+        {
+            _handlers.TryRemove(seq, out _);
+            throw;
+        }
         
         return new StreamHandle { Seq = seq };
     }
@@ -275,10 +297,48 @@ public class IpcClient : IAsyncDisposable
     public async Task<ResponseHeader> StopAsync(ulong stopSeq, ulong seq, CancellationToken cancellationToken)
     {
         EnsureConnected();
-        var header = new RequestHeader { Command = IpcProtocol.StopCommand, Seq = seq };
-        var body = new StopRequest { Stop = stopSeq };
-        await SendAsync(header, body, cancellationToken);
-        return await ReadResponseAsync(cancellationToken);
+        
+        // If background reader is running, use callback handler pattern
+        if (_backgroundReaderTask != null)
+        {
+            // StopAsync returns no body, just header
+            var callbackHandler = new CallbackHandler(_options, expectBody: false);
+            _handlers[seq] = callbackHandler;
+            
+            var header = new RequestHeader { Command = IpcProtocol.StopCommand, Seq = seq };
+            var body = new StopRequest { Stop = stopSeq };
+            await SendAsync(header, body, cancellationToken);
+            
+            // Wait for response via callback
+            var (responseHeader, _) = await callbackHandler.Task;
+            
+            // Deregister this command's handler
+            _handlers.TryRemove(seq, out _);
+            
+            // Deregister and cleanup the stream handler
+            if (_handlers.TryRemove(stopSeq, out var streamHandler))
+            {
+                await streamHandler.CleanupAsync();
+            }
+            
+            return responseHeader;
+        }
+        else
+        {
+            // No background reader, use direct read
+            var header = new RequestHeader { Command = IpcProtocol.StopCommand, Seq = seq };
+            var body = new StopRequest { Stop = stopSeq };
+            await SendAsync(header, body, cancellationToken);
+            var response = await ReadResponseAsync(cancellationToken);
+            
+            // Deregister and cleanup the handler
+            if (_handlers.TryRemove(stopSeq, out var handler))
+            {
+                await handler.CleanupAsync();
+            }
+            
+            return response;
+        }
     }
 
     private async Task<T> ReadBodyAsync<T>(CancellationToken cancellationToken)
@@ -320,18 +380,114 @@ public class IpcClient : IAsyncDisposable
     private void EnsureConnected()
     {
         if (_stream is null || _reader is null)
-            throw new InvalidOperationException("Client not connected");
+        {
+            throw new InvalidOperationException("Not connected. Call ConnectAsync first.");
+        }
+    }
+
+    private void EnsureBackgroundReaderStarted()
+    {
+        if (_backgroundReaderTask == null && !_disposed)
+        {
+            _backgroundReaderTask = Task.Run(async () => await BackgroundReaderLoopAsync(_disposeCts.Token), _disposeCts.Token);
+        }
+    }
+
+    /// <summary>
+    /// Background reader loop that continuously reads responses and dispatches to handlers.
+    /// Based on Go's listen() goroutine pattern.
+    /// </summary>
+    private async Task BackgroundReaderLoopAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested && _reader != null)
+            {
+                try
+                {
+                    var msgpack = await _reader.ReadAsync(cancellationToken);
+                    if (!msgpack.HasValue)
+                    {
+                        break; // Stream closed
+                    }
+
+                    var header = MessagePackSerializer.Deserialize<ResponseHeader>(msgpack.Value, _options);
+
+                    // Check if there's a handler registered for this sequence
+                    if (_handlers.TryGetValue(header.Seq, out var handler))
+                    {
+                        // Dispatch to handler
+                        await handler.HandleAsync(header, _reader);
+                    }
+                    // else: Response for non-streaming command, will be read by ReadResponseAsync
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+                catch (Exception)
+                {
+                    // Error reading, likely connection closed
+                    break;
+                }
+            }
+        }
+        finally
+        {
+            // Cleanup all handlers when reader stops
+            foreach (var kvp in _handlers)
+            {
+                try
+                {
+                    await kvp.Value.CleanupAsync();
+                }
+                catch
+                {
+                    // Ignore cleanup errors
+                }
+            }
+            _handlers.Clear();
+        }
     }
 
     public async ValueTask DisposeAsync()
     {
-        _reader = null;
-        if (_stream is not null)
+        if (_disposed) return;
+        _disposed = true;
+
+        // Signal background reader to stop
+        _disposeCts.Cancel();
+
+        // Wait for background reader to finish
+        if (_backgroundReaderTask != null)
         {
-            await _stream.DisposeAsync();
-            _stream = null;
+            try
+            {
+                await _backgroundReaderTask;
+            }
+            catch
+            {
+                // Ignore errors during shutdown
+            }
         }
+
+        // Cleanup all remaining handlers
+        foreach (var kvp in _handlers.ToArray())
+        {
+            try
+            {
+                await kvp.Value.CleanupAsync();
+            }
+            catch
+            {
+                // Ignore cleanup errors
+            }
+        }
+        _handlers.Clear();
+
+        _stream?.Dispose();
         _tcpClient?.Dispose();
+        _disposeCts.Dispose();
         _writeLock.Dispose();
     }
 }

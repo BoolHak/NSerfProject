@@ -14,25 +14,25 @@ public partial class AgentIpc
     {
         var serfMembers = _serf.Members();
         var members = serfMembers.Select(ConvertToIpcMember).ToArray();
-        
+
         var resp = new ResponseHeader { Seq = seq, Error = "" };
         var body = new MembersResponse { Members = members };
-        
+
         await client.SendAsync(resp, body, cancellationToken);
     }
-    
+
     private async Task HandleJoinAsync(IpcClientHandler client, ulong seq, MessagePackStreamReader reader, CancellationToken cancellationToken)
     {
         var msgpack = await reader.ReadAsync(cancellationToken);
-        var req = MessagePackSerializer.Deserialize<JoinRequest>(msgpack!.Value, _serializerOptions);
-        
+        var req = MessagePackSerializer.Deserialize<JoinRequest>(msgpack!.Value, _serializerOptions, cancellationToken);
+
         try
         {
             var numJoined = await _serf.JoinAsync(req.Existing, req.Replay);
-            
+
             var resp = new ResponseHeader { Seq = seq, Error = "" };
             var body = new JoinResponse { Num = numJoined };
-            
+
             await client.SendAsync(resp, body, cancellationToken);
         }
         catch (Exception ex)
@@ -41,7 +41,7 @@ public partial class AgentIpc
             await client.SendAsync(resp, null, cancellationToken);
         }
     }
-    
+
     private async Task HandleLeaveAsync(IpcClientHandler client, ulong seq, CancellationToken cancellationToken)
     {
         try
@@ -56,12 +56,12 @@ public partial class AgentIpc
             await client.SendAsync(resp, null, cancellationToken);
         }
     }
-    
+
     private async Task HandleForceLeaveAsync(IpcClientHandler client, ulong seq, MessagePackStreamReader reader, CancellationToken cancellationToken)
     {
         var msgpack = await reader.ReadAsync(cancellationToken);
         var req = MessagePackSerializer.Deserialize<ForceLeaveRequest>(msgpack!.Value, _serializerOptions);
-        
+
         try
         {
             await _serf.RemoveFailedNodeAsync(req.Node, req.Prune);
@@ -74,27 +74,27 @@ public partial class AgentIpc
             await client.SendAsync(resp, null, cancellationToken);
         }
     }
-    
+
     private async Task HandleMembersFilteredAsync(IpcClientHandler client, ulong seq, MessagePackStreamReader reader, CancellationToken cancellationToken)
     {
         var msgpack = await reader.ReadAsync(cancellationToken);
         var req = MessagePackSerializer.Deserialize<MembersFilteredRequest>(msgpack!.Value, _serializerOptions);
-        
+
         var serfMembers = _serf.Members();
         var filteredMembers = FilterMembers(serfMembers, req.Tags, req.Status, req.Name);
         var members = filteredMembers.Select(ConvertToIpcMember).ToArray();
-        
+
         var resp = new ResponseHeader { Seq = seq, Error = "" };
         var body = new MembersResponse { Members = members };
-        
+
         await client.SendAsync(resp, body, cancellationToken);
     }
-    
+
     private async Task HandleUserEventAsync(IpcClientHandler client, ulong seq, MessagePackStreamReader reader, CancellationToken cancellationToken)
     {
         var msgpack = await reader.ReadAsync(cancellationToken);
         var req = MessagePackSerializer.Deserialize<EventRequest>(msgpack!.Value, _serializerOptions);
-        
+
         try
         {
             await _serf.UserEventAsync(req.Name, req.Payload, req.Coalesce);
@@ -107,12 +107,12 @@ public partial class AgentIpc
             await client.SendAsync(resp, null, cancellationToken);
         }
     }
-    
+
     private async Task HandleTagsAsync(IpcClientHandler client, ulong seq, MessagePackStreamReader reader, CancellationToken cancellationToken)
     {
         var msgpack = await reader.ReadAsync(cancellationToken);
         var req = MessagePackSerializer.Deserialize<TagsRequest>(msgpack!.Value, _serializerOptions);
-        
+
         try
         {
             // Merge tags
@@ -124,7 +124,7 @@ public partial class AgentIpc
                     currentTags[kvp.Key] = kvp.Value;
                 }
             }
-            
+
             // Delete tags
             if (req.DeleteTags != null)
             {
@@ -133,7 +133,7 @@ public partial class AgentIpc
                     currentTags.Remove(key);
                 }
             }
-            
+
             await _serf.SetTagsAsync(currentTags);
             var resp = new ResponseHeader { Seq = seq, Error = "" };
             await client.SendAsync(resp, null, cancellationToken);
@@ -144,18 +144,18 @@ public partial class AgentIpc
             await client.SendAsync(resp, null, cancellationToken);
         }
     }
-    
+
     private async Task HandleStatsAsync(IpcClientHandler client, ulong seq, CancellationToken cancellationToken)
     {
         var stats = new Dictionary<string, Dictionary<string, string>>();
-        
+
         // Agent stats
         var agentStats = new Dictionary<string, string>
         {
             ["name"] = _serf.Config.NodeName
         };
         stats["agent"] = agentStats;
-        
+
         // Get memberlist stats if available
         if (_serf.Memberlist != null)
         {
@@ -167,24 +167,24 @@ public partial class AgentIpc
                 ["msg_dead"] = "0",
                 ["msg_suspect"] = "0"
             };
-            
+
             stats["memberlist"] = statsDict;
         }
-        
+
         var resp = new ResponseHeader { Seq = seq, Error = "" };
         await client.SendAsync(resp, stats, cancellationToken);
     }
-    
+
     private async Task HandleInstallKeyAsync(IpcClientHandler client, ulong seq, MessagePackStreamReader reader, CancellationToken cancellationToken)
     {
         var msgpack = await reader.ReadAsync(cancellationToken);
         var req = MessagePackSerializer.Deserialize<KeyRequest>(msgpack!.Value, _serializerOptions);
-        
+
         try
         {
             var keyManager = new KeyManager(_serf);
             var keyResp = await keyManager.InstallKey(req.Key);
-            
+
             var resp = new ResponseHeader { Seq = seq, Error = "" };
             await client.SendAsync(resp, ConvertKeyResponse(keyResp), cancellationToken);
         }
@@ -194,17 +194,17 @@ public partial class AgentIpc
             await client.SendAsync(resp, null, cancellationToken);
         }
     }
-    
+
     private async Task HandleUseKeyAsync(IpcClientHandler client, ulong seq, MessagePackStreamReader reader, CancellationToken cancellationToken)
     {
         var msgpack = await reader.ReadAsync(cancellationToken);
         var req = MessagePackSerializer.Deserialize<KeyRequest>(msgpack!.Value, _serializerOptions);
-        
+
         try
         {
             var keyManager = new KeyManager(_serf);
             var keyResp = await keyManager.UseKey(req.Key);
-            
+
             var resp = new ResponseHeader { Seq = seq, Error = "" };
             await client.SendAsync(resp, ConvertKeyResponse(keyResp), cancellationToken);
         }
@@ -214,17 +214,17 @@ public partial class AgentIpc
             await client.SendAsync(resp, null, cancellationToken);
         }
     }
-    
+
     private async Task HandleRemoveKeyAsync(IpcClientHandler client, ulong seq, MessagePackStreamReader reader, CancellationToken cancellationToken)
     {
         var msgpack = await reader.ReadAsync(cancellationToken);
         var req = MessagePackSerializer.Deserialize<KeyRequest>(msgpack!.Value, _serializerOptions);
-        
+
         try
         {
             var keyManager = new KeyManager(_serf);
             var keyResp = await keyManager.RemoveKey(req.Key);
-            
+
             var resp = new ResponseHeader { Seq = seq, Error = "" };
             await client.SendAsync(resp, ConvertKeyResponse(keyResp), cancellationToken);
         }
@@ -234,14 +234,14 @@ public partial class AgentIpc
             await client.SendAsync(resp, null, cancellationToken);
         }
     }
-    
+
     private async Task HandleListKeysAsync(IpcClientHandler client, ulong seq, CancellationToken cancellationToken)
     {
         try
         {
             var keyManager = new KeyManager(_serf);
             var keyResp = await keyManager.ListKeys();
-            
+
             var resp = new ResponseHeader { Seq = seq, Error = "" };
             await client.SendAsync(resp, ConvertKeyResponse(keyResp), cancellationToken);
         }
@@ -251,19 +251,19 @@ public partial class AgentIpc
             await client.SendAsync(resp, null, cancellationToken);
         }
     }
-    
+
     private async Task HandleGetCoordinateAsync(IpcClientHandler client, ulong seq, MessagePackStreamReader reader, CancellationToken cancellationToken)
     {
         var msgpack = await reader.ReadAsync(cancellationToken);
         var req = MessagePackSerializer.Deserialize<CoordinateRequest>(msgpack!.Value, _serializerOptions);
-        
+
         // TODO: Call Serf Coordinate
         var coordResp = new CoordinateResponse
         {
             Coord = new Coordinate.Coordinate(),
             Ok = false
         };
-        
+
         var resp = new ResponseHeader { Seq = seq, Error = "" };
         await client.SendAsync(resp, coordResp, cancellationToken);
     }
@@ -272,11 +272,11 @@ public partial class AgentIpc
     {
         var msgpack = await reader.ReadAsync(cancellationToken);
         var req = MessagePackSerializer.Deserialize<MonitorRequest>(msgpack!.Value, _serializerOptions);
-        
+
         // Send initial response
         var resp = new ResponseHeader { Seq = seq, Error = "" };
         await client.SendAsync(resp, null, cancellationToken);
-        
+
         // TODO: Start streaming logs to client
         // For now, just acknowledge the subscription
     }
@@ -285,11 +285,11 @@ public partial class AgentIpc
     {
         var msgpack = await reader.ReadAsync(cancellationToken);
         var req = MessagePackSerializer.Deserialize<StreamRequest>(msgpack!.Value, _serializerOptions);
-        
+
         // Send initial response
         var resp = new ResponseHeader { Seq = seq, Error = "" };
         await client.SendAsync(resp, null, cancellationToken);
-        
+
         // TODO: Start streaming events to client
         // For now, just acknowledge the subscription
     }
@@ -298,12 +298,12 @@ public partial class AgentIpc
     {
         var msgpack = await reader.ReadAsync(cancellationToken);
         var req = MessagePackSerializer.Deserialize<StopRequest>(msgpack!.Value, _serializerOptions);
-        
+
         // TODO: Stop the stream identified by req.Stop
         var resp = new ResponseHeader { Seq = seq, Error = "" };
         await client.SendAsync(resp, null, cancellationToken);
     }
-    
+
     /// <summary>
     /// Converts a Serf Member to an IpcMember for wire protocol.
     /// </summary>
@@ -324,7 +324,7 @@ public partial class AgentIpc
             DelegateCur = member.DelegateCur
         };
     }
-    
+
     /// <summary>
     /// Filters members by tags, status, and name using regex.
     /// Go serf anchors regex with ^ and $, we do the same.
@@ -336,7 +336,7 @@ public partial class AgentIpc
         string? nameFilter)
     {
         var filtered = members.AsEnumerable();
-        
+
         // Filter by tags (regex)
         if (tagFilters != null && tagFilters.Count > 0)
         {
@@ -346,7 +346,7 @@ public partial class AgentIpc
                 {
                     if (!m.Tags.TryGetValue(filter.Key, out var value))
                         return false;
-                    
+
                     var regex = new Regex($"^{filter.Value}$", RegexOptions.Compiled);
                     if (!regex.IsMatch(value))
                         return false;
@@ -354,24 +354,24 @@ public partial class AgentIpc
                 return true;
             });
         }
-        
+
         // Filter by status (regex)
         if (!string.IsNullOrEmpty(statusFilter))
         {
             var statusRegex = new Regex($"^{statusFilter}$", RegexOptions.Compiled);
             filtered = filtered.Where(m => statusRegex.IsMatch(m.Status.ToStatusString()));
         }
-        
+
         // Filter by name (regex)
         if (!string.IsNullOrEmpty(nameFilter))
         {
             var nameRegex = new Regex($"^{nameFilter}$", RegexOptions.Compiled);
             filtered = filtered.Where(m => nameRegex.IsMatch(m.Name));
         }
-        
+
         return filtered;
     }
-    
+
     /// <summary>
     /// Converts Serf KeyResponse to IPC KeyResponse.
     /// </summary>
@@ -379,8 +379,8 @@ public partial class AgentIpc
     {
         return new Client.KeyResponse
         {
-            Messages = serfResponse.Messages != null 
-                ? new Dictionary<string, string>(serfResponse.Messages) 
+            Messages = serfResponse.Messages != null
+                ? new Dictionary<string, string>(serfResponse.Messages)
                 : new Dictionary<string, string>(),
             Keys = serfResponse.Keys != null
                 ? new Dictionary<string, int>(serfResponse.Keys)
