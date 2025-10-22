@@ -353,6 +353,15 @@ public partial class Serf : IDisposable, IAsyncDisposable
                 }
             };
             serf.SetMemberState(config.NodeName, localMember);
+            
+            // Emit initial member-join event for local node (Go's serf also does this)
+            var memberEvent = new MemberEvent
+            {
+                Type = EventType.MemberJoin,
+                Members = new List<Member> { localMember.Member }
+            };
+            serf.EmitEvent(memberEvent);
+            serf.Logger?.LogInformation("[Serf/LocalNode] Emitted initial MemberJoin event for local node");
         }
 
         serf.StartBackgroundTasks();
