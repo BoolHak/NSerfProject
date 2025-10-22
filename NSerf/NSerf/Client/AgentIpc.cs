@@ -21,6 +21,10 @@ public partial class AgentIpc : IAsyncDisposable
     private readonly MessagePackSerializerOptions _serializerOptions;
     private Task? _listenTask;
     
+    // Phase 16: Event and Log streaming
+    private readonly EventStreamManager? _eventStreamManager;
+    private readonly LogStreamManager? _logStreamManager;
+    
     /// <summary>
     /// Gets the port the server is listening on.
     /// </summary>
@@ -45,12 +49,28 @@ public partial class AgentIpc : IAsyncDisposable
         
         _serializerOptions = MessagePackSerializerOptions.Standard
             .WithResolver(MessagePack.Resolvers.ContractlessStandardResolver.Instance);
+        
+        // Phase 16: Initialize EventStreamManager with Serf's IPC event reader
+        _eventStreamManager = new EventStreamManager(serf.IpcEventReader);
+        
+        // Phase 16: Initialize LogStreamManager
+        if (serf.Logger != null)
+        {
+            _logStreamManager = new LogStreamManager(serf.Logger);
+            if (serf.Logger is not ILoggableLogger)
+            {
+                _logger?.LogWarning("Serf.Logger is not ILoggableLogger, log streaming hook may not work");
+            }
+        }
     }
     
     public async Task StartAsync(CancellationToken cancellationToken)
     {
         _listener.Start();
         Port = ((IPEndPoint)_listener.LocalEndpoint).Port;
+        
+        // Phase 16: Start EventStreamManager background task
+        _eventStreamManager?.Start(_shutdownCts.Token);
         
         _listenTask = Task.Run(() => ListenAsync(_shutdownCts.Token), _shutdownCts.Token);
         
@@ -198,6 +218,7 @@ public partial class AgentIpc : IAsyncDisposable
             IpcProtocol.MonitorCommand => HandleMonitorAsync(client, header.Seq, reader, cancellationToken),
             IpcProtocol.StreamCommand => HandleStreamAsync(client, header.Seq, reader, cancellationToken),
             IpcProtocol.StopCommand => HandleStopAsync(client, header.Seq, reader, cancellationToken),
+            IpcProtocol.RespondCommand => HandleRespondAsync(client, header.Seq, reader, cancellationToken),
             _ => HandleUnsupportedCommandAsync(client, header.Seq, cancellationToken)
         });
     }

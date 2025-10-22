@@ -257,11 +257,19 @@ public partial class AgentIpc
         var msgpack = await reader.ReadAsync(cancellationToken);
         var req = MessagePackSerializer.Deserialize<CoordinateRequest>(msgpack!.Value, _serializerOptions);
 
-        // TODO: Call Serf Coordinate
+        // Get coordinate from Serf
+        // Note: GetCoordinate() only returns local node's coordinate
+        // For other nodes, would need coordinate cache (not yet implemented)
+        Coordinate.Coordinate? coord = null;
+        if (string.IsNullOrEmpty(req.Node) || req.Node == _serf.Config.NodeName)
+        {
+            coord = _serf.GetCoordinate();
+        }
+        
         var coordResp = new CoordinateResponse
         {
-            Coord = new Coordinate.Coordinate(),
-            Ok = false
+            Coord = coord ?? new Coordinate.Coordinate(),
+            Ok = coord != null
         };
 
         var resp = new ResponseHeader { Seq = seq, Error = "" };
@@ -293,8 +301,8 @@ public partial class AgentIpc
         var resp = new ResponseHeader { Seq = seq, Error = "" };
         await client.SendAsync(resp, null, cancellationToken);
 
-        // TODO: Start streaming logs to client based on req.LogLevel
-        // For now, just acknowledge the subscription
+        // Phase 16: Register with LogStreamManager - it will stream logs automatically
+        _logStreamManager?.RegisterMonitor(seq, client, req.LogLevel, new List<string>(), cancellationToken);
     }
 
     private async Task HandleStreamAsync(IpcClientHandler client, ulong seq, MessagePackStreamReader reader, CancellationToken cancellationToken)
@@ -322,8 +330,8 @@ public partial class AgentIpc
         var resp = new ResponseHeader { Seq = seq, Error = "" };
         await client.SendAsync(resp, null, cancellationToken);
 
-        // TODO: Start streaming events to client based on req.Type filter
-        // For now, just acknowledge the subscription
+        // Phase 16: Register with EventStreamManager - it will stream events automatically
+        _eventStreamManager?.RegisterStream(seq, client, req.Type, new List<Serf.Events.Event>(), cancellationToken);
     }
 
     private async Task HandleStopAsync(IpcClientHandler client, ulong seq, MessagePackStreamReader reader, CancellationToken cancellationToken)
@@ -339,10 +347,13 @@ public partial class AgentIpc
             return;
         }
 
-        // Unregister the stream
+        // Phase 16: Stop the stream via managers
+        _eventStreamManager?.UnregisterStream(req.Stop);
+        _logStreamManager?.UnregisterMonitor(req.Stop);
+        
+        // Unregister from client tracker
         client.UnregisterStream(req.Stop);
 
-        // TODO: Actually stop the streaming task
         var resp = new ResponseHeader { Seq = seq, Error = "" };
         await client.SendAsync(resp, null, cancellationToken);
     }

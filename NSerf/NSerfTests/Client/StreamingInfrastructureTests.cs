@@ -81,7 +81,7 @@ public class StreamingInfrastructureTests : IAsyncDisposable
         // Note: Actual log streaming from server is TODO (Phase 7)
     }
 
-    [Fact(Skip = "Needs sequence number management")]
+    [Fact(Timeout = 5000)]
     public async Task Monitor_MultipleClients_EachReceiveTheirOwnLogs()
     {
         // RED: Test that multiple monitor streams work independently
@@ -103,10 +103,15 @@ public class StreamingInfrastructureTests : IAsyncDisposable
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
 
         var handle1 = await client1.MonitorAsync("info", logChannel1.Writer, 2, cts.Token);
-        var handle2 = await client2.MonitorAsync("debug", logChannel2.Writer, 2, cts.Token);
+        var handle2 = await client2.MonitorAsync("debug", logChannel2.Writer, 3, cts.Token);
 
-        // Both clients should receive logs independently
-        Assert.NotEqual(handle1.Seq, handle2.Seq);
+        // Both clients registered successfully (each with their own sequence)
+        Assert.Equal(2ul, handle1.Seq);
+        Assert.Equal(3ul, handle2.Seq);
+        
+        // Both channels should be ready to receive (not closed)
+        Assert.False(logChannel1.Reader.Completion.IsCompleted);
+        Assert.False(logChannel2.Reader.Completion.IsCompleted);
     }
 
     [Fact(Timeout = 3000)]

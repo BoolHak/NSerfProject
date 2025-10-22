@@ -49,6 +49,16 @@ public partial class Serf : IDisposable, IAsyncDisposable
     private readonly Dictionary<string, Coordinate.Coordinate> _coordCache = new();
     private readonly SemaphoreSlim _joinLock = new(1, 1);
 
+    // Phase 16: Internal event channel for IPC streaming (separate from user's EventCh)
+    private readonly Channel<Event> _ipcEventChannel;
+    private readonly ChannelWriter<Event> _ipcEventWriter;
+
+    /// <summary>
+    /// Gets the channel reader for IPC event streaming.
+    /// Used by AgentIpc to stream events to connected clients.
+    /// </summary>
+    public ChannelReader<Event> IpcEventReader { get; }
+
     /// <summary>
     /// Internal constructor for testing - use CreateAsync() factory method for production.
     /// </summary>
@@ -71,6 +81,16 @@ public partial class Serf : IDisposable, IAsyncDisposable
         _clusterCoordinator = new ClusterCoordinator(logger: Logger);
         EventJoinIgnore = false;
         QueryMinTime = 0;
+        
+        // Phase 16: Initialize IPC event channel (bounded, drop-on-full to prevent blocking)
+        _ipcEventChannel = Channel.CreateBounded<Event>(new BoundedChannelOptions(64)
+        {
+            FullMode = BoundedChannelFullMode.DropWrite,
+            SingleReader = false, // Multiple IPC clients may read
+            SingleWriter = false  // Multiple Serf components may write
+        });
+        _ipcEventWriter = _ipcEventChannel.Writer;
+        IpcEventReader = _ipcEventChannel.Reader;
     }
 
     /// <summary>
@@ -155,8 +175,9 @@ public partial class Serf : IDisposable, IAsyncDisposable
 
 
     /// <summary>
-    /// Emits an event to both the Snapshotter and the user's EventCh.
+    /// Emits an event to Snapshotter, user's EventCh, and IPC channel.
     /// This mimics Go's behavior where events are sent to both channels.
+    /// Phase 16: Now also sends to IPC channel for streaming to clients.
     /// </summary>
     private void EmitEvent(Event evt)
     {
@@ -175,6 +196,10 @@ public partial class Serf : IDisposable, IAsyncDisposable
                 Logger?.LogError(ex, "[Serf/EmitEvent] Failed to emit event to snapshotter");
             }
         }
+        
+        // Phase 16: Send to IPC channel (drop-on-full, won't block)
+        _ipcEventWriter.TryWrite(evt);
+        
         _eventManager?.EmitEvent(evt);
     }
 
