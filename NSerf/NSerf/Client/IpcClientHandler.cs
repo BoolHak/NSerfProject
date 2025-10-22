@@ -14,6 +14,9 @@ public class IpcClientHandler : IAsyncDisposable
     private readonly TcpClient _tcpClient;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private readonly MessagePackSerializerOptions _options;
+    private readonly HashSet<ulong> _activeMonitors = new();
+    private readonly HashSet<ulong> _activeStreams = new();
+    private readonly object _streamLock = new();
     
     /// <summary>
     /// Gets the client identifier (typically remote endpoint).
@@ -30,6 +33,63 @@ public class IpcClientHandler : IAsyncDisposable
     /// Gets or sets whether this client has successfully authenticated.
     /// </summary>
     public bool DidAuth { get; set; }
+    
+    /// <summary>
+    /// Checks if a monitor is already registered for this sequence number.
+    /// </summary>
+    public bool HasMonitor(ulong seq)
+    {
+        lock (_streamLock)
+        {
+            return _activeMonitors.Contains(seq);
+        }
+    }
+    
+    /// <summary>
+    /// Registers a monitor stream.
+    /// Returns false if already registered.
+    /// </summary>
+    public bool RegisterMonitor(ulong seq)
+    {
+        lock (_streamLock)
+        {
+            return _activeMonitors.Add(seq);
+        }
+    }
+    
+    /// <summary>
+    /// Registers an event stream.
+    /// Returns false if already registered.
+    /// </summary>
+    public bool RegisterStream(ulong seq)
+    {
+        lock (_streamLock)
+        {
+            return _activeStreams.Add(seq);
+        }
+    }
+    
+    /// <summary>
+    /// Checks if a stream is registered (monitor or event stream).
+    /// </summary>
+    public bool HasStream(ulong seq)
+    {
+        lock (_streamLock)
+        {
+            return _activeMonitors.Contains(seq) || _activeStreams.Contains(seq);
+        }
+    }
+    
+    /// <summary>
+    /// Unregisters a stream.
+    /// </summary>
+    public bool UnregisterStream(ulong seq)
+    {
+        lock (_streamLock)
+        {
+            return _activeMonitors.Remove(seq) || _activeStreams.Remove(seq);
+        }
+    }
     
     public IpcClientHandler(string name, TcpClient tcpClient, MessagePackSerializerOptions? options = null)
     {

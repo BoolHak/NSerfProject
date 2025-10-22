@@ -273,11 +273,27 @@ public partial class AgentIpc
         var msgpack = await reader.ReadAsync(cancellationToken);
         var req = MessagePackSerializer.Deserialize<MonitorRequest>(msgpack!.Value, _serializerOptions);
 
-        // Send initial response
+        // Check for duplicate monitor
+        if (client.HasMonitor(seq))
+        {
+            var errorResp = new ResponseHeader { Seq = seq, Error = IpcProtocol.MonitorExists };
+            await client.SendAsync(errorResp, null, cancellationToken);
+            return;
+        }
+
+        // Register monitor
+        if (!client.RegisterMonitor(seq))
+        {
+            var errorResp = new ResponseHeader { Seq = seq, Error = IpcProtocol.MonitorExists };
+            await client.SendAsync(errorResp, null, cancellationToken);
+            return;
+        }
+
+        // Send initial success response
         var resp = new ResponseHeader { Seq = seq, Error = "" };
         await client.SendAsync(resp, null, cancellationToken);
 
-        // TODO: Start streaming logs to client
+        // TODO: Start streaming logs to client based on req.LogLevel
         // For now, just acknowledge the subscription
     }
 
@@ -286,11 +302,27 @@ public partial class AgentIpc
         var msgpack = await reader.ReadAsync(cancellationToken);
         var req = MessagePackSerializer.Deserialize<StreamRequest>(msgpack!.Value, _serializerOptions);
 
-        // Send initial response
+        // Check for duplicate stream
+        if (client.HasStream(seq))
+        {
+            var errorResp = new ResponseHeader { Seq = seq, Error = IpcProtocol.StreamExists };
+            await client.SendAsync(errorResp, null, cancellationToken);
+            return;
+        }
+
+        // Register event stream
+        if (!client.RegisterStream(seq))
+        {
+            var errorResp = new ResponseHeader { Seq = seq, Error = IpcProtocol.StreamExists };
+            await client.SendAsync(errorResp, null, cancellationToken);
+            return;
+        }
+
+        // Send initial success response
         var resp = new ResponseHeader { Seq = seq, Error = "" };
         await client.SendAsync(resp, null, cancellationToken);
 
-        // TODO: Start streaming events to client
+        // TODO: Start streaming events to client based on req.Type filter
         // For now, just acknowledge the subscription
     }
 
@@ -299,7 +331,18 @@ public partial class AgentIpc
         var msgpack = await reader.ReadAsync(cancellationToken);
         var req = MessagePackSerializer.Deserialize<StopRequest>(msgpack!.Value, _serializerOptions);
 
-        // TODO: Stop the stream identified by req.Stop
+        // Check if stream exists
+        if (!client.HasStream(req.Stop))
+        {
+            var errorResp = new ResponseHeader { Seq = seq, Error = "Stream with given sequence does not exist" };
+            await client.SendAsync(errorResp, null, cancellationToken);
+            return;
+        }
+
+        // Unregister the stream
+        client.UnregisterStream(req.Stop);
+
+        // TODO: Actually stop the streaming task
         var resp = new ResponseHeader { Seq = seq, Error = "" };
         await client.SendAsync(resp, null, cancellationToken);
     }

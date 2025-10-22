@@ -105,6 +105,54 @@ public class IpcClient : IAsyncDisposable
         return (responseHeader, body);
     }
 
+    public async Task<(ResponseHeader, MembersResponse)> GetMembersFilteredAsync(
+        Dictionary<string, string>? tags, 
+        string? status, 
+        string? name, 
+        ulong seq, 
+        CancellationToken cancellationToken)
+    {
+        EnsureConnected();
+        var header = new RequestHeader { Command = IpcProtocol.MembersFilteredCommand, Seq = seq };
+        var body = new MembersFilteredRequest { Tags = tags, Status = status, Name = name };
+        await SendAsync(header, body, cancellationToken);
+        var responseHeader = await ReadResponseAsync(cancellationToken);
+        
+        if (!string.IsNullOrEmpty(responseHeader.Error))
+        {
+            return (responseHeader, new MembersResponse { Members = Array.Empty<IpcMember>() });
+        }
+        
+        var responseBody = await ReadBodyAsync<MembersResponse>(cancellationToken);
+        return (responseHeader, responseBody);
+    }
+
+    public async Task<(ResponseHeader, CoordinateResponse)> GetCoordinateAsync(string node, ulong seq, CancellationToken cancellationToken)
+    {
+        EnsureConnected();
+        var header = new RequestHeader { Command = IpcProtocol.GetCoordinateCommand, Seq = seq };
+        var body = new CoordinateRequest { Node = node };
+        await SendAsync(header, body, cancellationToken);
+        var responseHeader = await ReadResponseAsync(cancellationToken);
+        
+        if (!string.IsNullOrEmpty(responseHeader.Error))
+        {
+            return (responseHeader, new CoordinateResponse { Ok = false });
+        }
+        
+        var responseBody = await ReadBodyAsync<CoordinateResponse>(cancellationToken);
+        return (responseHeader, responseBody);
+    }
+
+    public async Task<ResponseHeader> RespondAsync(ulong id, byte[] payload, ulong seq, CancellationToken cancellationToken)
+    {
+        EnsureConnected();
+        var header = new RequestHeader { Command = IpcProtocol.RespondCommand, Seq = seq };
+        var body = new RespondRequest { ID = id, Payload = payload };
+        await SendAsync(header, body, cancellationToken);
+        return await ReadResponseAsync(cancellationToken);
+    }
+
     public async Task<(ResponseHeader, Dictionary<string, Dictionary<string, string>>)> GetStatsAsync(ulong seq, CancellationToken cancellationToken)
     {
         EnsureConnected();
@@ -146,11 +194,11 @@ public class IpcClient : IAsyncDisposable
         return await ReadResponseAsync(cancellationToken);
     }
 
-    public async Task<ResponseHeader> ForceLeaveAsync(string node, ulong seq, CancellationToken cancellationToken)
+    public async Task<ResponseHeader> ForceLeaveAsync(string node, bool prune, ulong seq, CancellationToken cancellationToken)
     {
         EnsureConnected();
         var header = new RequestHeader { Command = IpcProtocol.ForceLeaveCommand, Seq = seq };
-        var body = new ForceLeaveRequest { Node = node };
+        var body = new ForceLeaveRequest { Node = node, Prune = prune };
         await SendAsync(header, body, cancellationToken);
         return await ReadResponseAsync(cancellationToken);
     }
@@ -292,6 +340,49 @@ public class IpcClient : IAsyncDisposable
         }
         
         return new StreamHandle { Seq = seq };
+    }
+
+    public async Task<StreamHandle> QueryAsync(
+        QueryRequest request,
+        ChannelWriter<string>? ackWriter,
+        ChannelWriter<NodeResponse>? respWriter,
+        ulong seq,
+        CancellationToken cancellationToken)
+    {
+        EnsureConnected();
+        EnsureBackgroundReaderStarted(); // Start reader on first streaming command
+        
+        var handler = new QueryHandler(_options, seq, ackWriter, respWriter, DeregisterHandler);
+        _handlers[seq] = handler;
+        
+        var header = new RequestHeader { Command = IpcProtocol.QueryCommand, Seq = seq };
+        await SendAsync(header, request, cancellationToken);
+        
+        // Wait for initialization response
+        try
+        {
+            var error = await handler.InitTask;
+            if (!string.IsNullOrEmpty(error))
+            {
+                _handlers.TryRemove(seq, out _);
+                throw new InvalidOperationException($"Query failed: {error}");
+            }
+        }
+        catch
+        {
+            _handlers.TryRemove(seq, out _);
+            throw;
+        }
+        
+        return new StreamHandle { Seq = seq };
+    }
+
+    private void DeregisterHandler(ulong seq)
+    {
+        if (_handlers.TryRemove(seq, out var handler))
+        {
+            _ = handler.CleanupAsync(); // Fire and forget cleanup
+        }
     }
 
     public async Task<ResponseHeader> StopAsync(ulong stopSeq, ulong seq, CancellationToken cancellationToken)

@@ -4,8 +4,9 @@ using System.Buffers;
 namespace NSerf.Client;
 
 /// <summary>
-/// Simple callback handler for non-streaming commands.
-/// Completes a TaskCompletionSource when response is received.
+/// Handler for simple non-streaming commands (handshake, auth, stop, etc.).
+/// Waits for a single response header and optional body, then completes.
+/// Based on Go's seqCallback implementation.
 /// </summary>
 internal class CallbackHandler : IResponseHandler
 {
