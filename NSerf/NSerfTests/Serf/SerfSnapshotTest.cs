@@ -152,18 +152,28 @@ public class SerfSnapshotTest : IDisposable
         };
 
         using var s2Restarted = await NSerf.Serf.Serf.CreateAsync(config2);
-        // Give s2Restarted a moment to initialize before polling
-        await Task.Delay(500);
-
-        // Wait for auto-rejoin (snapshot should contain s1's address)
+        
+        // Wait for auto-rejoin from BOTH perspectives
+        // s2 auto-rejoins from snapshot, then s1 receives NotifyJoin callback
         var rejoined = false;
-        for (int i = 0; i < 80; i++)
+        var s2HasNode1 = false;
+        var s1HasNode2 = false;
+        
+        for (int i = 0; i < 100; i++)
         {
             await Task.Delay(150);
             
-            var members = s1.Members();
-            if (members.Length == 2 && 
-                members.All(m => m.Status == MemberStatus.Alive))
+            // Check if s2 has rejoined node1 (from s2's perspective)
+            var s2MembersPoll = s2Restarted.Members();
+            s2HasNode1 = s2MembersPoll.Length == 2 && 
+                         s2MembersPoll.Any(m => m.Name == "node1" && m.Status == MemberStatus.Alive);
+            
+            // Check if s1 sees node2 as alive (from s1's perspective)
+            var s1MembersPoll = s1.Members();
+            s1HasNode2 = s1MembersPoll.Length == 2 && 
+                         s1MembersPoll.Any(m => m.Name == "node2" && m.Status == MemberStatus.Alive);
+            
+            if (s2HasNode1 && s1HasNode2)
             {
                 rejoined = true;
                 break;

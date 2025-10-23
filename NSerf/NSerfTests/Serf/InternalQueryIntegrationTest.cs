@@ -77,11 +77,28 @@ public class InternalQueryIntegrationTest
         await serf.UserEventAsync("test-event", System.Text.Encoding.UTF8.GetBytes("test payload"), false);
 
         // Assert - Event should pass through to user's EventCh
+        // Note: First event will be the node's initial self-join MemberEvent, keep reading for UserEvent
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-        var evt = await eventCh.Reader.ReadAsync(cts.Token);
+        
+        UserEvent? userEvt = null;
+        try
+        {
+            while (userEvt == null)
+            {
+                var evt = await eventCh.Reader.ReadAsync(cts.Token);
+                if (evt is UserEvent ue)
+                {
+                    userEvt = ue;
+                }
+                // Skip other events (like initial MemberEvent)
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            userEvt.Should().NotBeNull("Should have received UserEvent before timeout");
+        }
 
-        evt.Should().BeOfType<UserEvent>();
-        var userEvt = evt as UserEvent;
+        userEvt.Should().NotBeNull();
         userEvt!.Name.Should().Be("test-event");
 
         await serf.ShutdownAsync();
@@ -236,25 +253,32 @@ public class InternalQueryIntegrationTest
         await serf2.JoinAsync(new[] { $"127.0.0.1:{port1}" }, false);
 
         // Assert - Should receive member join event on node1's EventCh
+        // Note: First event will be node1's initial self-join, we need to keep reading for node2
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
         
-        var receivedMemberEvent = false;
+        var receivedNode2Event = false;
         try
         {
-            while (!receivedMemberEvent)
+            while (!receivedNode2Event)
             {
                 var evt = await eventCh.Reader.ReadAsync(cts.Token);
                 if (evt is MemberEvent memberEvt && memberEvt.Type == EventType.MemberJoin)
                 {
-                    memberEvt.Members.Should().Contain(m => m.Name == "node2");
-                    receivedMemberEvent = true;
+                    // Check if node2 is in this event
+                    if (memberEvt.Members.Any(m => m.Name == "node2"))
+                    {
+                        receivedNode2Event = true;
+                    }
+                    // Otherwise continue reading - might be node1's initial self-join event
                 }
             }
         }
         catch (OperationCanceledException)
         {
-            // Timeout is acceptable - events might arrive after test completes
+            receivedNode2Event.Should().BeTrue("Should have received node2's join event before timeout");
         }
+        
+        receivedNode2Event.Should().BeTrue("Should have received node2's join event");
 
         // Cleanup
         await serf1.ShutdownAsync();
