@@ -1,0 +1,689 @@
+// Copyright (c) BoolHak, Inc.
+// SPDX-License-Identifier: MPL-2.0
+
+using System.Buffers;
+using System.Net.Sockets;
+using System.Runtime.InteropServices;
+using MessagePack;
+using NSerf.Client;
+using NSerf.Serf;
+
+namespace NSerf.Agent.RPC;
+
+public class RpcSession : IAsyncDisposable
+{
+    private readonly SerfAgent _agent;
+    private readonly TcpClient _client;
+    private readonly string? _authKey;
+    private NetworkStream? _stream;
+    private MessagePackStreamReader? _reader;
+    private bool _authenticated;
+    private bool _disposed;
+    private int _clientVersion;  // 0 = no handshake yet
+    private readonly SemaphoreSlim _writeLock = new(1, 1);  // CRITICAL: Prevent overlapping writes
+
+    private static readonly MessagePackSerializerOptions MsgPackOptions = 
+        MessagePackSerializerOptions.Standard
+            .WithCompression(MessagePackCompression.None);
+
+    public RpcSession(SerfAgent agent, TcpClient client, string? authKey)
+    {
+        _agent = agent;
+        _client = client;
+        _authKey = authKey;
+        _stream = client.GetStream();
+        _reader = new MessagePackStreamReader(_stream, leaveOpen: true);
+    }
+
+    public async Task HandleAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested && !_disposed && _reader != null)
+            {
+                RequestHeader? header = null;
+                try
+                {
+                    var headerBytes = await _reader.ReadAsync(cancellationToken);
+                    if (!headerBytes.HasValue)
+                    {
+                        break;
+                    }
+                    
+                    header = MessagePackSerializer.Deserialize<RequestHeader>(headerBytes.Value, MsgPackOptions, cancellationToken);
+                }
+                catch (System.IO.IOException ex)
+                {
+                    // Windows throws WSA errors on EOF - don't log as errors
+                    if (!IsWindowsSocketClosed(ex))
+                    {
+                        // Actual IO error, not normal disconnect
+                    }
+                    break;
+                }
+                catch (System.Net.Sockets.SocketException)
+                {
+                    // Normal disconnect
+                    break;
+                }
+                catch (MessagePackSerializationException)
+                {
+                    // Malformed message
+                    break;
+                }
+                catch (Exception)
+                {
+                    break;
+                }
+
+                if (header != null)
+                {
+                    await HandleCommandAsync(header, cancellationToken);
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Connection closed
+        }
+        catch (Exception)
+        {
+            // Session error
+        }
+    }
+
+    private async Task HandleCommandAsync(RequestHeader header, CancellationToken cancellationToken)
+    {
+        try
+        {
+            // Ensure handshake is performed before other commands
+            if (header.Command != RpcCommands.Handshake && _clientVersion == 0)
+            {
+                await SendErrorAsync(header.Seq, "Handshake required", cancellationToken);
+                return;
+            }
+
+            // Ensure client has authenticated after handshake if necessary
+            if (!string.IsNullOrEmpty(_authKey) && !_authenticated && 
+                header.Command != RpcCommands.Auth && header.Command != RpcCommands.Handshake)
+            {
+                await SendErrorAsync(header.Seq, "Authentication required", cancellationToken);
+                return;
+            }
+
+            switch (header.Command)
+            {
+                case RpcCommands.Handshake:
+                    await HandleHandshakeAsync(header, cancellationToken);
+                    break;
+
+                case RpcCommands.Auth:
+                    await HandleAuthAsync(header, cancellationToken);
+                    break;
+
+                case RpcCommands.Members:
+                    await HandleMembersAsync(header, cancellationToken);
+                    break;
+
+                case RpcCommands.Join:
+                    await HandleJoinAsync(header, cancellationToken);
+                    break;
+
+                case RpcCommands.Leave:
+                    await HandleLeaveAsync(header, cancellationToken);
+                    break;
+
+                case RpcCommands.MembersFiltered:
+                    await HandleMembersFilteredAsync(header, cancellationToken);
+                    break;
+
+                case RpcCommands.ForceLeave:
+                    await HandleForceLeaveAsync(header, cancellationToken);
+                    break;
+
+                case RpcCommands.Event:
+                    await HandleUserEventAsync(header, cancellationToken);
+                    break;
+
+                case RpcCommands.Stats:
+                    await HandleStatsAsync(header, cancellationToken);
+                    break;
+
+                case RpcCommands.Monitor:
+                    await HandleMonitorAsync(header, cancellationToken);
+                    break;
+
+                case RpcCommands.Stream:
+                    await HandleStreamAsync(header, cancellationToken);
+                    break;
+
+                default:
+                    await SendErrorAsync(header.Seq, $"Unknown command: {header.Command}", cancellationToken);
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            await SendErrorAsync(header.Seq, ex.Message, cancellationToken);
+        }
+    }
+
+    private async Task HandleHandshakeAsync(RequestHeader header, CancellationToken cancellationToken)
+    {
+        var requestBytes = await _reader!.ReadAsync(cancellationToken);
+        if (!requestBytes.HasValue) return;
+        
+        var request = MessagePackSerializer.Deserialize<HandshakeRequest>(requestBytes.Value, MsgPackOptions, cancellationToken);
+
+        // Check for duplicate handshake
+        if (_clientVersion != 0)
+        {
+            await SendErrorAsync(header.Seq, "Duplicate handshake", cancellationToken);
+            return;
+        }
+
+        var response = new ResponseHeader
+        {
+            Seq = header.Seq,
+            Error = request.Version > RpcConstants.MaxIPCVersion 
+                ? $"Unsupported version: {request.Version}" 
+                : string.Empty
+        };
+
+        // Store client version if handshake successful
+        if (string.IsNullOrEmpty(response.Error))
+        {
+            _clientVersion = request.Version;
+        }
+
+        await _writeLock.WaitAsync(cancellationToken);
+        try
+        {
+            var responseBytes = MessagePackSerializer.Serialize(response, MsgPackOptions, cancellationToken);
+            await _stream!.WriteAsync(responseBytes, cancellationToken);
+            await _stream.FlushAsync(cancellationToken);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
+    private async Task HandleAuthAsync(RequestHeader header, CancellationToken cancellationToken)
+    {
+        var requestBytes = await _reader!.ReadAsync(cancellationToken);
+        if (!requestBytes.HasValue) return;
+        
+        var request = MessagePackSerializer.Deserialize<AuthRequest>(requestBytes.Value, MsgPackOptions, cancellationToken);
+
+        var error = string.Empty;
+        if (!string.IsNullOrEmpty(_authKey) && request.AuthKey != _authKey)
+        {
+            error = "Invalid auth key";
+        }
+        else
+        {
+            _authenticated = true;
+        }
+
+        await _writeLock.WaitAsync(cancellationToken);
+        try
+        {
+            var response = new ResponseHeader { Seq = header.Seq, Error = error };
+            var responseBytes = MessagePackSerializer.Serialize(response, MsgPackOptions, cancellationToken);
+            await _stream!.WriteAsync(responseBytes, cancellationToken);
+            await _stream.FlushAsync(cancellationToken);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
+    private async Task HandleMembersAsync(RequestHeader header, CancellationToken cancellationToken)
+    {
+        if (!CheckAuth())
+        {
+            await SendErrorAsync(header.Seq, "Not authenticated", cancellationToken);
+            return;
+        }
+
+        var members = _agent.Serf?.Members() ?? Array.Empty<Member>();
+        if (members == null) members = Array.Empty<Member>();
+        
+        var rpcMembers = members.Select(m => new Client.Responses.Member
+        {
+            Name = m.Name,
+            Addr = m.Addr.GetAddressBytes(),
+            Port = m.Port,
+            Tags = m.Tags,
+            Status = m.Status.ToString().ToLowerInvariant(),
+            ProtocolMin = m.ProtocolMin,
+            ProtocolMax = m.ProtocolMax,
+            ProtocolCur = m.ProtocolCur,
+            DelegateMin = m.DelegateMin,
+            DelegateMax = m.DelegateMax,
+            DelegateCur = m.DelegateCur
+        }).ToArray();
+
+        await _writeLock.WaitAsync(cancellationToken);
+        try
+        {
+            var response = new ResponseHeader { Seq = header.Seq, Error = string.Empty };
+            var responseBytes = MessagePackSerializer.Serialize(response, MsgPackOptions, cancellationToken);
+            await _stream!.WriteAsync(responseBytes, cancellationToken);
+            
+            var membersResponse = new Client.Responses.MembersResponse { Members = rpcMembers };
+            var bodyBytes = MessagePackSerializer.Serialize(membersResponse, MsgPackOptions, cancellationToken);
+            await _stream.WriteAsync(bodyBytes, cancellationToken);
+            await _stream.FlushAsync(cancellationToken);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
+    private async Task HandleJoinAsync(RequestHeader header, CancellationToken cancellationToken)
+    {
+        if (!CheckAuth())
+        {
+            await SendErrorAsync(header.Seq, "Not authenticated", cancellationToken);
+            return;
+        }
+
+        var requestBytes = await _reader!.ReadAsync(cancellationToken);
+        if (!requestBytes.HasValue) return;
+        
+        var request = MessagePackSerializer.Deserialize<Client.Requests.JoinRequest>(requestBytes.Value, MsgPackOptions, cancellationToken);
+
+        var joined = await _agent.Serf!.JoinAsync(request.Existing, request.Replay);
+
+        await _writeLock.WaitAsync(cancellationToken);
+        try
+        {
+            var response = new ResponseHeader { Seq = header.Seq, Error = string.Empty };
+            var responseBytes = MessagePackSerializer.Serialize(response, MsgPackOptions, cancellationToken);
+            await _stream!.WriteAsync(responseBytes, cancellationToken);
+            
+            var joinResponse = new Client.Responses.JoinResponse { Num = joined };
+            var bodyBytes = MessagePackSerializer.Serialize(joinResponse, MsgPackOptions, cancellationToken);
+            await _stream.WriteAsync(bodyBytes, cancellationToken);
+            await _stream.FlushAsync(cancellationToken);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
+    private async Task HandleLeaveAsync(RequestHeader header, CancellationToken cancellationToken)
+    {
+        if (!CheckAuth())
+        {
+            await SendErrorAsync(header.Seq, "Not authenticated", cancellationToken);
+            return;
+        }
+
+        await _agent.Serf!.LeaveAsync();
+
+        await _writeLock.WaitAsync(cancellationToken);
+        try
+        {
+            var response = new ResponseHeader { Seq = header.Seq, Error = string.Empty };
+            var responseBytes = MessagePackSerializer.Serialize(response, MsgPackOptions, cancellationToken);
+            await _stream!.WriteAsync(responseBytes, cancellationToken);
+            await _stream.FlushAsync(cancellationToken);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
+    private async Task HandleMembersFilteredAsync(RequestHeader header, CancellationToken cancellationToken)
+    {
+        if (!CheckAuth())
+        {
+            await SendErrorAsync(header.Seq, "Not authenticated", cancellationToken);
+            return;
+        }
+
+        var requestBytes = await _reader!.ReadAsync(cancellationToken);
+        if (!requestBytes.HasValue) return;
+        
+        var request = MessagePackSerializer.Deserialize<Client.Requests.MembersFilteredRequest>(requestBytes.Value, MsgPackOptions, cancellationToken);
+
+        var allMembers = _agent.Serf?.Members() ?? Array.Empty<Member>();
+        
+        // Pre-compile regex patterns with anchors (^$) for exact match
+        System.Text.RegularExpressions.Regex? nameRegex = null;
+        System.Text.RegularExpressions.Regex? statusRegex = null;
+        Dictionary<string, System.Text.RegularExpressions.Regex>? tagRegexes = null;
+        
+        try
+        {
+            if (request.Name != null)
+                nameRegex = new System.Text.RegularExpressions.Regex($"^{request.Name}$");
+            
+            if (request.Status != null)
+                statusRegex = new System.Text.RegularExpressions.Regex($"^{request.Status}$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            
+            if (request.Tags != null && request.Tags.Count > 0)
+            {
+                tagRegexes = new Dictionary<string, System.Text.RegularExpressions.Regex>();
+                foreach (var tag in request.Tags)
+                {
+                    tagRegexes[tag.Key] = new System.Text.RegularExpressions.Regex($"^{tag.Value}$");
+                }
+            }
+        }
+        catch (ArgumentException ex)
+        {
+            await SendErrorAsync(header.Seq, $"Invalid regex pattern: {ex.Message}", cancellationToken);
+            return;
+        }
+        
+        var filtered = allMembers.Where(m =>
+        {
+            if (statusRegex != null && !statusRegex.IsMatch(m.Status.ToString().ToLowerInvariant()))
+                return false;
+            
+            if (nameRegex != null && !nameRegex.IsMatch(m.Name))
+                return false;
+            
+            if (tagRegexes != null)
+            {
+                foreach (var tagRegex in tagRegexes)
+                {
+                    if (!m.Tags.TryGetValue(tagRegex.Key, out var value) || !tagRegex.Value.IsMatch(value))
+                        return false;
+                }
+            }
+            return true;
+        }).ToArray();
+
+        var rpcMembers = filtered.Select(m => new Client.Responses.Member
+        {
+            Name = m.Name,
+            Addr = m.Addr.GetAddressBytes(),
+            Port = m.Port,
+            Tags = m.Tags,
+            Status = m.Status.ToString().ToLowerInvariant(),
+            ProtocolMin = m.ProtocolMin,
+            ProtocolMax = m.ProtocolMax,
+            ProtocolCur = m.ProtocolCur,
+            DelegateMin = m.DelegateMin,
+            DelegateMax = m.DelegateMax,
+            DelegateCur = m.DelegateCur
+        }).ToArray();
+
+        await _writeLock.WaitAsync(cancellationToken);
+        try
+        {
+            var response = new ResponseHeader { Seq = header.Seq, Error = string.Empty };
+            var responseBytes = MessagePackSerializer.Serialize(response, MsgPackOptions, cancellationToken);
+            await _stream!.WriteAsync(responseBytes, cancellationToken);
+
+            var membersResponse = new Client.Responses.MembersResponse { Members = rpcMembers };
+            var bodyBytes = MessagePackSerializer.Serialize(membersResponse, MsgPackOptions, cancellationToken);
+            await _stream.WriteAsync(bodyBytes, cancellationToken);
+            await _stream.FlushAsync(cancellationToken);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
+    private async Task HandleForceLeaveAsync(RequestHeader header, CancellationToken cancellationToken)
+    {
+        if (!CheckAuth())
+        {
+            await SendErrorAsync(header.Seq, "Not authenticated", cancellationToken);
+            return;
+        }
+
+        var requestBytes = await _reader!.ReadAsync(cancellationToken);
+        if (!requestBytes.HasValue) return;
+        
+        var request = MessagePackSerializer.Deserialize<Client.Requests.ForceLeaveRequest>(requestBytes.Value, MsgPackOptions, cancellationToken);
+
+        await _agent.Serf!.RemoveFailedNodeAsync(request.Node);
+
+        await _writeLock.WaitAsync(cancellationToken);
+        try
+        {
+            var response = new ResponseHeader { Seq = header.Seq, Error = string.Empty };
+            var responseBytes = MessagePackSerializer.Serialize(response, MsgPackOptions, cancellationToken);
+            await _stream!.WriteAsync(responseBytes, cancellationToken);
+            await _stream.FlushAsync(cancellationToken);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
+    private async Task HandleUserEventAsync(RequestHeader header, CancellationToken cancellationToken)
+    {
+        if (!CheckAuth())
+        {
+            await SendErrorAsync(header.Seq, "Not authenticated", cancellationToken);
+            return;
+        }
+
+        var requestBytes = await _reader!.ReadAsync(cancellationToken);
+        if (!requestBytes.HasValue) return;
+        
+        var request = MessagePackSerializer.Deserialize<Client.Requests.EventRequest>(requestBytes.Value, MsgPackOptions, cancellationToken);
+
+        await _agent.Serf!.UserEventAsync(request.Name, request.Payload, request.Coalesce);
+
+        await _writeLock.WaitAsync(cancellationToken);
+        try
+        {
+            var response = new ResponseHeader { Seq = header.Seq, Error = string.Empty };
+            var responseBytes = MessagePackSerializer.Serialize(response, MsgPackOptions, cancellationToken);
+            await _stream!.WriteAsync(responseBytes, cancellationToken);
+            await _stream.FlushAsync(cancellationToken);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
+    private async Task HandleStatsAsync(RequestHeader header, CancellationToken cancellationToken)
+    {
+        if (!CheckAuth())
+        {
+            await SendErrorAsync(header.Seq, "Not authenticated", cancellationToken);
+            return;
+        }
+
+        var stats = new Dictionary<string, Dictionary<string, string>>
+        {
+            ["agent"] = new Dictionary<string, string>
+            {
+                ["name"] = _agent.Serf?.Config.NodeName ?? "unknown"
+            },
+            ["serf"] = new Dictionary<string, string>
+            {
+                ["members"] = _agent.Serf?.NumMembers().ToString() ?? "0",
+                ["event_time"] = _agent.Serf?.EventClock.Time().ToString() ?? "0",
+                ["query_time"] = _agent.Serf?.QueryClock.Time().ToString() ?? "0"
+            },
+            ["runtime"] = new Dictionary<string, string>
+            {
+                ["os"] = Environment.OSVersion.Platform.ToString(),
+                ["arch"] = RuntimeInformation.ProcessArchitecture.ToString()
+            }
+        };
+
+        await _writeLock.WaitAsync(cancellationToken);
+        try
+        {
+            var response = new ResponseHeader { Seq = header.Seq, Error = string.Empty };
+            var responseBytes = MessagePackSerializer.Serialize(response, MsgPackOptions, cancellationToken);
+            await _stream!.WriteAsync(responseBytes, cancellationToken);
+            
+            var statsResponse = new Client.Responses.StatsResponse { Stats = stats };
+            var bodyBytes = MessagePackSerializer.Serialize(statsResponse, MsgPackOptions, cancellationToken);
+            await _stream.WriteAsync(bodyBytes, cancellationToken);
+            await _stream.FlushAsync(cancellationToken);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
+    private async Task HandleMonitorAsync(RequestHeader header, CancellationToken cancellationToken)
+    {
+        if (!CheckAuth())
+        {
+            await SendErrorAsync(header.Seq, "Not authenticated", cancellationToken);
+            return;
+        }
+
+        // Read monitor request
+        var requestBytes = await _reader!.ReadAsync(cancellationToken);
+        if (!requestBytes.HasValue)
+        {
+            await SendErrorAsync(header.Seq, "Failed to read monitor request", cancellationToken);
+            return;
+        }
+
+        var request = MessagePackSerializer.Deserialize<Client.Requests.MonitorRequest>(requestBytes.Value, MsgPackOptions, cancellationToken);
+
+        // Send success response
+        await _writeLock.WaitAsync(cancellationToken);
+        try
+        {
+            var response = new ResponseHeader { Seq = header.Seq, Error = string.Empty };
+            var responseBytes = MessagePackSerializer.Serialize(response, MsgPackOptions, cancellationToken);
+            await _stream!.WriteAsync(responseBytes, cancellationToken);
+            await _stream.FlushAsync(cancellationToken);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+
+        // Register log handler and stream logs
+        var logHandler = new RpcLogHandler(_stream!, _writeLock, cancellationToken);
+        _agent.LogWriter?.RegisterHandler(logHandler);
+
+        try
+        {
+            // Keep streaming until client disconnects or cancellation
+            await Task.Delay(-1, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            // Normal cancellation
+        }
+        finally
+        {
+            _agent.LogWriter?.DeregisterHandler(logHandler);
+            logHandler.Dispose();
+        }
+    }
+
+    private async Task HandleStreamAsync(RequestHeader header, CancellationToken cancellationToken)
+    {
+        if (!CheckAuth())
+        {
+            await SendErrorAsync(header.Seq, "Not authenticated", cancellationToken);
+            return;
+        }
+
+        // Read stream request
+        var requestBytes = await _reader!.ReadAsync(cancellationToken);
+        if (!requestBytes.HasValue)
+        {
+            await SendErrorAsync(header.Seq, "Failed to read stream request", cancellationToken);
+            return;
+        }
+
+        var request = MessagePackSerializer.Deserialize<Client.Requests.StreamRequest>(requestBytes.Value, MsgPackOptions, cancellationToken);
+
+        // Send success response
+        await _writeLock.WaitAsync(cancellationToken);
+        try
+        {
+            var response = new ResponseHeader { Seq = header.Seq, Error = string.Empty };
+            var responseBytes = MessagePackSerializer.Serialize(response, MsgPackOptions, cancellationToken);
+            await _stream!.WriteAsync(responseBytes, cancellationToken);
+            await _stream.FlushAsync(cancellationToken);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+
+        // Register event handler and stream events
+        var eventHandler = new RpcEventHandler(_stream!, _writeLock, request.Type, cancellationToken);
+        _agent.RegisterEventHandler(eventHandler);
+
+        try
+        {
+            // Keep streaming until client disconnects or cancellation
+            await Task.Delay(-1, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            // Normal cancellation
+        }
+        finally
+        {
+            _agent.DeregisterEventHandler(eventHandler);
+            eventHandler.Dispose();
+        }
+    }
+
+    private async Task SendErrorAsync(ulong seq, string error, CancellationToken cancellationToken)
+    {
+        await _writeLock.WaitAsync(cancellationToken);
+        try
+        {
+            var response = new ResponseHeader { Seq = seq, Error = error };
+            await MessagePackSerializer.SerializeAsync(_stream!, response, MsgPackOptions, cancellationToken);
+            await _stream!.FlushAsync(cancellationToken);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
+    private bool CheckAuth()
+    {
+        return string.IsNullOrEmpty(_authKey) || _authenticated;
+    }
+
+    /// <summary>
+    /// Checks if an IOException is a Windows socket closed error (WSARECV).
+    /// Windows throws "WSARECV" errors on EOF which are normal disconnects.
+    /// </summary>
+    private static bool IsWindowsSocketClosed(System.IO.IOException ex)
+    {
+        return System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(
+            System.Runtime.InteropServices.OSPlatform.Windows) &&
+            ex.Message.Contains("WSA", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        if (_disposed) return ValueTask.CompletedTask;
+        _disposed = true;
+
+        _reader?.Dispose();
+        _stream?.Dispose();
+        _client?.Dispose();
+        _writeLock?.Dispose();
+        
+        return ValueTask.CompletedTask;
+    }
+}
