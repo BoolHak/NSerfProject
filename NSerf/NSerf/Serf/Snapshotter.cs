@@ -1,12 +1,5 @@
-using System;
-using System.Buffers;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using System.Text;
-using System.Threading;
 using System.Threading.Channels;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using NSerf.Metrics;
 using NSerf.Serf.Events;
@@ -247,7 +240,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
         {
             // Ignore flush errors
         }
-        
+
         // Process leave immediately and synchronously to ensure it's written before shutdown
         await HandleLeaveAsync();
     }
@@ -336,7 +329,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
     private async Task StreamAsync()
     {
         _logger?.LogInformation("[Snapshotter/Stream] Task started, processing events...");
-        
+
         var clockTask = Task.Run(async () =>
         {
             using var clockTimer = new PeriodicTimer(TimeSpan.FromMilliseconds(ClockUpdateIntervalMs));
@@ -363,7 +356,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
                 {
                     await HandleLeaveAsync();
                 }
-                
+
                 // Process the event
                 await FlushEventAsync(evt);
             }
@@ -434,7 +427,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
         }
     }
 
-    private async Task HandleLeaveAsync()
+    private Task HandleLeaveAsync()
     {
         _leaving = true;
 
@@ -445,11 +438,13 @@ public class Snapshotter : IDisposable, IAsyncDisposable
             {
                 _aliveNodes.Clear();
             }
+
+            // Only write leave marker when NOT rejoining
+            // When rejoin-after-leave is enabled, snapshot is used to rejoin known peers
+            TryAppend("leave\n");
         }
 
-        TryAppend("leave\n");
-
-        // Ensure leave marker is flushed to disk before returning
+        // Ensure leave marker is flushed to disk before returning (critical for durability)
         try
         {
             // Flush writer buffer
@@ -458,10 +453,10 @@ public class Snapshotter : IDisposable, IAsyncDisposable
                 _bufferedWriter?.Flush();
             }
 
-            // Flush file system cache (outside lock)
+            // Force fsync to ensure data reaches disk (critical for leave marker)
             if (_fileHandle != null)
             {
-                await _fileHandle.FlushAsync();
+                _fileHandle.Flush(true);
             }
 
             _logger?.LogInformation("[Snapshotter] Leave marker successfully written and flushed");
@@ -470,6 +465,8 @@ public class Snapshotter : IDisposable, IAsyncDisposable
         {
             _logger?.LogError(ex, "Failed to flush leave to snapshot");
         }
+
+        return Task.CompletedTask;
     }
 
     private async Task FlushEventAsync(Event e)
@@ -534,7 +531,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
         await ForceFlushAsync();
     }
 
-    private async Task ForceFlushAsync()
+    private Task ForceFlushAsync()
     {
         try
         {
@@ -544,10 +541,10 @@ public class Snapshotter : IDisposable, IAsyncDisposable
                 _bufferedWriter?.Flush();
             }
 
-            // Flush file async (outside lock)
+            // Force data to disk (outside lock)
             if (_fileHandle != null)
             {
-                await _fileHandle.FlushAsync();
+                _fileHandle.Flush(flushToDisk: true);
             }
 
             _lastFlush = DateTime.UtcNow;
@@ -556,6 +553,8 @@ public class Snapshotter : IDisposable, IAsyncDisposable
         {
             _logger?.LogError(ex, "Force flush error");
         }
+
+        return Task.CompletedTask;
     }
 
     private void UpdateClock()
@@ -563,11 +562,14 @@ public class Snapshotter : IDisposable, IAsyncDisposable
         // Don't write clock updates after leave
         if (_leaving) return;
 
-        var lastSeen = _clock.Time() - 1;
+        var now = _clock.Time();
+        if (now == 0) return;  // Guard against underflow
+
+        var lastSeen = now - 1;
         if (lastSeen > _lastClock)
         {
             _lastClock = lastSeen;
-            TryAppend($"clock: {_lastClock}\n");
+            TryAppend($"clock: {(ulong)_lastClock}\n");
         }
     }
 
@@ -580,7 +582,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
         }
 
         _lastEventClock = e.LTime;
-        TryAppend($"event-clock: {e.LTime}\n");
+        TryAppend($"event-clock: {(ulong)e.LTime}\n");
         // Force immediate flush for reliability
         try
         {
@@ -602,7 +604,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
         }
 
         _lastQueryClock = q.LTime;
-        TryAppend($"query-clock: {q.LTime}\n");
+        TryAppend($"query-clock: {(ulong)q.LTime}\n");
         // Force immediate flush for reliability
         try
         {
@@ -708,7 +710,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
                 aliveSnapshot = new Dictionary<string, string>(_aliveNodes);
             }
 
-            // Step 2: Write to new file (NO lock - this is the slow part)
+            // Write to new file (NO lock - this is the slow part)
             long newOffset;
             using (var newFile = new FileStream(newPath, FileMode.Create, FileAccess.Write, FileShare.None))
             using (var writer = new StreamWriter(newFile, Encoding.UTF8))
@@ -723,16 +725,16 @@ public class Snapshotter : IDisposable, IAsyncDisposable
                     newOffset += Encoding.UTF8.GetByteCount(line);
                 }
 
-                // Write out clocks
-                var clockLine = $"clock: {_lastClock}\n";
+                // Write out clocks as raw integers
+                var clockLine = $"clock: {(ulong)_lastClock}\n";
                 writer.Write(clockLine);
                 newOffset += Encoding.UTF8.GetByteCount(clockLine);
 
-                var eventClockLine = $"event-clock: {_lastEventClock}\n";
+                var eventClockLine = $"event-clock: {(ulong)_lastEventClock}\n";
                 writer.Write(eventClockLine);
                 newOffset += Encoding.UTF8.GetByteCount(eventClockLine);
 
-                var queryClockLine = $"query-clock: {_lastQueryClock}\n";
+                var queryClockLine = $"query-clock: {(ulong)_lastQueryClock}\n";
                 writer.Write(queryClockLine);
                 newOffset += Encoding.UTF8.GetByteCount(queryClockLine);
 
@@ -740,7 +742,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
                 newFile.Flush(true);
             } // Close and flush new file before swap
 
-            // Step 3: Atomic file swap (SHORT lock - just the swap operation)
+            // Atomic file swap (SHORT lock - just the swap operation)
             lock (_fileLock)
             {
                 try
@@ -761,24 +763,16 @@ public class Snapshotter : IDisposable, IAsyncDisposable
                 _offset = newOffset;
                 _lastFlush = DateTime.UtcNow;
 
-                // CRITICAL: Immediately append current clock values after compaction
-                // This ensures clocks are captured even if they were updated during compaction
-                _bufferedWriter.Write($"clock: {_lastClock}\n");
-                _offset += Encoding.UTF8.GetByteCount($"clock: {_lastClock}\n");
-                _bufferedWriter.Write($"event-clock: {_lastEventClock}\n");
-                _offset += Encoding.UTF8.GetByteCount($"event-clock: {_lastEventClock}\n");
-                _bufferedWriter.Write($"query-clock: {_lastQueryClock}\n");
-                _offset += Encoding.UTF8.GetByteCount($"query-clock: {_lastQueryClock}\n");
-
-                // CRITICAL: Preserve leave marker if we've left
-                if (_leaving)
+                // Don't re-append clocks - they're already in the compacted file
+                // CRITICAL: Preserve leave marker if we've left and not rejoining
+                if (_leaving && !_rejoinAfterLeave)
                 {
                     _bufferedWriter.Write("leave\n");
                     _offset += Encoding.UTF8.GetByteCount("leave\n");
                 }
 
                 _bufferedWriter.Flush();
-                _fileHandle.Flush();
+                _fileHandle.Flush(true);  // Force fsync for durability
             }
         }
     }
@@ -799,25 +793,25 @@ public class Snapshotter : IDisposable, IAsyncDisposable
         {
             if (line.StartsWith("alive: "))
             {
-                var info = line.Substring(7); // Remove "alive: "
+                var info = line["alive: ".Length..];
                 var lastSpaceIdx = info.LastIndexOf(' ');
                 if (lastSpaceIdx == -1)
                 {
                     _logger?.LogWarning("Failed to parse address: {Line}", line);
                     continue;
                 }
-                var addr = info.Substring(lastSpaceIdx + 1);
-                var name = info.Substring(0, lastSpaceIdx);
+                var addr = info[(lastSpaceIdx + 1)..];
+                var name = info[..lastSpaceIdx];
                 _aliveNodes[name] = addr;
             }
             else if (line.StartsWith("not-alive: "))
             {
-                var name = line.Substring(11);
+                var name = line["not-alive: ".Length..];
                 _aliveNodes.Remove(name);
             }
             else if (line.StartsWith("clock: "))
             {
-                var timeStr = line.Substring(7);
+                var timeStr = line["clock: ".Length..];
                 if (ulong.TryParse(timeStr, out var time))
                 {
                     _lastClock = new LamportTime(time);
@@ -829,7 +823,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
             }
             else if (line.StartsWith("event-clock: "))
             {
-                var timeStr = line.Substring(13);
+                var timeStr = line["event-clock: ".Length..];
                 if (ulong.TryParse(timeStr, out var time))
                 {
                     _lastEventClock = new LamportTime(time);
@@ -841,7 +835,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
             }
             else if (line.StartsWith("query-clock: "))
             {
-                var timeStr = line.Substring(13);
+                var timeStr = line["query-clock: ".Length..];
                 if (ulong.TryParse(timeStr, out var time))
                 {
                     _lastQueryClock = new LamportTime(time);

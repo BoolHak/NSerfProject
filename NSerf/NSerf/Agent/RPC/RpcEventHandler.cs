@@ -20,7 +20,7 @@ public class RpcEventHandler : IEventHandler, IDisposable
     private readonly string? _eventFilter;
     private bool _disposed;
 
-    private static readonly MessagePackSerializerOptions MsgPackOptions = 
+    private static readonly MessagePackSerializerOptions MsgPackOptions =
         MessagePackSerializerOptions.Standard
             .WithCompression(MessagePackCompression.None);
 
@@ -75,7 +75,7 @@ public class RpcEventHandler : IEventHandler, IDisposable
         switch (evt)
         {
             case MemberEvent memberEvent:
-                streamEvent.Members = memberEvent.Members.Select(m => new Client.Responses.Member
+                streamEvent.Members = [.. memberEvent.Members.Select(m => new Client.Responses.Member
                 {
                     Name = m.Name,
                     Addr = System.Text.Encoding.UTF8.GetBytes(m.Addr.ToString()),
@@ -88,7 +88,7 @@ public class RpcEventHandler : IEventHandler, IDisposable
                     DelegateMin = m.DelegateMin,
                     DelegateMax = m.DelegateMax,
                     DelegateCur = m.DelegateCur
-                }).ToArray();
+                })];
                 break;
 
             case UserEvent userEvent:
@@ -109,6 +109,10 @@ public class RpcEventHandler : IEventHandler, IDisposable
 
     public void Dispose()
     {
+        if (_disposed)
+            return;
+
         _disposed = true;
+        GC.SuppressFinalize(this);
     }
 }

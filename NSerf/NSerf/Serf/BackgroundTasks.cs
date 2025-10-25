@@ -20,12 +20,13 @@ public partial class Serf
     /// <summary>
     /// Starts the background tasks (reaper, reconnect, and queue monitoring).
     /// Called from CreateAsync after Serf is fully initialized.
+    /// Uses TaskCreationOptions.LongRunning to ensure dedicated threads for these long-lived tasks.
     /// </summary>
     private void StartBackgroundTasks()
     {
-        _reapTask = Task.Run(HandleReapAsync);
-        _reconnectTask = Task.Run(HandleReconnectAsync);
-        _queueMonitorTask = Task.Run(HandleQueueMonitorAsync);
+        _reapTask = Task.Factory.StartNew(HandleReapAsync, TaskCreationOptions.LongRunning).Unwrap();
+        _reconnectTask = Task.Factory.StartNew(HandleReconnectAsync, TaskCreationOptions.LongRunning).Unwrap();
+        _queueMonitorTask = Task.Factory.StartNew(HandleQueueMonitorAsync, TaskCreationOptions.LongRunning).Unwrap();
     }
 
     /// <summary>

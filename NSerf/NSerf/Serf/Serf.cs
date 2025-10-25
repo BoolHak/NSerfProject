@@ -42,7 +42,6 @@ public partial class Serf : IDisposable, IAsyncDisposable
     internal Memberlist.Memberlist? Memberlist { get; private set; }
     private Memberlist.Delegates.IEventDelegate? _eventDelegate;
     internal Snapshotter? Snapshotter { get; private set; }
-    private ChannelWriter<Event>? _snapshotInCh;
     private Coordinate.CoordinateClient? _coordClient;
     private readonly ReaderWriterLockSlim _queryLock = new();
     private readonly ReaderWriterLockSlim _coordCacheLock = new();
@@ -81,7 +80,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
         _clusterCoordinator = new ClusterCoordinator(logger: Logger);
         EventJoinIgnore = false;
         QueryMinTime = 0;
-        
+
         // Phase 16: Initialize IPC event channel (bounded, drop-on-full to prevent blocking)
         _ipcEventChannel = Channel.CreateBounded<Event>(new BoundedChannelOptions(64)
         {
@@ -175,31 +174,17 @@ public partial class Serf : IDisposable, IAsyncDisposable
 
 
     /// <summary>
-    /// Emits an event to Snapshotter, user's EventCh, and IPC channel.
-    /// This mimics Go's behavior where events are sent to both channels.
-    /// Phase 16: Now also sends to IPC channel for streaming to clients.
+    /// Emits an event through the event pipeline.
+    /// Flow: EventManager → [Snapshotter] → [QueryHandler] → config.EventCh
+    /// The snapshotter (if enabled) sits in the middle and persists events before forwarding.
+    /// Phase 16: Also sends to IPC channel for streaming to RPC clients.
     /// </summary>
     private void EmitEvent(Event evt)
     {
-        Logger?.LogInformation("[Serf/EmitEvent] Emitting {EventType}, _snapshotInCh is {IsNull}",
-            evt.GetType().Name, _snapshotInCh == null ? "NULL" : "SET");
-
-        if (_snapshotInCh != null)
-        {
-            try
-            {
-                var written = _snapshotInCh.TryWrite(evt);
-                Logger?.LogInformation("[Serf/EmitEvent] Wrote to snapshotter: {Success}, Type: {Type}", written, evt.GetType().Name);
-            }
-            catch (Exception ex)
-            {
-                Logger?.LogError(ex, "[Serf/EmitEvent] Failed to emit event to snapshotter");
-            }
-        }
-        
-        // Phase 16: Send to IPC channel (drop-on-full, won't block)
+        // Send to IPC channel first (drop-on-full, won't block)
         _ipcEventWriter.TryWrite(evt);
-        
+
+        // Send through the main event pipeline (includes snapshotter if enabled)
         _eventManager?.EmitEvent(evt);
     }
 
@@ -224,53 +209,37 @@ public partial class Serf : IDisposable, IAsyncDisposable
         serf.EventClock.Increment();
         serf.QueryClock.Increment();
 
+        // Event routing pipeline (matches Go's pattern):
+        // Serf → EventManager → [Snapshotter] → [QueryHandler] → config.EventCh
+        // The snapshotter sits in the middle, tee-ing events to snapshot file and forwarding to outCh
+
         ChannelWriter<Event>? eventDestination = config.EventCh;
         ChannelWriter<Event>? internalQueryInput = null;
-
-        if (config.EventCh != null)
-        {
-            serf.Logger?.LogInformation("[Serf/InternalQuery] Setting up internal query handler");
-            var (queryInputCh, queryHandler) = SerfQueries.Create(
-                serf,
-                config.EventCh,
-                serf._shutdownCts.Token);
-
-            internalQueryInput = queryInputCh;
-            eventDestination = queryInputCh;
-
-            serf.Logger?.LogInformation("[Serf/InternalQuery] ✓ Internal query handler created");
-        }
-
-        if (eventDestination != config.EventCh)
-        {
-            serf._eventManager = new EventManager(
-                eventCh: eventDestination,
-                eventBufferSize: config.EventBuffer,
-                logger: serf.Logger);
-            serf.Logger?.LogInformation("[Serf/EventManager] ✓ EventManager re-initialized with query handler routing");
-        }
-
         List<PreviousNode>? previousNodes = null;
+
+        // Step 1: Create snapshotter FIRST if enabled (Go pattern: conf.EventCh = snapshotter's inCh)
         if (!string.IsNullOrEmpty(config.SnapshotPath))
         {
             serf.Logger?.LogInformation("[Serf/Snapshot] Initializing snapshotter at path: {Path}", config.SnapshotPath);
 
-            var snapshotResult = await Snapshotter.NewSnapshotterAsync(
+            // Snapshotter tees to the original eventDestination (config.EventCh at this point)
+            var (InCh, Snap) = await Snapshotter.NewSnapshotterAsync(
                 path: config.SnapshotPath,
                 minCompactSize: config.MinSnapshotSize,
                 rejoinAfterLeave: config.RejoinAfterLeave,
                 logger: serf.Logger,
                 clock: serf.Clock,
-                outCh: eventDestination,
+                outCh: eventDestination,  // Tee to original destination
                 shutdownToken: serf._shutdownCts.Token);
 
-            var inCh = snapshotResult.InCh;
-            var snapshotter = snapshotResult.Snap;
-
+            var snapshotter = Snap;
             serf.Snapshotter = snapshotter;
-            serf._snapshotInCh = inCh;
-            serf.Logger?.LogInformation("[Serf/Snapshot] ✓ Snapshotter created successfully for node {NodeName}", config.NodeName);
-            serf.Logger?.LogInformation("[Serf/Snapshot] ✓ _snapshotInCh is {Status}", serf._snapshotInCh == null ? "NULL (ERROR!)" : "READY");
+
+            // CRITICAL: Replace eventDestination with snapshotter's input channel
+            // This ensures all events flow through the snapshotter
+            eventDestination = InCh;
+
+            serf.Logger?.LogInformation("[Serf/Snapshot] ✓ Snapshotter created, all events will flow through it");
             serf.Clock.Witness(snapshotter.LastClock);
             serf.EventClock.Witness(snapshotter.LastEventClock);
             serf.QueryClock.Witness(snapshotter.LastQueryClock);
@@ -282,12 +251,35 @@ public partial class Serf : IDisposable, IAsyncDisposable
             {
                 serf.Logger?.LogInformation("[Serf/Snapshot] - Previous node: {Name} at {Addr}", node.Name, node.Addr);
             }
-
         }
         else
         {
             serf.Logger?.LogInformation("[Serf/Snapshot] No snapshot path configured for node {NodeName}", config.NodeName);
         }
+
+        // Step 2: Create query handler if needed (wraps current eventDestination)
+        if (config.EventCh != null)
+        {
+            serf.Logger?.LogInformation("[Serf/InternalQuery] Setting up internal query handler");
+            var (queryInputCh, queryHandler) = SerfQueries.Create(
+                serf,
+                eventDestination,  // Query handler wraps snapshotter or config.EventCh
+                serf._shutdownCts.Token);
+
+            internalQueryInput = queryInputCh;
+            eventDestination = queryInputCh;
+
+            serf.Logger?.LogInformation("[Serf/InternalQuery] ✓ Internal query handler created");
+        }
+
+        // Step 3: Create EventManager with final eventDestination
+        // Now eventDestination points to: snapshotter.InCh → QueryHandler → config.EventCh
+        serf._eventManager = new EventManager(
+            eventCh: eventDestination,
+            eventBufferSize: config.EventBuffer,
+            logger: serf.Logger);
+        serf.Logger?.LogInformation("[Serf/EventManager] ✓ EventManager initialized with event pipeline");
+
 
         if (!config.DisableCoordinates)
         {
@@ -353,7 +345,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
                 }
             };
             serf.SetMemberState(config.NodeName, localMember);
-            
+
             // Emit initial member-join event for local node (Go's serf also does this)
             var memberEvent = new MemberEvent
             {
@@ -384,13 +376,11 @@ public partial class Serf : IDisposable, IAsyncDisposable
                 serf.Logger?.LogDebug(ex, "[Serf/AutoRejoin] Synchronous attempt failed (will retry in background)");
             }
 
-            // Background resilience task for production scenarios
+            // Background resilience task for production scenarios (matches Go's handleRejoin pattern)
             _ = Task.Run(async () =>
             {
                 try
                 {
-                    await Task.Delay(1000);
-
                     var addrs = previousNodes.Select(n => n.Addr).ToArray();
                     serf.Logger?.LogInformation("[Serf/AutoRejoin] Will attempt to join {Count} addresses: [{Addrs}]",
                         addrs.Length, string.Join(", ", addrs));
@@ -450,9 +440,9 @@ public partial class Serf : IDisposable, IAsyncDisposable
     {
         if (Memberlist == null)
             throw new InvalidOperationException("Memberlist not initialized");
-            
+
         var localNode = Memberlist.LocalNode;
-        
+
         return new Member
         {
             Name = localNode.Name,
@@ -1097,7 +1087,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
             return null;
         }
     }
-    
+
     /// <summary>
     /// GetCachedCoordinate returns the cached coordinate for a given node.
     /// Returns null if coordinates are disabled or the node is not found.
@@ -1107,7 +1097,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
     {
         if (Config.DisableCoordinates)
             return null;
-            
+
         _coordCacheLock.EnterReadLock();
         try
         {

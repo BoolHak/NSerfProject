@@ -141,7 +141,9 @@ public class SerfAgent : IAsyncDisposable
             MemberlistConfig = NSerf.Memberlist.Configuration.MemberlistConfig.DefaultLANConfig(),
             Tags = new Dictionary<string, string>(_config.Tags),  // Copy tags from config
             ProtocolVersion = (byte)_config.Protocol,
-            DisableCoordinates = _config.DisableCoordinates
+            DisableCoordinates = _config.DisableCoordinates,
+            SnapshotPath = _config.SnapshotPath,  // CRITICAL: Pass snapshot path to Serf
+            RejoinAfterLeave = _config.RejoinAfterLeave  // CRITICAL: Pass rejoin flag to Serf
         };
         
         if (!string.IsNullOrEmpty(_config.NodeName))
