@@ -63,7 +63,7 @@ public class LogWriterTests
     }
 
     [Fact]
-    public void LogWriter_ThreadSafe_ConcurrentWrites()
+    public async Task LogWriter_ThreadSafe_ConcurrentWritesAsync()
     {
         var output = new StringWriter();
         var logWriter = new LogWriter(output, LogLevel.Info);
@@ -75,7 +75,7 @@ public class LogWriterTests
             tasks.Add(Task.Run(() => logWriter.WriteLine($"[INFO] Message {j}")));
         }
 
-        Task.WaitAll(tasks.ToArray());
+        await Task.WhenAll(tasks.ToArray());
         
         var lines = output.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries);
         Assert.Equal(100, lines.Length);

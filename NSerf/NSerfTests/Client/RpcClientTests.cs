@@ -14,7 +14,7 @@ public class RpcClientTests
     /// <summary>
     /// Test 1.1.1 - Basic TCP connection to RPC server
     /// </summary>
-    [Fact(Timeout = 5000, Skip = "Requires mock server implementation - deferred")]
+    [Fact(Timeout = 15000)]
     public async Task Test_1_1_1_BasicTcpConnection()
     {
         // Arrange
@@ -230,7 +230,7 @@ public class RpcClientTests
     /// <summary>
     /// Test 1.5.1 - Multiple connection attempts should fail gracefully
     /// </summary>
-    [Fact(Timeout = 5000, Skip = "Requires mock server implementation - deferred")]
+    [Fact(Timeout = 15000)]
     public async Task Test_1_5_1_MultipleConnectionAttempts()
     {
         using var server = new TestRpcServer();

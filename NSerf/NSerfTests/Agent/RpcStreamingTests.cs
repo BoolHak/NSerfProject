@@ -49,7 +49,7 @@ public class RpcStreamingTests
     }
 
     [Fact]
-    public void CircularLogWriter_Integration_WithAgent()
+    public async Task CircularLogWriter_Integration_WithAgentAsync()
     {
         var config = new AgentConfig
         {
@@ -65,7 +65,7 @@ public class RpcStreamingTests
         // Should be able to write logs
         agent.LogWriter.WriteLine("Test log");
         
-        agent.DisposeAsync().AsTask().Wait();
+        await agent.DisposeAsync();
     }
 
     [Fact]

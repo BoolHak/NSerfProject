@@ -32,6 +32,16 @@ public class SerfAgent : IAsyncDisposable
     /// </summary>
     public CircularLogWriter? LogWriter { get; private set; }
 
+    /// <summary>
+    /// Gets the node name for this agent.
+    /// </summary>
+    public string NodeName => _config.NodeName;
+    
+    /// <summary>
+    /// Gets the agent configuration.
+    /// </summary>
+    public AgentConfig Config => _config;
+
     public SerfAgent(AgentConfig config, ILogger? logger = null)
     {
         _config = config ?? throw new ArgumentNullException(nameof(config));
@@ -130,7 +140,8 @@ public class SerfAgent : IAsyncDisposable
         {
             MemberlistConfig = NSerf.Memberlist.Configuration.MemberlistConfig.DefaultLANConfig(),
             Tags = new Dictionary<string, string>(_config.Tags),  // Copy tags from config
-            ProtocolVersion = (byte)_config.Protocol
+            ProtocolVersion = (byte)_config.Protocol,
+            DisableCoordinates = _config.DisableCoordinates
         };
         
         if (!string.IsNullOrEmpty(_config.NodeName))
@@ -157,6 +168,24 @@ public class SerfAgent : IAsyncDisposable
             else
             {
                 config.MemberlistConfig.BindAddr = _config.BindAddr;
+            }
+        }
+        
+        // Set advertise address if specified (for NAT/specific network configs)
+        if (!string.IsNullOrEmpty(_config.AdvertiseAddr) && config.MemberlistConfig != null)
+        {
+            var parts = _config.AdvertiseAddr.Split(':');
+            if (parts.Length == 2)
+            {
+                config.MemberlistConfig.AdvertiseAddr = parts[0];
+                if (int.TryParse(parts[1], out var port))
+                {
+                    config.MemberlistConfig.AdvertisePort = port;
+                }
+            }
+            else
+            {
+                config.MemberlistConfig.AdvertiseAddr = _config.AdvertiseAddr;
             }
         }
         

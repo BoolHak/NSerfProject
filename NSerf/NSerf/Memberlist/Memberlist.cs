@@ -1658,11 +1658,21 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
         {
             try
             {
-                // Parse address directly - it should be in "host:port" format
+                // Parse address format: "NodeName/IP:Port" or "IP:Port"
+                string nodeName = "";
+                string addr = exist;
+                
+                if (exist.Contains('/'))
+                {
+                    var parts = exist.Split('/', 2);
+                    nodeName = parts[0];
+                    addr = parts[1];
+                }
+                
                 var address = new Address
                 {
-                    Addr = exist,
-                    Name = "" // Node name is optional for join
+                    Addr = addr,
+                    Name = nodeName
                 };
 
                 try

@@ -477,7 +477,7 @@ public class RpcClient : IDisposable, IAsyncDisposable
     {
         var seq = GetNextSeq();
         var header = new RequestHeader { Command = RpcCommands.GetCoordinate, Seq = seq };
-        var request = new Dictionary<string, string> { ["Node"] = node };
+        var request = new Requests.CoordinateRequest { Node = node };
         
         await SendRequestAsync(header, request, cancellationToken);
         var response = await ReceiveResponseAsync<Responses.CoordinateResponse>(seq, cancellationToken);

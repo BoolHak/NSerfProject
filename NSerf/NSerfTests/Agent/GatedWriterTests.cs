@@ -70,7 +70,7 @@ public class GatedWriterTests
     }
 
     [Fact]
-    public void GatedWriter_ThreadSafe_ConcurrentWrites()
+    public async Task GatedWriter_ThreadSafe_ConcurrentWritesAsync()
     {
         var output = new StringWriter();
         var gated = new GatedWriter(output);
@@ -82,7 +82,7 @@ public class GatedWriterTests
             tasks.Add(Task.Run(() => gated.WriteLine($"Message {j}")));
         }
 
-        Task.WaitAll(tasks.ToArray());
+        await Task.WhenAll(tasks.ToArray());
         gated.Flush();
 
         var lines = output.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries);

@@ -30,7 +30,7 @@ public class ScriptExecutionIntegrationTests
         Assert.Contains("truncated", result.Warnings.FirstOrDefault() ?? "");
     }
 
-    [Fact(Skip = "Windows cmd shell launches PowerShell async - slow warning mechanism works but test is platform-dependent")]
+    [Fact]
     public async Task ScriptInvoker_SlowScript_LogsWarning()
     {
         // Script that actually takes 2+ seconds to complete

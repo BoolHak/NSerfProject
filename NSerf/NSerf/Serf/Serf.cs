@@ -443,22 +443,29 @@ public partial class Serf : IDisposable, IAsyncDisposable
 
     /// <summary>
     /// Returns information about the local member.
+    /// Like Go's serf, this uses memberlist.LocalNode which already contains
+    /// the advertised address (AdvertiseAddr if configured, otherwise BindAddr).
     /// </summary>
     public Member LocalMember()
     {
+        if (Memberlist == null)
+            throw new InvalidOperationException("Memberlist not initialized");
+            
+        var localNode = Memberlist.LocalNode;
+        
         return new Member
         {
-            Name = Config.NodeName,
-            Addr = System.Net.IPAddress.Parse(Config.MemberlistConfig?.BindAddr ?? "127.0.0.1"),
-            Port = (ushort)(Config.MemberlistConfig?.BindPort ?? 0),
+            Name = localNode.Name,
+            Addr = localNode.Addr,
+            Port = localNode.Port,
             Tags = new Dictionary<string, string>(Config.Tags),
             Status = MemberStatus.Alive,
-            ProtocolMin = ProtocolVersionMin,
-            ProtocolMax = ProtocolVersionMax,
-            ProtocolCur = Config.ProtocolVersion,
-            DelegateMin = ProtocolVersionMin,
-            DelegateMax = ProtocolVersionMax,
-            DelegateCur = Config.ProtocolVersion
+            ProtocolMin = localNode.PMin,
+            ProtocolMax = localNode.PMax,
+            ProtocolCur = localNode.PCur,
+            DelegateMin = localNode.DMin,
+            DelegateMax = localNode.DMax,
+            DelegateCur = localNode.DCur
         };
     }
 
@@ -1047,16 +1054,73 @@ public partial class Serf : IDisposable, IAsyncDisposable
         }
         catch (Exception ex)
         {
-            Logger?.LogError(ex, "[Serf] Failed to resolve node conflict");
+            Logger?.LogError(ex, "[Serf] Failed to resolve name conflict");
         }
     }
 
-    internal Coordinate.Coordinate GetCoordinate()
+    /// <summary>
+    /// Returns the network coordinate of the local node.
+    /// </summary>
+    /// <returns>The local node's coordinate, or empty coordinate if disabled</returns>
+    public Coordinate.Coordinate GetCoordinate()
     {
         if (Config.DisableCoordinates || _coordClient == null)
             return new Coordinate.Coordinate();
 
         return _coordClient.GetCoordinate();
+    }
+
+    /// <summary>
+    /// Returns the network coordinate for the node with the given name.
+    /// This will only be valid if DisableCoordinates is set to false.
+    /// For the local node, returns the current coordinate from coordClient.
+    /// For other nodes, returns from cache if available.
+    /// </summary>
+    /// <param name="nodeName">Name of the node to get coordinate for</param>
+    /// <returns>The node's coordinate if found, otherwise null</returns>
+    public Coordinate.Coordinate? GetCoordinate(string nodeName)
+    {
+        if (Config.DisableCoordinates || _coordClient == null)
+            return null;
+
+        // For local node, return current coordinate directly
+        if (nodeName == Config.NodeName)
+        {
+            return _coordClient.GetCoordinate();
+        }
+
+        // For other nodes, check cache
+        lock (_coordCacheLock)
+        {
+            if (_coordCache.TryGetValue(nodeName, out var coord))
+                return coord;
+            return null;
+        }
+    }
+    
+    /// <summary>
+    /// GetCachedCoordinate returns the cached coordinate for a given node.
+    /// Returns null if coordinates are disabled or the node is not found.
+    /// Maps to: Go's GetCachedCoordinate() method
+    /// </summary>
+    public Coordinate.Coordinate? GetCachedCoordinate(string nodeName)
+    {
+        if (Config.DisableCoordinates)
+            return null;
+            
+        _coordCacheLock.EnterReadLock();
+        try
+        {
+            if (_coordCache.TryGetValue(nodeName, out var coordinate))
+            {
+                return coordinate;
+            }
+            return null;
+        }
+        finally
+        {
+            _coordCacheLock.ExitReadLock();
+        }
     }
 
     internal void UpdateCoordinate(string nodeName, Coordinate.Coordinate coordinate, TimeSpan rtt)

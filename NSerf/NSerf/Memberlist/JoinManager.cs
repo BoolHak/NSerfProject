@@ -39,8 +39,19 @@ public class JoinManager
             {
                 _logger?.LogDebug("Attempting to join via {Node}", node);
                 
+                // Parse node format: "NodeName/IP:Port" or "IP:Port"
+                string nodeName = "";
+                string addressToParse = node;
+                
+                if (node.Contains('/'))
+                {
+                    var parts = node.Split('/', 2);
+                    nodeName = parts[0];
+                    addressToParse = parts[1];
+                }
+                
                 // Resolve the address
-                var addresses = await _addressResolver.ResolveAsync(node, 7946, cancellationToken);
+                var addresses = await _addressResolver.ResolveAsync(addressToParse, 7946, cancellationToken);
                 
                 if (addresses.Count == 0)
                 {
@@ -52,8 +63,8 @@ public class JoinManager
                 // Initiate push-pull sync with the node (this is the join handshake)
                 var addr = new Address
                 {
-                    Addr = $"{addresses[0]}",
-                    Name = node
+                    Addr = $"{addresses[0].Address}:{addresses[0].Port}",
+                    Name = nodeName
                 };
                 
                 // Perform TCP push-pull state exchange (join=true)

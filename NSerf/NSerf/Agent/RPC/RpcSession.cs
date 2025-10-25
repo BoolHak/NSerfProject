@@ -22,7 +22,7 @@ public class RpcSession : IAsyncDisposable
     private int _clientVersion;  // 0 = no handshake yet
     private readonly SemaphoreSlim _writeLock = new(1, 1);  // CRITICAL: Prevent overlapping writes
 
-    private static readonly MessagePackSerializerOptions MsgPackOptions = 
+    private static readonly MessagePackSerializerOptions MsgPackOptions =
         MessagePackSerializerOptions.Standard
             .WithCompression(MessagePackCompression.None);
 
@@ -49,7 +49,7 @@ public class RpcSession : IAsyncDisposable
                     {
                         break;
                     }
-                    
+
                     header = MessagePackSerializer.Deserialize<RequestHeader>(headerBytes.Value, MsgPackOptions, cancellationToken);
                 }
                 catch (System.IO.IOException ex)
@@ -104,7 +104,7 @@ public class RpcSession : IAsyncDisposable
             }
 
             // Ensure client has authenticated after handshake if necessary
-            if (!string.IsNullOrEmpty(_authKey) && !_authenticated && 
+            if (!string.IsNullOrEmpty(_authKey) && !_authenticated &&
                 header.Command != RpcCommands.Auth && header.Command != RpcCommands.Handshake)
             {
                 await SendErrorAsync(header.Seq, "Authentication required", cancellationToken);
@@ -145,8 +145,20 @@ public class RpcSession : IAsyncDisposable
                     await HandleUserEventAsync(header, cancellationToken);
                     break;
 
+                case RpcCommands.Tags:
+                    await HandleTagsAsync(header, cancellationToken);
+                    break;
+
+                case RpcCommands.Query:
+                    await HandleQueryAsync(header, cancellationToken);
+                    break;
+
                 case RpcCommands.Stats:
                     await HandleStatsAsync(header, cancellationToken);
+                    break;
+
+                case RpcCommands.GetCoordinate:
+                    await HandleGetCoordinateAsync(header, cancellationToken);
                     break;
 
                 case RpcCommands.Monitor:
@@ -172,7 +184,7 @@ public class RpcSession : IAsyncDisposable
     {
         var requestBytes = await _reader!.ReadAsync(cancellationToken);
         if (!requestBytes.HasValue) return;
-        
+
         var request = MessagePackSerializer.Deserialize<HandshakeRequest>(requestBytes.Value, MsgPackOptions, cancellationToken);
 
         // Check for duplicate handshake
@@ -185,8 +197,8 @@ public class RpcSession : IAsyncDisposable
         var response = new ResponseHeader
         {
             Seq = header.Seq,
-            Error = request.Version > RpcConstants.MaxIPCVersion 
-                ? $"Unsupported version: {request.Version}" 
+            Error = request.Version > RpcConstants.MaxIPCVersion
+                ? $"Unsupported version: {request.Version}"
                 : string.Empty
         };
 
@@ -213,7 +225,7 @@ public class RpcSession : IAsyncDisposable
     {
         var requestBytes = await _reader!.ReadAsync(cancellationToken);
         if (!requestBytes.HasValue) return;
-        
+
         var request = MessagePackSerializer.Deserialize<AuthRequest>(requestBytes.Value, MsgPackOptions, cancellationToken);
 
         var error = string.Empty;
@@ -250,7 +262,7 @@ public class RpcSession : IAsyncDisposable
 
         var members = _agent.Serf?.Members() ?? Array.Empty<Member>();
         if (members == null) members = Array.Empty<Member>();
-        
+
         var rpcMembers = members.Select(m => new Client.Responses.Member
         {
             Name = m.Name,
@@ -272,7 +284,7 @@ public class RpcSession : IAsyncDisposable
             var response = new ResponseHeader { Seq = header.Seq, Error = string.Empty };
             var responseBytes = MessagePackSerializer.Serialize(response, MsgPackOptions, cancellationToken);
             await _stream!.WriteAsync(responseBytes, cancellationToken);
-            
+
             var membersResponse = new Client.Responses.MembersResponse { Members = rpcMembers };
             var bodyBytes = MessagePackSerializer.Serialize(membersResponse, MsgPackOptions, cancellationToken);
             await _stream.WriteAsync(bodyBytes, cancellationToken);
@@ -294,7 +306,7 @@ public class RpcSession : IAsyncDisposable
 
         var requestBytes = await _reader!.ReadAsync(cancellationToken);
         if (!requestBytes.HasValue) return;
-        
+
         var request = MessagePackSerializer.Deserialize<Client.Requests.JoinRequest>(requestBytes.Value, MsgPackOptions, cancellationToken);
 
         var joined = await _agent.Serf!.JoinAsync(request.Existing, request.Replay);
@@ -305,7 +317,7 @@ public class RpcSession : IAsyncDisposable
             var response = new ResponseHeader { Seq = header.Seq, Error = string.Empty };
             var responseBytes = MessagePackSerializer.Serialize(response, MsgPackOptions, cancellationToken);
             await _stream!.WriteAsync(responseBytes, cancellationToken);
-            
+
             var joinResponse = new Client.Responses.JoinResponse { Num = joined };
             var bodyBytes = MessagePackSerializer.Serialize(joinResponse, MsgPackOptions, cancellationToken);
             await _stream.WriteAsync(bodyBytes, cancellationToken);
@@ -351,24 +363,24 @@ public class RpcSession : IAsyncDisposable
 
         var requestBytes = await _reader!.ReadAsync(cancellationToken);
         if (!requestBytes.HasValue) return;
-        
+
         var request = MessagePackSerializer.Deserialize<Client.Requests.MembersFilteredRequest>(requestBytes.Value, MsgPackOptions, cancellationToken);
 
         var allMembers = _agent.Serf?.Members() ?? Array.Empty<Member>();
-        
+
         // Pre-compile regex patterns with anchors (^$) for exact match
         System.Text.RegularExpressions.Regex? nameRegex = null;
         System.Text.RegularExpressions.Regex? statusRegex = null;
         Dictionary<string, System.Text.RegularExpressions.Regex>? tagRegexes = null;
-        
+
         try
         {
-            if (request.Name != null)
+            if (!string.IsNullOrEmpty(request.Name))
                 nameRegex = new System.Text.RegularExpressions.Regex($"^{request.Name}$");
-            
-            if (request.Status != null)
+
+            if (!string.IsNullOrEmpty(request.Status))
                 statusRegex = new System.Text.RegularExpressions.Regex($"^{request.Status}$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-            
+
             if (request.Tags != null && request.Tags.Count > 0)
             {
                 tagRegexes = new Dictionary<string, System.Text.RegularExpressions.Regex>();
@@ -383,15 +395,15 @@ public class RpcSession : IAsyncDisposable
             await SendErrorAsync(header.Seq, $"Invalid regex pattern: {ex.Message}", cancellationToken);
             return;
         }
-        
+
         var filtered = allMembers.Where(m =>
         {
             if (statusRegex != null && !statusRegex.IsMatch(m.Status.ToString().ToLowerInvariant()))
                 return false;
-            
+
             if (nameRegex != null && !nameRegex.IsMatch(m.Name))
                 return false;
-            
+
             if (tagRegexes != null)
             {
                 foreach (var tagRegex in tagRegexes)
@@ -446,7 +458,7 @@ public class RpcSession : IAsyncDisposable
 
         var requestBytes = await _reader!.ReadAsync(cancellationToken);
         if (!requestBytes.HasValue) return;
-        
+
         var request = MessagePackSerializer.Deserialize<Client.Requests.ForceLeaveRequest>(requestBytes.Value, MsgPackOptions, cancellationToken);
 
         await _agent.Serf!.RemoveFailedNodeAsync(request.Node);
@@ -475,7 +487,7 @@ public class RpcSession : IAsyncDisposable
 
         var requestBytes = await _reader!.ReadAsync(cancellationToken);
         if (!requestBytes.HasValue) return;
-        
+
         var request = MessagePackSerializer.Deserialize<Client.Requests.EventRequest>(requestBytes.Value, MsgPackOptions, cancellationToken);
 
         await _agent.Serf!.UserEventAsync(request.Name, request.Payload, request.Coalesce);
@@ -486,6 +498,110 @@ public class RpcSession : IAsyncDisposable
             var response = new ResponseHeader { Seq = header.Seq, Error = string.Empty };
             var responseBytes = MessagePackSerializer.Serialize(response, MsgPackOptions, cancellationToken);
             await _stream!.WriteAsync(responseBytes, cancellationToken);
+            await _stream.FlushAsync(cancellationToken);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
+    private async Task HandleTagsAsync(RequestHeader header, CancellationToken cancellationToken)
+    {
+        if (!CheckAuth())
+        {
+            await SendErrorAsync(header.Seq, "Not authenticated", cancellationToken);
+            return;
+        }
+
+        var requestBytes = await _reader!.ReadAsync(cancellationToken);
+        if (!requestBytes.HasValue) return;
+
+        var request = MessagePackSerializer.Deserialize<Client.Requests.TagsRequest>(requestBytes.Value, MsgPackOptions, cancellationToken);
+
+        // Merge existing tags with new tags, excluding deleted tags
+        var mergedTags = new Dictionary<string, string>();
+
+        // Start with existing tags
+        var currentTags = _agent.Serf?.Config.Tags ?? new Dictionary<string, string>();
+        foreach (var tag in currentTags)
+        {
+            // Only include if not in delete list
+            if (!request.DeleteTags.Contains(tag.Key))
+            {
+                mergedTags[tag.Key] = tag.Value;
+            }
+        }
+
+        // Add/update with new tags
+        foreach (var tag in request.Tags)
+        {
+            mergedTags[tag.Key] = tag.Value;
+        }
+
+        // Apply the merged tags
+        await _agent.SetTagsAsync(mergedTags);
+
+        await _writeLock.WaitAsync(cancellationToken);
+        try
+        {
+            var response = new ResponseHeader { Seq = header.Seq, Error = string.Empty };
+            var responseBytes = MessagePackSerializer.Serialize(response, MsgPackOptions, cancellationToken);
+            await _stream!.WriteAsync(responseBytes, cancellationToken);
+            await _stream.FlushAsync(cancellationToken);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
+    private async Task HandleQueryAsync(RequestHeader header, CancellationToken cancellationToken)
+    {
+        if (!CheckAuth())
+        {
+            await SendErrorAsync(header.Seq, "Not authenticated", cancellationToken);
+            return;
+        }
+
+        var requestBytes = await _reader!.ReadAsync(cancellationToken);
+        if (!requestBytes.HasValue) return;
+
+        var request = MessagePackSerializer.Deserialize<Client.Requests.QueryRequest>(requestBytes.Value, MsgPackOptions, cancellationToken);
+
+        // Start the query (simplified - not handling streaming yet)
+        Dictionary<string, string>? filterTags = null;
+        if (!string.IsNullOrEmpty(request.FilterTags))
+        {
+            try
+            {
+                filterTags = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(request.FilterTags);
+            }
+            catch
+            {
+                // If parsing fails, leave as null
+            }
+        }
+
+        var queryParam = new Serf.QueryParam
+        {
+            FilterNodes = string.IsNullOrEmpty(request.FilterNodes) ? null : new[] { request.FilterNodes },
+            FilterTags = filterTags,
+            RequestAck = request.RequestAck,
+            Timeout = TimeSpan.FromSeconds(request.Timeout)
+        };
+        var queryResp = await _agent.Serf!.QueryAsync(request.Name, request.Payload, queryParam);
+
+        await _writeLock.WaitAsync(cancellationToken);
+        try
+        {
+            var response = new ResponseHeader { Seq = header.Seq, Error = string.Empty };
+            var responseBytes = MessagePackSerializer.Serialize(response, MsgPackOptions, cancellationToken);
+            await _stream!.WriteAsync(responseBytes, cancellationToken);
+
+            // Send empty body (client expects body after header)  
+            var emptyBody = MessagePackSerializer.Serialize(new { }, MsgPackOptions, cancellationToken);
+            await _stream.WriteAsync(emptyBody, cancellationToken);
             await _stream.FlushAsync(cancellationToken);
         }
         finally
@@ -527,9 +643,72 @@ public class RpcSession : IAsyncDisposable
             var response = new ResponseHeader { Seq = header.Seq, Error = string.Empty };
             var responseBytes = MessagePackSerializer.Serialize(response, MsgPackOptions, cancellationToken);
             await _stream!.WriteAsync(responseBytes, cancellationToken);
-            
+
             var statsResponse = new Client.Responses.StatsResponse { Stats = stats };
             var bodyBytes = MessagePackSerializer.Serialize(statsResponse, MsgPackOptions, cancellationToken);
+            await _stream.WriteAsync(bodyBytes, cancellationToken);
+            await _stream.FlushAsync(cancellationToken);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
+    private async Task HandleGetCoordinateAsync(RequestHeader header, CancellationToken cancellationToken)
+    {
+        if (!CheckAuth())
+        {
+            await SendErrorAsync(header.Seq, "Not authenticated", cancellationToken);
+            return;
+        }
+
+        var requestBytes = await _reader!.ReadAsync(cancellationToken);
+        if (!requestBytes.HasValue)
+        {
+            await SendErrorAsync(header.Seq, "Failed to read coordinate request", cancellationToken);
+            return;
+        }
+
+        Client.Requests.CoordinateRequest? request;
+        try
+        {
+            request = MessagePackSerializer.Deserialize<Client.Requests.CoordinateRequest>(requestBytes.Value, MsgPackOptions);
+        }
+        catch (Exception ex)
+        {
+            await SendErrorAsync(header.Seq, $"Failed to decode coordinate request: {ex.Message}", cancellationToken);
+            return;
+        }
+
+        if (string.IsNullOrEmpty(request.Node))
+        {
+            await SendErrorAsync(header.Seq, "Node name is required", cancellationToken);
+            return;
+        }
+
+        var coord = _agent.Serf?.GetCachedCoordinate(request.Node);
+
+        var response = new Client.Responses.CoordinateResponse
+        {
+            Ok = coord != null,
+            Coord = coord != null ? new Client.Responses.Coordinate
+            {
+                Vec = coord.Vec.Select(v => (float)v).ToArray(),
+                Error = (float)coord.Error,
+                Adjustment = (float)coord.Adjustment,
+                Height = (float)coord.Height
+            } : null
+        };
+
+        await _writeLock.WaitAsync(cancellationToken);
+        try
+        {
+            var headerResponse = new ResponseHeader { Seq = header.Seq, Error = string.Empty };
+            var responseBytes = MessagePackSerializer.Serialize(headerResponse, MsgPackOptions, cancellationToken);
+            await _stream!.WriteAsync(responseBytes, cancellationToken);
+
+            var bodyBytes = MessagePackSerializer.Serialize(response, MsgPackOptions, cancellationToken);
             await _stream.WriteAsync(bodyBytes, cancellationToken);
             await _stream.FlushAsync(cancellationToken);
         }
@@ -683,7 +862,7 @@ public class RpcSession : IAsyncDisposable
         _stream?.Dispose();
         _client?.Dispose();
         _writeLock?.Dispose();
-        
+
         return ValueTask.CompletedTask;
     }
 }
