@@ -32,13 +32,13 @@ public class RpcEventHandler : IEventHandler, IDisposable
         _cancellationToken = cancellationToken;
     }
 
-    public void HandleEvent(Event evt)
+    public void HandleEvent(Event @event)
     {
         if (_disposed || _cancellationToken.IsCancellationRequested)
             return;
 
         // Filter by event type if specified
-        var eventType = evt.EventType();
+        var eventType = @event.EventType();
         if (!string.IsNullOrEmpty(_eventFilter) && eventType.String() != _eventFilter)
             return;
 
@@ -47,7 +47,7 @@ public class RpcEventHandler : IEventHandler, IDisposable
             _writeLock.Wait(_cancellationToken);
             try
             {
-                var streamEvent = ConvertToStreamEvent(evt);
+                var streamEvent = ConvertToStreamEvent(@event);
                 var eventBytes = MessagePackSerializer.Serialize(streamEvent, MsgPackOptions, _cancellationToken);
                 _stream.Write(eventBytes);
                 _stream.Flush();
@@ -63,23 +63,23 @@ public class RpcEventHandler : IEventHandler, IDisposable
         }
     }
 
-    private Client.Responses.StreamEvent ConvertToStreamEvent(Event evt)
+    private Client.Responses.StreamEvent ConvertToStreamEvent(Event @event)
     {
-        var eventType = evt.EventType();
+        var eventType = @event.EventType();
         var streamEvent = new Client.Responses.StreamEvent
         {
             Event = eventType.String().ToLowerInvariant()
         };
 
         // Handle different event types
-        switch (evt)
+        switch (@event)
         {
             case MemberEvent memberEvent:
                 streamEvent.Members = [.. memberEvent.Members.Select(m => new Client.Responses.Member
                 {
                     Name = m.Name,
                     Addr = System.Text.Encoding.UTF8.GetBytes(m.Addr.ToString()),
-                    Port = (ushort)m.Port,
+                    Port = m.Port,
                     Tags = m.Tags,
                     Status = m.Status.ToString().ToLowerInvariant(),
                     ProtocolMin = m.ProtocolMin,
@@ -109,10 +109,22 @@ public class RpcEventHandler : IEventHandler, IDisposable
 
     public void Dispose()
     {
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+
+    protected virtual void Dispose(bool disposing)
+    {
         if (_disposed)
+        {
             return;
+        }
+
+        if (disposing)
+        {
+            // Nothing to dispose; resources are external.
+        }
 
         _disposed = true;
-        GC.SuppressFinalize(this);
     }
 }

@@ -92,7 +92,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
             catch (IOException ex) when (retries > 0)
             {
                 retries--;
-                logger?.LogWarning("Failed to open snapshot (retries left: {Retries}): {Error}", retries, ex.Message);
+                logger?.LogWarning(ex, "Failed to open snapshot (retries left: {Retries}): {Error}", retries, ex.Message);
                 await Task.Delay(100, shutdownToken);
             }
             catch (Exception ex)
@@ -233,7 +233,11 @@ public class Snapshotter : IDisposable, IAsyncDisposable
         // Flush any pending buffered writes before marking as leaving
         try
         {
-            _bufferedWriter?.Flush();
+            if (_bufferedWriter is not null)
+            {
+                await _bufferedWriter.FlushAsync();
+            }
+
             await _fileHandle!.FlushAsync();
         }
         catch
@@ -303,9 +307,9 @@ public class Snapshotter : IDisposable, IAsyncDisposable
                 }
             }
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException ex)
         {
-            _logger?.LogInformation("[Snapshotter/TeeStream] Task cancelled (shutdown)");
+            _logger?.LogInformation(ex, "[Snapshotter/TeeStream] Task cancelled (shutdown)");
         }
         finally
         {
@@ -401,7 +405,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
 
         // Wait for TeeStreamAsync to complete the channel, then drain remaining events
         // Use ReadAllAsync with timeout to ensure we don't wait forever
-        var cts = new CancellationTokenSource(ShutdownFlushTimeoutMs);
+        using var cts = new CancellationTokenSource(ShutdownFlushTimeoutMs);
         try
         {
             await foreach (var evt in _streamCh.Reader.ReadAllAsync(cts.Token))
@@ -409,10 +413,10 @@ public class Snapshotter : IDisposable, IAsyncDisposable
                 await FlushEventAsync(evt);
             }
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException e)
         {
             // Timeout reached - acceptable data loss scenario
-            _logger?.LogWarning("[Snapshotter] Shutdown drain timeout - some pending events may not be persisted");
+            _logger?.LogWarning(e, "[Snapshotter] Shutdown drain timeout - some pending events may not be persisted");
         }
 
         // Final flush
@@ -515,11 +519,11 @@ public class Snapshotter : IDisposable, IAsyncDisposable
 
                 case EventType.MemberLeave:
                 case EventType.MemberFailed:
-                    foreach (var mem in e.Members)
+                    foreach (var name in e.Members.Select(mem => mem.Name))
                     {
-                        _aliveNodes.Remove(mem.Name);
-                        _logger?.LogInformation("[Snapshotter] Recording not-alive node: {Name}", mem.Name);
-                        TryAppend($"not-alive: {mem.Name}\n");
+                        _aliveNodes.Remove(name);
+                        _logger?.LogInformation("[Snapshotter] Recording not-alive node: {Name}", name);
+                        TryAppend($"not-alive: {name}\n");
                     }
                     break;
             }
@@ -865,7 +869,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
                 // Stop processing rest of file after leave marker
                 break;
             }
-            else if (line.StartsWith("#"))
+            else if (line.StartsWith('#'))
             {
                 // Skip comment lines
             }
