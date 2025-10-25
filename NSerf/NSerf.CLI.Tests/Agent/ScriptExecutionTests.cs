@@ -19,12 +19,12 @@ public class ScriptExecutionTests
     {
         // Create a simple test script
         var isWindows = OperatingSystem.IsWindows();
-        var scriptContent = isWindows 
-            ? "@echo off\necho Hello from script" 
+        var scriptContent = isWindows
+            ? "@echo off\necho Hello from script"
             : "#!/bin/sh\necho Hello from script";
-        
+
         var scriptPath = Path.Combine(Path.GetTempPath(), $"test-script-{Guid.NewGuid()}.{(isWindows ? "bat" : "sh")}");
-        
+
         try
         {
             await File.WriteAllTextAsync(scriptPath, scriptContent);
@@ -68,18 +68,18 @@ public class ScriptExecutionTests
         var scriptContent = isWindows
             ? "@echo off\nset /p INPUT=\necho Received: %INPUT%"
             : "#!/bin/sh\nread INPUT\necho \"Received: $INPUT\"";
-        
+
         var scriptPath = Path.Combine(Path.GetTempPath(), $"test-stdin-{Guid.NewGuid()}.{(isWindows ? "bat" : "sh")}");
-        
+
         try
         {
             await File.WriteAllTextAsync(scriptPath, scriptContent);
             if (!isWindows)
             {
-                var chmodInfo = new System.Diagnostics.ProcessStartInfo("chmod", $"+x {scriptPath}") 
-                { 
-                    CreateNoWindow = true, 
-                    UseShellExecute = false 
+                var chmodInfo = new System.Diagnostics.ProcessStartInfo("chmod", $"+x {scriptPath}")
+                {
+                    CreateNoWindow = true,
+                    UseShellExecute = false
                 };
                 using var chmodProc = System.Diagnostics.Process.Start(chmodInfo);
                 await chmodProc!.WaitForExitAsync();
@@ -113,9 +113,9 @@ public class ScriptExecutionTests
         var scriptContent = isWindows
             ? "@echo off\necho Event: %SERF_EVENT%\necho Name: %SERF_SELF_NAME%\necho Role: %SERF_TAG_ROLE%"
             : "#!/bin/sh\necho \"Event: $SERF_EVENT\"\necho \"Name: $SERF_SELF_NAME\"\necho \"Role: $SERF_TAG_ROLE\"";
-        
+
         var scriptPath = Path.Combine(Path.GetTempPath(), $"test-env-{Guid.NewGuid()}.{(isWindows ? "bat" : "sh")}");
-        
+
         try
         {
             await File.WriteAllTextAsync(scriptPath, scriptContent);
@@ -161,9 +161,9 @@ public class ScriptExecutionTests
         var scriptContent = isWindows
             ? "@echo off\nfor /L %%i in (1,1,1000) do echo This is line %%i with some padding text to make it longer"
             : "#!/bin/sh\nfor i in $(seq 1 1000); do echo \"This is line $i with some padding text to make it longer\"; done";
-        
+
         var scriptPath = Path.Combine(Path.GetTempPath(), $"test-output-{Guid.NewGuid()}.{(isWindows ? "bat" : "sh")}");
-        
+
         try
         {
             await File.WriteAllTextAsync(scriptPath, scriptContent);
@@ -207,11 +207,11 @@ public class ScriptExecutionTests
         var isWindows = OperatingSystem.IsWindows();
         // Script that takes 2 seconds
         var scriptContent = isWindows
-            ? "@echo off\ntimeout /t 2 /nobreak > nul\necho Completed"
+            ? "@echo off\nC:\\Windows\\System32\\ping.exe 192.0.2.1 -n 1 -w 2500 >nul\necho Completed"
             : "#!/bin/sh\nsleep 2\necho Completed";
-        
+
         var scriptPath = Path.Combine(Path.GetTempPath(), $"test-slow-{Guid.NewGuid()}.{(isWindows ? "bat" : "sh")}");
-        
+
         try
         {
             await File.WriteAllTextAsync(scriptPath, scriptContent);
@@ -239,7 +239,8 @@ public class ScriptExecutionTests
 
             // Should complete but take > 1 second (slow script threshold)
             Assert.Contains("Completed", output);
-            Assert.True(duration.TotalSeconds >= 2);
+            // Ping with 2000ms timeout may complete slightly faster due to immediate timeout response
+            Assert.True(duration.TotalSeconds >= 2, $"Expected >= 2s, actual: {duration.TotalSeconds}s");
         }
         finally
         {
@@ -257,9 +258,9 @@ public class ScriptExecutionTests
         var scriptContent = isWindows
             ? "@echo off\necho Script failed\nexit /b 1"
             : "#!/bin/sh\necho \"Script failed\"\nexit 1";
-        
+
         var scriptPath = Path.Combine(Path.GetTempPath(), $"test-fail-{Guid.NewGuid()}.{(isWindows ? "bat" : "sh")}");
-        
+
         try
         {
             await File.WriteAllTextAsync(scriptPath, scriptContent);

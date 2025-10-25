@@ -34,15 +34,17 @@ public class ScriptExecutionIntegrationTests
     public async Task ScriptInvoker_SlowScript_LogsWarning()
     {
         // Script that actually takes 2+ seconds to complete
+        // Windows: ping with -w timeout flag (milliseconds) - use full path since PATH may not be inherited
+        // Unix: sleep command
         var script = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
-            ? "powershell -Command Start-Sleep -Seconds 2"
+            ? "C:\\Windows\\System32\\ping.exe 192.0.2.1 -n 1 -w 2000"  // Ping TEST-NET IP with 2000ms timeout
             : "sleep 2";
 
         var envVars = new Dictionary<string, string>();
 
         var result = await ScriptInvoker.ExecuteAsync(script, envVars, null, timeout: TimeSpan.FromSeconds(5));
 
-        // Exit code may vary but slow warning should be present
+        // Slow warning should be present (script takes 2+ seconds, timer fires at 1 second)
         Assert.Contains("slow", string.Join(" ", result.Warnings));
     }
 

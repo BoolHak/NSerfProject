@@ -20,7 +20,7 @@ public class ScriptInvoker
     private const int MaxBufferSize = 8 * 1024;  // 8KB output limit
     private static readonly TimeSpan SlowScriptWarnTime = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(30);
-    
+
     private static readonly Regex SanitizeTagRegex = new(@"[^A-Z0-9_]", RegexOptions.Compiled);
 
     public class ScriptResult
@@ -42,9 +42,9 @@ public class ScriptInvoker
     {
         var result = new ScriptResult();
         var output = new CircularBuffer(MaxBufferSize);
-        
+
         var (shell, flag) = GetShellCommand();
-        
+
         var psi = new ProcessStartInfo
         {
             FileName = shell,
@@ -62,14 +62,14 @@ public class ScriptInvoker
             if (kvp.Key != null && kvp.Value != null)
                 psi.Environment[(string)kvp.Key] = (string)kvp.Value;
         }
-        
+
         foreach (var kvp in envVars)
         {
             psi.Environment[kvp.Key] = kvp.Value;
         }
 
         using var process = new Process { StartInfo = psi };
-        
+
         // Slow script warning timer
         var slowWarningShown = false;
         var slowTimer = new System.Threading.Timer(_ =>
@@ -127,8 +127,8 @@ public class ScriptInvoker
         // Wait for completion with timeout
         var actualTimeout = timeout ?? DefaultTimeout;
         var completed = await Task.Run(() => process.WaitForExit((int)actualTimeout.TotalMilliseconds));
-        
-        slowTimer.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+
+        // Stop the timer (matches Go's slowTimer.Stop() - no delay needed)
         slowTimer.Dispose();
 
         if (!completed)
@@ -216,10 +216,10 @@ public class ScriptInvoker
     {
         if (evt is MemberEvent memberEvt)
             return BuildMemberEventStdin(memberEvt);
-        
+
         if (evt is UserEvent userEvt)
             return PreparePayload(userEvt.Payload);
-        
+
         if (evt is Query query)
             return PreparePayload(query.Payload);
 
@@ -229,12 +229,12 @@ public class ScriptInvoker
     public static string BuildMemberEventStdin(MemberEvent evt)
     {
         var sb = new StringBuilder();
-        
+
         foreach (var member in evt.Members)
         {
             var role = member.Tags.GetValueOrDefault("role", "");
             var tags = string.Join(",", member.Tags.Select(kvp => $"{kvp.Key}={kvp.Value}"));
-            
+
             sb.AppendFormat("{0}\t{1}\t{2}\t{3}\n",
                 EventClean(member.Name),
                 member.Addr,
@@ -251,7 +251,7 @@ public class ScriptInvoker
             return string.Empty;
 
         var str = Encoding.UTF8.GetString(payload);
-        
+
         // Append newline if missing (scripts expect newline-terminated input)
         if (!str.EndsWith('\n'))
             str += '\n';

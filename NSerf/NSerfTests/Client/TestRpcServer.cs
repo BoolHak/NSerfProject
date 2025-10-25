@@ -50,15 +50,22 @@ public class TestRpcServer : IDisposable
     private async Task HandleClientAsync(TcpClient client)
     {
         using var stream = client.GetStream();
+        using var reader = new MessagePackStreamReader(stream, leaveOpen: true);
         
         try
         {
-            // Handle handshake
-            var handshakeHeader = await MessagePackSerializer.DeserializeAsync<RequestHeader>(stream, cancellationToken: _cts.Token);
+            // Handle handshake - use MessagePackStreamReader like RpcSession does
+            var headerBytes = await reader.ReadAsync(_cts.Token);
+            if (!headerBytes.HasValue) return;
+            
+            var handshakeHeader = MessagePackSerializer.Deserialize<RequestHeader>(headerBytes.Value);
             
             if (handshakeHeader.Command == RpcCommands.Handshake)
             {
-                var handshakeReq = await MessagePackSerializer.DeserializeAsync<HandshakeRequest>(stream, cancellationToken: _cts.Token);
+                var reqBytes = await reader.ReadAsync(_cts.Token);
+                if (!reqBytes.HasValue) return;
+                
+                var handshakeReq = MessagePackSerializer.Deserialize<HandshakeRequest>(reqBytes.Value);
                 
                 var handshakeResp = new ResponseHeader
                 {
@@ -66,7 +73,9 @@ public class TestRpcServer : IDisposable
                     Error = handshakeReq.Version > RpcConstants.MaxIPCVersion ? "Unsupported version" : string.Empty
                 };
                 
-                await MessagePackSerializer.SerializeAsync(stream, handshakeResp, cancellationToken: _cts.Token);
+                var responseBytes = MessagePackSerializer.Serialize(handshakeResp);
+                await stream.WriteAsync(responseBytes, _cts.Token);
+                await stream.FlushAsync(_cts.Token);
                 
                 if (!string.IsNullOrEmpty(handshakeResp.Error))
                     return;
@@ -75,11 +84,17 @@ public class TestRpcServer : IDisposable
             // Handle auth if required
             if (!string.IsNullOrEmpty(_expectedAuthKey))
             {
-                var authHeader = await MessagePackSerializer.DeserializeAsync<RequestHeader>(stream, cancellationToken: _cts.Token);
+                var authHeaderBytes = await reader.ReadAsync(_cts.Token);
+                if (!authHeaderBytes.HasValue) return;
+                
+                var authHeader = MessagePackSerializer.Deserialize<RequestHeader>(authHeaderBytes.Value);
                 
                 if (authHeader.Command == RpcCommands.Auth)
                 {
-                    var authReq = await MessagePackSerializer.DeserializeAsync<AuthRequest>(stream, cancellationToken: _cts.Token);
+                    var authReqBytes = await reader.ReadAsync(_cts.Token);
+                    if (!authReqBytes.HasValue) return;
+                    
+                    var authReq = MessagePackSerializer.Deserialize<AuthRequest>(authReqBytes.Value);
                     
                     var authResp = new ResponseHeader
                     {
@@ -87,7 +102,9 @@ public class TestRpcServer : IDisposable
                         Error = authReq.AuthKey == _expectedAuthKey ? string.Empty : "Invalid auth key"
                     };
                     
-                    await MessagePackSerializer.SerializeAsync(stream, authResp, cancellationToken: _cts.Token);
+                    var authRespBytes = MessagePackSerializer.Serialize(authResp);
+                    await stream.WriteAsync(authRespBytes, _cts.Token);
+                    await stream.FlushAsync(_cts.Token);
                 }
             }
             
