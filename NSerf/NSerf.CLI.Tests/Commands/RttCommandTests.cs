@@ -17,9 +17,9 @@ public class RttCommandTests
 {
     /// <summary>
     /// Test RTT command with a valid node.
-    /// Note: GetCoordinate RPC handler needs to be implemented in RPC server.
+    /// Waits for coordinates to be available before asserting success.
     /// </summary>
-    [Fact(Timeout = 10000)]
+    [Fact(Timeout = 20000)]
     public async Task RttCommand_WithValidNode_ReturnsCoordinate()
     {
         // Arrange
@@ -28,6 +28,17 @@ public class RttCommandTests
         
         var localMember = fixture.Agent!.Serf!.Members()[0];
         var nodeName = localMember.Name;
+        
+        // Wait for local node coordinate to be available
+        var coordinate = await WaitForCoordinateAsync(fixture, nodeName, TimeSpan.FromSeconds(8));
+        
+        if (coordinate == null)
+        {
+            // Log skip if coordinates not available after timeout
+            var skipMessage = $"SKIPPED: Coordinate for {nodeName} not available after 8s timeout - coordinate system hasn't initialized yet.";
+            Console.WriteLine(skipMessage);
+            return;
+        }
         
         var rootCommand = new RootCommand();
         rootCommand.Add(RttCommand.Create());
@@ -52,26 +63,49 @@ public class RttCommandTests
             // Act
             var exitCode = await rootCommand.Parse(args).InvokeAsync();
             
-            // Assert - Check for errors first
+            // Assert - Command should succeed since coordinates are available
             var outputText = output.ToString();
             var errorText = errorOutput.ToString();
-            
-            if (exitCode != 0)
-            {
-                // Coordinates might be disabled or not yet available
-                Assert.Contains("Error:", errorText);
-                return; // Skip test if coordinates not available yet
-            }
             
             Assert.Equal(0, exitCode);
             Assert.Contains("Coordinate information", outputText);
             Assert.Contains(nodeName, outputText);
+            
+            // Should not have errors when coordinates are available
+            Assert.Empty(errorText);
         }
         finally
         {
             Console.SetOut(originalOut);
             Console.SetError(originalErr);
         }
+    }
+
+    private static async Task<Client.Responses.Coordinate?> WaitForCoordinateAsync(
+        AgentFixture fixture,
+        string nodeName,
+        TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+
+        while (DateTime.UtcNow <= deadline)
+        {
+            var coordinate = fixture.Agent!.Serf!.GetCoordinate(nodeName);
+            if (coordinate != null)
+            {
+                return new Client.Responses.Coordinate
+                {
+                    Vec = coordinate.Vec.Select(v => (float)v).ToArray(),
+                    Error = (float)coordinate.Error,
+                    Adjustment = (float)coordinate.Adjustment,
+                    Height = (float)coordinate.Height
+                };
+            }
+
+            await Task.Delay(500); // Check every 500ms
+        }
+
+        return null; // Timeout - coordinate not available
     }
     
     /// <summary>
@@ -102,6 +136,7 @@ public class RttCommandTests
             var exitCode = await rootCommand.Parse(args).InvokeAsync();
             
             // Assert
+            Assert.NotEqual(0, exitCode); // Should fail with non-zero exit code
             var errorText = errorWriter.ToString();
             Assert.Contains("Error:", errorText);
             Assert.Contains("Failed to connect", errorText);

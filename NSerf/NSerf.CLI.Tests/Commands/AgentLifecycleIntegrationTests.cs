@@ -134,11 +134,14 @@ public class AgentLifecycleIntegrationTests
 
         await using var agent2 = new SerfAgent(config2);
         await agent2.StartAsync();
-        await Task.Delay(5000);
-        
+
+        var joined = await WaitForMemberCountAsync(agent1, expectedCount: 2, timeout: TimeSpan.FromSeconds(10));
+        Assert.True(joined, "Retry join did not bring the second agent online within timeout");
+
         var members = agent1.Serf.Members();
-        // Retry join may take multiple attempts
-        Assert.True(members.Length >= 1, $"Expected at least 1 member, got {members.Length}");
+        Assert.Equal(2, members.Length);
+        Assert.Contains(members, m => m.Name == agent1.NodeName);
+        Assert.Contains(members, m => m.Name == agent2.NodeName);
     }
 
     [Fact(Timeout = 20000)]
@@ -176,6 +179,28 @@ public class AgentLifecycleIntegrationTests
         await agent.StartAsync();
         
         await Assert.ThrowsAsync<InvalidOperationException>(async () => await agent.StartAsync());
+    }
+
+    private static async Task<bool> WaitForMemberCountAsync(SerfAgent agent, int expectedCount, TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+
+        while (DateTime.UtcNow <= deadline)
+        {
+            var serf = agent.Serf;
+            if (serf != null)
+            {
+                var members = serf.Members();
+                if (members.Length == expectedCount)
+                {
+                    return true;
+                }
+            }
+
+            await Task.Delay(250);
+        }
+
+        return false;
     }
 }
 

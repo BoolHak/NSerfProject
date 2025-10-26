@@ -23,6 +23,7 @@ public class SerfAgent : IAsyncDisposable
     private RpcServer? _rpcServer;
     private ScriptEventHandler? _scriptEventHandler;
     private Task? _eventLoopTask;
+    private Task? _retryJoinTask;
     private bool _disposed;
     private bool _started;
     private readonly SemaphoreSlim _shutdownLock = new(1, 1);
@@ -122,6 +123,12 @@ public class SerfAgent : IAsyncDisposable
             {
                 _logger?.LogInformation("[Agent] Joined {Count} nodes", joined);
             }
+        }
+
+        // Start retry join in background if configured
+        if (_config.RetryJoin != null && _config.RetryJoin.Length > 0)
+        {
+            _retryJoinTask = Task.Run(() => RetryJoinAsync(_cts.Token), _cts.Token);
         }
 
         // Start RPC server if RPCAddr is configured
@@ -379,6 +386,58 @@ public class SerfAgent : IAsyncDisposable
     }
 
     /// <summary>
+    /// RetryJoinAsync attempts to join configured addresses with retries.
+    /// Runs in background until successful or max attempts reached.
+    /// </summary>
+    private async Task RetryJoinAsync(CancellationToken cancellationToken)
+    {
+        if (_serf == null || _config.RetryJoin == null || _config.RetryJoin.Length == 0)
+            return;
+
+        var attempt = 0;
+        var maxAttempts = _config.RetryMaxAttempts;
+
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            attempt++;
+
+            try
+            {
+                if (_serf != null && _config.RetryJoin != null)
+                {
+                    var joined = await _serf.JoinAsync(_config.RetryJoin, !_config.ReplayOnJoin);
+                    if (joined > 0)
+                    {
+                        _logger?.LogInformation("[Agent] Retry join succeeded, joined {Count} nodes", joined);
+                        return; // Success - exit retry loop
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning("[Agent] Retry join attempt {Attempt} failed: {Message}", attempt, ex.Message);
+            }
+
+            // Check if we've hit max attempts
+            if (maxAttempts > 0 && attempt >= maxAttempts)
+            {
+                _logger?.LogWarning("[Agent] Retry join failed after {Attempts} attempts", attempt);
+                return;
+            }
+
+            // Wait before next attempt
+            try
+            {
+                await Task.Delay(_config.RetryInterval, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                return; // Shutdown requested
+            }
+        }
+    }
+
+    /// <summary>
     /// Gracefully shutdown the agent. Idempotent - can be called multiple times.
     /// </summary>
     public async Task ShutdownAsync()
@@ -409,7 +468,7 @@ public class SerfAgent : IAsyncDisposable
                 _serf = null;
             }
             
-            // Cancel event loop
+            // Cancel event loop and retry join
             _cts.Cancel();
             
             // Wait for event loop to finish
@@ -418,6 +477,19 @@ public class SerfAgent : IAsyncDisposable
                 try
                 {
                     await _eventLoopTask;
+                }
+                catch (OperationCanceledException)
+                {
+                    // Expected
+                }
+            }
+            
+            // Wait for retry join to finish
+            if (_retryJoinTask != null)
+            {
+                try
+                {
+                    await _retryJoinTask;
                 }
                 catch (OperationCanceledException)
                 {

@@ -1,10 +1,16 @@
 // Copyright (c) BoolHak, Inc.
 // SPDX-License-Identifier: MPL-2.0
 
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using NSerf.Agent;
 using NSerf.Client;
 using NSerf.CLI.Tests.Fixtures;
 using NSerf.Serf;
+using NSerf.Serf.Events;
 
 namespace NSerf.CLI.Tests.Commands;
 
@@ -35,10 +41,16 @@ public class RpcClientIntegrationTests : IAsyncLifetime
 
     public async Task DisposeAsync()
     {
-        _client?.Dispose();
+        if (_client != null)
+        {
+            await _client.DisposeAsync();
+            _client = null;
+        }
+
         if (_fixture != null)
         {
             await _fixture.DisposeAsync();
+            _fixture = null;
         }
     }
 
@@ -181,13 +193,27 @@ public class RpcClientIntegrationTests : IAsyncLifetime
         // Arrange
         var eventName = "test-event";
         var payload = System.Text.Encoding.UTF8.GetBytes("test-payload");
-        
-        // Act
-        await _client!.UserEventAsync(eventName, payload, coalesce: false);
-        
-        // Assert - event was dispatched (no exception = success)
-        // In a real test, we'd verify with an event handler
-        Assert.True(true);
+
+        var handler = new CapturingEventHandler();
+        _fixture!.Agent!.RegisterEventHandler(handler);
+
+        try
+        {
+            // Act
+            await _client!.UserEventAsync(eventName, payload, coalesce: false);
+
+            // Assert
+            var evt = await handler.WaitForEventAsync(EventType.User, TimeSpan.FromSeconds(3));
+            Assert.NotNull(evt);
+
+            var userEvent = Assert.IsType<UserEvent>(evt);
+            Assert.Equal(eventName, userEvent.Name);
+            Assert.Equal(payload, userEvent.Payload);
+        }
+        finally
+        {
+            _fixture.Agent.DeregisterEventHandler(handler);
+        }
     }
 
     /// <summary>
@@ -316,19 +342,33 @@ public class RpcClientIntegrationTests : IAsyncLifetime
         // Arrange
         var queryName = "test-query";
         var payload = System.Text.Encoding.UTF8.GetBytes("query-data");
-        
-        // Act
-        var result = await _client!.QueryAsync(
-            name: queryName,
-            payload: payload,
-            filterNodes: null,
-            filterTags: null,
-            requestAck: true,
-            timeoutSeconds: 5);
-        
-        // Assert - query was sent successfully
-        // QueryAsync returns the sequence number which may be 0 for first query
-        // Just verify no exception was thrown (success)
+
+        var handler = new QueryResponderHandler(payload: Encoding.UTF8.GetBytes("ok"));
+        _fixture!.Agent!.RegisterEventHandler(handler);
+
+        try
+        {
+            // Act
+            var queryId = await _client!.QueryAsync(
+                name: queryName,
+                payload: payload,
+                filterNodes: null,
+                filterTags: null,
+                requestAck: true,
+                timeoutSeconds: 5);
+
+            // Assert
+            Assert.NotEqual(0UL, queryId);
+
+            var observed = await handler.WaitForQueryAsync(queryName, TimeSpan.FromSeconds(3));
+            Assert.NotNull(observed);
+            Assert.Equal(queryName, observed!.Name);
+            Assert.Equal(payload, observed.Payload);
+        }
+        finally
+        {
+            _fixture.Agent.DeregisterEventHandler(handler);
+        }
     }
 
     /// <summary>
@@ -340,14 +380,13 @@ public class RpcClientIntegrationTests : IAsyncLifetime
     {
         // Arrange
         var nodeName = _fixture!.Agent!.NodeName;
-        
+
         // Act
-        var result = await _client!.GetCoordinateAsync(nodeName);
-        
-        // Assert - coordinate may or may not exist depending on if system updated it yet
-        // The call succeeds (no exception) which is what we're validating
-        // Coordinate can be null if not yet calculated by Vivaldi algorithm
-        // Just verify the call completed successfully
+        var coordinate = await WaitForCoordinateAsync(_client!, nodeName, TimeSpan.FromSeconds(5));
+
+        // Assert
+        Assert.NotNull(coordinate);
+        Assert.NotEmpty(coordinate!.Vec);
     }
 
     /// <summary>
@@ -361,5 +400,112 @@ public class RpcClientIntegrationTests : IAsyncLifetime
         
         // Assert - non-existent nodes return null coordinate
         Assert.Null(result);
+    }
+
+    private static async Task<Client.Responses.Coordinate?> WaitForCoordinateAsync(RpcClient client, string nodeName, TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+
+        while (DateTime.UtcNow <= deadline)
+        {
+            var coordinate = await client.GetCoordinateAsync(nodeName);
+            if (coordinate != null)
+            {
+                return coordinate;
+            }
+
+            await Task.Delay(100);
+        }
+
+        return await client.GetCoordinateAsync(nodeName);
+    }
+
+    private sealed class CapturingEventHandler : IEventHandler
+    {
+        private readonly List<Event> _events = new();
+        private readonly object _lock = new();
+
+        public void HandleEvent(Event @event)
+        {
+            lock (_lock)
+            {
+                _events.Add(@event);
+            }
+        }
+
+        public async Task<Event?> WaitForEventAsync(EventType expectedType, TimeSpan timeout)
+        {
+            var deadline = DateTime.UtcNow + timeout;
+
+            while (DateTime.UtcNow <= deadline)
+            {
+                lock (_lock)
+                {
+                    var match = _events.LastOrDefault(evt => evt.EventType() == expectedType);
+                    if (match != null)
+                    {
+                        return match;
+                    }
+                }
+
+                await Task.Delay(50);
+            }
+
+            lock (_lock)
+            {
+                return _events.LastOrDefault(evt => evt.EventType() == expectedType);
+            }
+        }
+    }
+
+    private sealed class QueryResponderHandler : IEventHandler
+    {
+        private readonly byte[] _response;
+        private readonly List<Query> _queries = new();
+        private readonly object _lock = new();
+
+        public QueryResponderHandler(byte[] payload)
+        {
+            _response = payload;
+        }
+
+        public void HandleEvent(Event @event)
+        {
+            if (@event is not Query query)
+            {
+                return;
+            }
+
+            lock (_lock)
+            {
+                _queries.Add(query);
+            }
+
+            _ = query.RespondAsync(_response);
+        }
+
+        public async Task<Query?> WaitForQueryAsync(string name, TimeSpan timeout)
+        {
+            var deadline = DateTime.UtcNow + timeout;
+
+            while (DateTime.UtcNow <= deadline)
+            {
+                lock (_lock)
+                {
+                    var match = _queries.LastOrDefault(q => q.Name == name);
+                    if (match != null)
+                    {
+                        return match;
+                    }
+                }
+
+                await Task.Delay(50);
+            }
+
+            lock (_lock)
+            {
+                return _queries.LastOrDefault(q => q.Name == name);
+            }
+        }
     }
 }

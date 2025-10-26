@@ -414,17 +414,12 @@ public class RpcClient : IDisposable, IAsyncDisposable
         };
         
         await SendRequestAsync(header, request, cancellationToken);
-        var response = await ReceiveResponseAsync<Dictionary<string, object>>(seq, cancellationToken);
+        var response = await ReceiveResponseAsync<Responses.QueryResponse>(seq, cancellationToken);
         
         if (!string.IsNullOrEmpty(response.Error))
             throw new RpcException($"Query command failed: {response.Error}");
             
-        if (response.Body != null && response.Body.TryGetValue("ID", out var id))
-        {
-            return Convert.ToUInt64(id);
-        }
-        
-        return 0;
+        return response.Body?.Id ?? 0;
     }
 
     public async Task RespondAsync(ulong queryId, byte[] payload, CancellationToken cancellationToken = default)

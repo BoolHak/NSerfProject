@@ -569,7 +569,7 @@ public class RpcSession : IAsyncDisposable
 
         var request = MessagePackSerializer.Deserialize<Client.Requests.QueryRequest>(requestBytes.Value, MsgPackOptions, cancellationToken);
 
-        // Start the query (simplified - not handling streaming yet)
+        // Parse filter tags
         Dictionary<string, string>? filterTags = null;
         if (!string.IsNullOrEmpty(request.FilterTags))
         {
@@ -590,23 +590,52 @@ public class RpcSession : IAsyncDisposable
             RequestAck = request.RequestAck,
             Timeout = TimeSpan.FromSeconds(request.Timeout)
         };
-        var queryResp = await _agent.Serf!.QueryAsync(request.Name, request.Payload, queryParam);
 
+        // Start the query
+        Serf.QueryResponse? queryResp = null;
+        string? errorMsg = null;
+        try
+        {
+            queryResp = await _agent.Serf!.QueryAsync(request.Name, request.Payload, queryParam);
+        }
+        catch (Exception ex)
+        {
+            errorMsg = ex.Message;
+        }
+
+        // Send initial response with query ID
         await _writeLock.WaitAsync(cancellationToken);
         try
         {
-            var response = new ResponseHeader { Seq = header.Seq, Error = string.Empty };
+            var response = new ResponseHeader { Seq = header.Seq, Error = errorMsg ?? string.Empty };
             var responseBytes = MessagePackSerializer.Serialize(response, MsgPackOptions, cancellationToken);
             await _stream!.WriteAsync(responseBytes, cancellationToken);
 
-            // Send empty body (client expects body after header)  
-            var emptyBody = MessagePackSerializer.Serialize(new { }, MsgPackOptions, cancellationToken);
-            await _stream.WriteAsync(emptyBody, cancellationToken);
+            // Send query ID in response body (Go returns nil on error)
+            if (queryResp != null)
+            {
+                var queryResponse = new Client.Responses.QueryResponse { Id = queryResp.Id };
+                var bodyBytes = MessagePackSerializer.Serialize(queryResponse, MsgPackOptions, cancellationToken);
+                await _stream.WriteAsync(bodyBytes, cancellationToken);
+            }
+            else
+            {
+                // Send empty body on error
+                var emptyBody = MessagePackSerializer.Serialize(new { }, MsgPackOptions, cancellationToken);
+                await _stream.WriteAsync(emptyBody, cancellationToken);
+            }
             await _stream.FlushAsync(cancellationToken);
         }
         finally
         {
             _writeLock.Release();
+        }
+
+        // Stream the query responses asynchronously (Go: defer go qs.Stream)
+        if (queryResp != null)
+        {
+            var streamer = new QueryResponseStream(_writeLock, _stream!, header.Seq, queryResp);
+            _ = Task.Run(() => streamer.StreamAsync(cancellationToken), cancellationToken);
         }
     }
 

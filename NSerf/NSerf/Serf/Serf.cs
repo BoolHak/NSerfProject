@@ -1095,9 +1095,16 @@ public partial class Serf : IDisposable, IAsyncDisposable
     /// </summary>
     public Coordinate.Coordinate? GetCachedCoordinate(string nodeName)
     {
-        if (Config.DisableCoordinates)
+        if (Config.DisableCoordinates || _coordClient == null)
             return null;
 
+        // For local node, return current coordinate directly
+        if (nodeName == Config.NodeName)
+        {
+            return _coordClient.GetCoordinate();
+        }
+
+        // For remote nodes, check cache
         _coordCacheLock.EnterReadLock();
         try
         {
