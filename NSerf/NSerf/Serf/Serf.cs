@@ -441,22 +441,34 @@ public partial class Serf : IDisposable, IAsyncDisposable
         if (Memberlist == null)
             throw new InvalidOperationException("Memberlist not initialized");
 
-        var localNode = Memberlist.LocalNode;
-
-        return new Member
+        // Look up local member in members dictionary to get actual status
+        // This matches Go's implementation: s.members[s.config.NodeName].Member
+        return _memberManager.ExecuteUnderLock(accessor =>
         {
-            Name = localNode.Name,
-            Addr = localNode.Addr,
-            Port = localNode.Port,
-            Tags = new Dictionary<string, string>(Config.Tags),
-            Status = MemberStatus.Alive,
-            ProtocolMin = localNode.PMin,
-            ProtocolMax = localNode.PMax,
-            ProtocolCur = localNode.PCur,
-            DelegateMin = localNode.DMin,
-            DelegateMax = localNode.DMax,
-            DelegateCur = localNode.DCur
-        };
+            var memberInfo = accessor.GetMember(Config.NodeName);
+            if (memberInfo?.Member != null)
+            {
+                // Return the actual member with current status
+                return memberInfo.Member;
+            }
+
+            // Fallback: construct from memberlist if not yet in members map
+            var localNode = Memberlist.LocalNode;
+            return new Member
+            {
+                Name = localNode.Name,
+                Addr = localNode.Addr,
+                Port = localNode.Port,
+                Tags = new Dictionary<string, string>(Config.Tags),
+                Status = MemberStatus.Alive,  // Only use Alive as fallback
+                ProtocolMin = localNode.PMin,
+                ProtocolMax = localNode.PMax,
+                ProtocolCur = localNode.PCur,
+                DelegateMin = localNode.DMin,
+                DelegateMax = localNode.DMax,
+                DelegateCur = localNode.DCur
+            };
+        });
     }
 
     /// <summary>
@@ -634,7 +646,23 @@ public partial class Serf : IDisposable, IAsyncDisposable
 
             Logger?.LogDebug("[Serf] Waiting {Delay}ms for leave propagation", Config.LeavePropagateDelay.TotalMilliseconds);
             await Task.Delay(Config.LeavePropagateDelay);
+            
+            // Transition cluster state to Left
             _clusterCoordinator.TryTransitionToLeft();
+            
+            // Also transition local member status from Leaving to Left
+            _memberManager.ExecuteUnderLock(accessor =>
+            {
+                accessor.UpdateMember(Config.NodeName, m =>
+                {
+                    var result = m.StateMachine.TransitionOnLeaveComplete();
+                    if (result.WasStateChanged && m.Member != null)
+                    {
+                        m.Member.Status = m.StateMachine.CurrentState;
+                        Logger?.LogDebug("[Serf] Local member transitioned to Left status");
+                    }
+                });
+            });
         }
         catch (Exception ex)
         {

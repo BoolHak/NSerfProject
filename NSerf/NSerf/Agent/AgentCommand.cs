@@ -17,7 +17,7 @@ public class AgentCommand : IAsyncDisposable
     private readonly SignalHandler _signalHandler = new();
     private readonly CancellationTokenSource _shutdownCts = new();
     private readonly TaskCompletionSource<int> _exitCodeTcs = new();
-    
+
     private SerfAgent? _agent;
     private RPC.RpcServer? _rpcServer;
     private Task? _retryJoinTask;
@@ -94,7 +94,7 @@ public class AgentCommand : IAsyncDisposable
 
             // Wait for shutdown signal or agent shutdown
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _shutdownCts.Token);
-            
+
             try
             {
                 await _exitCodeTcs.Task.WaitAsync(linkedCts.Token);
@@ -168,7 +168,7 @@ public class AgentCommand : IAsyncDisposable
         try
         {
             var timeout = TimeSpan.FromSeconds(GracefulTimeoutSeconds);
-            var cts = new CancellationTokenSource(timeout);
+            using var cts = new CancellationTokenSource(timeout);
 
             if (_agent != null)
             {
@@ -276,7 +276,7 @@ public class AgentCommand : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        _shutdownCts.Cancel();
+        await _shutdownCts.CancelAsync();
 
         if (_rpcServer != null)
         {
@@ -295,7 +295,7 @@ public class AgentCommand : IAsyncDisposable
         if (_gatedWriter != null)
         {
             Console.SetOut(Console.Out);
-            _gatedWriter.Dispose();
+            await _gatedWriter.DisposeAsync();
         }
     }
 }

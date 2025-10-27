@@ -16,7 +16,7 @@ public class AgentKeyringTests
         var keys = new[]
         {
             "T9jncgl9mbLus+baTTa7q7nPSUrXwbDi2dhbtqir37s=",
-            "cg8StVXbQJ0gPvMd9pJItg=="  // This is too short but for test purposes
+            "cg8StVXbQJ0gPvMd9pJItg=="
         };
         await File.WriteAllTextAsync(keyringFile, JsonSerializer.Serialize(keys));
 
@@ -29,10 +29,20 @@ public class AgentKeyringTests
                 KeyringFile = keyringFile
             };
 
-            // Keyring loading would happen during Serf initialization
-            // For now, just verify config accepts keyring file
             var agent = new SerfAgent(config);
-            Assert.NotNull(agent);
+            await agent.StartAsync();
+
+            // Verify keyring was loaded
+            var keyring = agent.Serf!.Config.MemberlistConfig?.Keyring;
+            Assert.NotNull(keyring);
+
+            // Verify keys were loaded
+            var loadedKeys = keyring.GetKeys();
+            Assert.NotEmpty(loadedKeys);
+            var loadedKeysBase64 = loadedKeys.Select(k => Convert.ToBase64String(k)).ToArray();
+            Assert.Contains(keys[0], loadedKeysBase64);
+
+            await agent.DisposeAsync();
         }
         finally
         {
@@ -46,20 +56,42 @@ public class AgentKeyringTests
     {
         var keyringFile = Path.GetTempFileName();
 
+        // Start with one key
+        var initialKeys = new[] { "T9jncgl9mbLus+baTTa7q7nPSUrXwbDi2dhbtqir37s=" };
+        await File.WriteAllTextAsync(keyringFile, JsonSerializer.Serialize(initialKeys));
+
         try
         {
             var config = new AgentConfig
             {
                 NodeName = "test-install-key",
-                BindAddr = "127.0.0.1:0"
+                BindAddr = "127.0.0.1:0",
+                KeyringFile = keyringFile
             };
 
             var agent = new SerfAgent(config);
             await agent.StartAsync();
 
-            // InstallKey would be implemented via Serf's KeyManager
-            // Placeholder for when key management is fully implemented
-            Assert.NotNull(agent.Serf);
+            var keyring = agent.Serf!.Config.MemberlistConfig?.Keyring;
+            Assert.NotNull(keyring);
+            var keysBefore = keyring.GetKeys().Count;
+
+            // Install a new key
+            var newKey = "cg8StVXbQJ0gPvMd9pJItg==";
+            var newKeyBytes = Convert.FromBase64String(newKey);
+            keyring.AddKey(newKeyBytes);
+            await agent.Serf.WriteKeyringFileAsync();
+
+            // Verify key was added
+            var keysAfter = keyring.GetKeys();
+            Assert.Equal(keysBefore + 1, keysAfter.Count);
+            var keysAfterBase64 = keysAfter.Select(k => Convert.ToBase64String(k)).ToArray();
+            Assert.Contains(newKey, keysAfterBase64);
+
+            // Verify keyring file was updated
+            var fileContent = await File.ReadAllTextAsync(keyringFile);
+            var savedKeys = JsonSerializer.Deserialize<string[]>(fileContent);
+            Assert.Contains(newKey, savedKeys!);
 
             await agent.DisposeAsync();
         }
@@ -73,38 +105,102 @@ public class AgentKeyringTests
     [Fact]
     public async Task Agent_RemoveKey_UpdatesKeyringFile()
     {
-        var config = new AgentConfig
+        var keyringFile = Path.GetTempFileName();
+
+        // Start with multiple keys
+        var initialKeys = new[]
         {
-            NodeName = "test-remove-key",
-            BindAddr = "127.0.0.1:0"
+            "T9jncgl9mbLus+baTTa7q7nPSUrXwbDi2dhbtqir37s=",
+            "cg8StVXbQJ0gPvMd9pJItg=="
         };
+        await File.WriteAllTextAsync(keyringFile, JsonSerializer.Serialize(initialKeys));
 
-        var agent = new SerfAgent(config);
-        await agent.StartAsync();
+        try
+        {
+            var config = new AgentConfig
+            {
+                NodeName = "test-remove-key",
+                BindAddr = "127.0.0.1:0",
+                KeyringFile = keyringFile
+            };
 
-        // RemoveKey would be implemented via Serf's KeyManager
-        // Placeholder for when key management is fully implemented
-        Assert.NotNull(agent.Serf);
+            var agent = new SerfAgent(config);
+            await agent.StartAsync();
 
-        await agent.DisposeAsync();
+            var keyring = agent.Serf!.Config.MemberlistConfig?.Keyring;
+            Assert.NotNull(keyring);
+            var keysBefore = keyring.GetKeys().Count;
+
+            // Remove a non-primary key
+            var keyToRemove = initialKeys[1];
+            var keyToRemoveBytes = Convert.FromBase64String(keyToRemove);
+            keyring.RemoveKey(keyToRemoveBytes);
+            await agent.Serf.WriteKeyringFileAsync();
+
+            // Verify key was removed
+            var keysAfter = keyring.GetKeys();
+            Assert.Equal(keysBefore - 1, keysAfter.Count);
+            var keysAfterBase64 = keysAfter.Select(k => Convert.ToBase64String(k)).ToArray();
+            Assert.DoesNotContain(keyToRemove, keysAfterBase64);
+
+            // Verify keyring file was updated
+            var fileContent = await File.ReadAllTextAsync(keyringFile);
+            var savedKeys = JsonSerializer.Deserialize<string[]>(fileContent);
+            Assert.DoesNotContain(keyToRemove, savedKeys!);
+
+            await agent.DisposeAsync();
+        }
+        finally
+        {
+            if (File.Exists(keyringFile))
+                File.Delete(keyringFile);
+        }
     }
 
     [Fact]
     public async Task Agent_ListKeys_ReturnsAllKeys()
     {
-        var config = new AgentConfig
+        var keyringFile = Path.GetTempFileName();
+
+        var expectedKeys = new[]
         {
-            NodeName = "test-list-keys",
-            BindAddr = "127.0.0.1:0"
+            "T9jncgl9mbLus+baTTa7q7nPSUrXwbDi2dhbtqir37s=",  // 32 bytes
+            "cg8StVXbQJ0gPvMd9pJItg==",                      // 16 bytes
+            "3nPSUrXwbDi2dhbtqir37sT9jncgl9mbLus+baTTa7o="   // 32 bytes (fixed)
         };
+        await File.WriteAllTextAsync(keyringFile, JsonSerializer.Serialize(expectedKeys));
 
-        var agent = new SerfAgent(config);
-        await agent.StartAsync();
+        try
+        {
+            var config = new AgentConfig
+            {
+                NodeName = "test-list-keys",
+                BindAddr = "127.0.0.1:0",
+                KeyringFile = keyringFile
+            };
 
-        // ListKeys would be implemented via Serf's KeyManager
-        // Placeholder for when key management is fully implemented
-        Assert.NotNull(agent.Serf);
+            var agent = new SerfAgent(config);
+            await agent.StartAsync();
 
-        await agent.DisposeAsync();
+            // List all keys via Keyring
+            var keyring = agent.Serf!.Config.MemberlistConfig?.Keyring;
+            Assert.NotNull(keyring);
+            var keys = keyring.GetKeys();
+            var keysBase64 = keys.Select(k => Convert.ToBase64String(k)).ToArray();
+
+            // Verify all keys are returned
+            Assert.Equal(expectedKeys.Length, keysBase64.Length);
+            foreach (var expectedKey in expectedKeys)
+            {
+                Assert.Contains(expectedKey, keysBase64);
+            }
+
+            await agent.DisposeAsync();
+        }
+        finally
+        {
+            if (File.Exists(keyringFile))
+                File.Delete(keyringFile);
+        }
     }
 }

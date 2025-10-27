@@ -20,7 +20,7 @@ public class AgentMdnsTests
     public void AgentMdns_Start_DoesNotThrow()
     {
         var mdns = new AgentMdns("serf");
-        
+
         // May fail to bind (port in use) but should not throw
         try
         {
@@ -30,7 +30,7 @@ public class AgentMdnsTests
         {
             // Ignore - port may be in use
         }
-        
+
         mdns.Dispose();
     }
 
@@ -38,9 +38,9 @@ public class AgentMdnsTests
     public async Task AgentMdns_DiscoverPeers_ReturnsEmptyIfNotStarted()
     {
         var mdns = new AgentMdns("serf");
-        
+
         var peers = await mdns.DiscoverPeersAsync(TimeSpan.FromMilliseconds(100));
-        
+
         Assert.Empty(peers);
         mdns.Dispose();
     }
@@ -49,7 +49,7 @@ public class AgentMdnsTests
     public async Task AgentMdns_DiscoverPeers_RespectsTimeout()
     {
         var mdns = new AgentMdns("serf");
-        
+
         try
         {
             mdns.Start();
@@ -58,14 +58,14 @@ public class AgentMdnsTests
         {
             // Port may be in use
         }
-        
+
         var sw = System.Diagnostics.Stopwatch.StartNew();
         var peers = await mdns.DiscoverPeersAsync(TimeSpan.FromMilliseconds(500));
         sw.Stop();
-        
+
         // Should complete within timeout + 200ms buffer
         Assert.True(sw.Elapsed.TotalMilliseconds < 700);
-        
+
         mdns.Dispose();
     }
 
@@ -90,9 +90,9 @@ public class AgentMdnsTests
     {
         var mdns = new AgentMdns("serf");
         mdns.Dispose();
-        
+
         var peers = await mdns.DiscoverPeersAsync(TimeSpan.FromMilliseconds(100));
-        
+
         Assert.Empty(peers);
     }
 }

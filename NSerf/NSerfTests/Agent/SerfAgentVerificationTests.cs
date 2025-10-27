@@ -44,17 +44,17 @@ public class SerfAgentVerificationTests
     {
         var config = new AgentConfig { NodeName = "test-node" };
         var agent = new SerfAgent(config);
-        
+
         var handler1 = new MockEventHandler();
         var handler2 = new MockEventHandler();
-        
+
         agent.RegisterEventHandler(handler1);
         agent.RegisterEventHandler(handler2);
         agent.RegisterEventHandler(handler1);  // Duplicate - should be in set only once
-        
+
         // Can't directly verify count without exposing internals, but we verified no exception
         Assert.NotNull(agent);
-        
+
         await agent.DisposeAsync();
     }
 
@@ -187,15 +187,15 @@ public class SerfAgentVerificationTests
     {
         var config = new AgentConfig { NodeName = "test-deregister" };
         var agent = new SerfAgent(config);
-        
+
         var handler = new MockEventHandler();
-        
+
         agent.RegisterEventHandler(handler);
         agent.DeregisterEventHandler(handler);
-        
+
         // Handler removed, no exception
         Assert.NotNull(agent);
-        
+
         await agent.DisposeAsync();
     }
 

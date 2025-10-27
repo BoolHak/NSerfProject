@@ -27,6 +27,7 @@ public class SerfAgent : IAsyncDisposable
     private bool _disposed;
     private bool _started;
     private readonly SemaphoreSlim _shutdownLock = new(1, 1);
+    private NSerf.Memberlist.Keyring? _loadedKeyring;
 
     /// <summary>
     /// Circular log writer for monitor command.
@@ -84,6 +85,12 @@ public class SerfAgent : IAsyncDisposable
         if (!string.IsNullOrEmpty(_config.TagsFile))
         {
             await LoadTagsFileAsync();
+        }
+        
+        // Load keyring from file if specified
+        if (!string.IsNullOrEmpty(_config.KeyringFile))
+        {
+            await LoadKeyringFileAsync();
         }
         
         var serfConfig = BuildSerfConfig();
@@ -195,6 +202,24 @@ public class SerfAgent : IAsyncDisposable
             else
             {
                 config.MemberlistConfig.AdvertiseAddr = _config.AdvertiseAddr;
+            }
+        }
+        
+        // Set keyring if loaded from file
+        if (_loadedKeyring != null && config.MemberlistConfig != null)
+        {
+            config.MemberlistConfig.Keyring = _loadedKeyring;
+            config.KeyringFile = _config.KeyringFile;  // So Serf can write updates
+            _logger?.LogDebug("[Agent] Configured keyring from file");
+        }
+        // Or set encryption key if provided directly
+        else if (!string.IsNullOrEmpty(_config.EncryptKey) && config.MemberlistConfig != null)
+        {
+            var keyBytes = _config.EncryptBytes();
+            if (keyBytes != null)
+            {
+                config.MemberlistConfig.Keyring = NSerf.Memberlist.Keyring.Create(null, keyBytes);
+                _logger?.LogDebug("[Agent] Configured keyring from EncryptKey");
             }
         }
         
@@ -362,6 +387,61 @@ public class SerfAgent : IAsyncDisposable
         await File.WriteAllTextAsync(_config.TagsFile!, json);
         
         _logger?.LogDebug("[Agent] Wrote tags to file: {File}", _config.TagsFile);
+    }
+
+    private async Task LoadKeyringFileAsync()
+    {
+        if (string.IsNullOrEmpty(_config.KeyringFile))
+            return;
+        
+        if (!File.Exists(_config.KeyringFile))
+        {
+            _logger?.LogWarning("[Agent] Keyring file does not exist: {File}", _config.KeyringFile);
+            return;
+        }
+        
+        var json = await File.ReadAllTextAsync(_config.KeyringFile);
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            _logger?.LogWarning("[Agent] Keyring file is empty: {File}", _config.KeyringFile);
+            return;
+        }
+        
+        var keysBase64 = JsonSerializer.Deserialize<string[]>(json);
+        if (keysBase64 == null || keysBase64.Length == 0)
+        {
+            _logger?.LogWarning("[Agent] No keys found in keyring file: {File}", _config.KeyringFile);
+            return;
+        }
+        
+        // Decode base64 keys
+        var keys = new List<byte[]>();
+        foreach (var keyBase64 in keysBase64)
+        {
+            try
+            {
+                var keyBytes = Convert.FromBase64String(keyBase64);
+                keys.Add(keyBytes);
+            }
+            catch (FormatException ex)
+            {
+                _logger?.LogError(ex, "[Agent] Invalid base64 key in keyring file: {Key}", keyBase64);
+                throw new ConfigException($"Invalid base64 key in keyring file: {keyBase64}");
+            }
+        }
+        
+        // Create keyring with first key as primary
+        if (keys.Count > 0)
+        {
+            // First key is primary, rest are secondary
+            var secondaryKeys = keys.Count > 1 ? keys.Skip(1).ToArray() : null;
+            var keyring = NSerf.Memberlist.Keyring.Create(secondaryKeys, keys[0]);
+            
+            // Store keyring to be used when building Serf config
+            _loadedKeyring = keyring;
+            
+            _logger?.LogInformation("[Agent] Loaded {Count} keys from keyring file", keys.Count);
+        }
     }
 
     /// <summary>

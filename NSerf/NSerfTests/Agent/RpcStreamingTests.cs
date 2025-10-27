@@ -58,13 +58,13 @@ public class RpcStreamingTests
         };
 
         var agent = new SerfAgent(config);
-        
+
         // LogWriter should be created
         Assert.NotNull(agent.LogWriter);
-        
+
         // Should be able to write logs
         agent.LogWriter.WriteLine("Test log");
-        
+
         await agent.DisposeAsync();
     }
 
