@@ -1,0 +1,108 @@
+services:
+
+  backend-1:
+    build:
+      context: ..
+      dockerfile: NSerf.BackendService/Dockerfile
+    container_name: backend-1
+    hostname: backend-1
+    command: [ "backend-1", "5000", "7946", "yarp-proxy:7946" ]
+    ports:
+      - "5001:5000"
+      - "7951:7946"
+    networks:
+      - nserf-yarp-network
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:5000
+      - SERF_ENCRYPT_KEY=sSKDkyfVAKUMnWj2l0nuJBU1arxZ9pe6Q7hjH8nESbc=
+    depends_on:
+      yarp-proxy:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:5000/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    
+
+  backend-2:
+    build:
+      context: ..
+      dockerfile: NSerf.BackendService/Dockerfile
+    container_name: backend-2
+    hostname: backend-2
+    command: [ "backend-2", "5000", "7946", "yarp-proxy:7946" ]
+    ports:
+      - "5002:5000"
+      - "7952:7946"
+    networks:
+      - nserf-yarp-network
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:5000
+      - SERF_ENCRYPT_KEY=sSKDkyfVAKUMnWj2l0nuJBU1arxZ9pe6Q7hjH8nESbc=
+    depends_on:
+      yarp-proxy:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:5000/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+
+  backend-3:
+    build:
+      context: ..
+      dockerfile: NSerf.BackendService/Dockerfile
+    container_name: backend-3
+    hostname: backend-3
+    command: [ "backend-3", "5000", "7946", "yarp-proxy:7946" ]
+    ports:
+      - "5003:5000"
+      - "7953:7946"
+    networks:
+      - nserf-yarp-network
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:5000
+      - SERF_ENCRYPT_KEY=sSKDkyfVAKUMnWj2l0nuJBU1arxZ9pe6Q7hjH8nESbc=
+    depends_on:
+      yarp-proxy:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:5000/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  yarp-proxy:
+    build:
+      context: ..
+      dockerfile: NSerf.YarpExample/Dockerfile
+    container_name: yarp-proxy
+    hostname: yarp-proxy
+    command: [ "yarp-proxy", "8080", "7946" ]
+    ports:
+      - "8080:8080"
+      - "7950:7946"
+    networks:
+      - nserf-yarp-network
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8080
+      - SERF_ENCRYPT_KEY=sSKDkyfVAKUMnWj2l0nuJBU1arxZ9pe6Q7hjH8nESbc=
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8080/proxy/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+networks:
+  nserf-yarp-network:
+    driver: bridge
