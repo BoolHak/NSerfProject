@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MPL-2.0
 
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -68,8 +70,8 @@ public static class ServiceCollectionExtensions
                 "Serf instance not available. Ensure the SerfAgent has been started.");
         });
 
-        // Register hosted service for lifecycle management
-        services.AddHostedService<SerfHostedService>();
+        // Register hosted service for lifecycle management (only if not already registered)
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, SerfHostedService>());
 
         return services;
     }
@@ -78,6 +80,7 @@ public static class ServiceCollectionExtensions
     /// Adds Serf agent services with configuration from IConfiguration section.
     /// </summary>
     /// <param name="services">The service collection.</param>
+    /// <param name="configuration">The application configuration.</param>
     /// <param name="configurationSectionPath">Path to configuration section (e.g., "Serf").</param>
     /// <returns>The service collection for chaining.</returns>
     /// <example>
@@ -115,7 +118,7 @@ public static class ServiceCollectionExtensions
         services.Configure<SerfOptions>(configuration.GetSection(configurationSectionPath));
 
         // Register SerfAgent as singleton
-        services.AddSingleton(sp =>
+        services.AddSingleton<Agent.SerfAgent>(sp =>
         {
             var options = sp.GetRequiredService<IOptions<SerfOptions>>().Value;
             var logger = sp.GetService<ILogger<Agent.SerfAgent>>();
@@ -125,15 +128,15 @@ public static class ServiceCollectionExtensions
         });
 
         // Register Serf instance accessor
-        services.AddSingleton(sp =>
+        services.AddSingleton<NSerf.Serf.Serf>(sp =>
         {
             var agent = sp.GetRequiredService<Agent.SerfAgent>();
             return agent.Serf ?? throw new InvalidOperationException(
                 "Serf instance not available. Ensure the SerfAgent has been started.");
         });
 
-        // Register hosted service for lifecycle management
-        services.AddHostedService<SerfHostedService>();
+        // Register hosted service for lifecycle management (only if not already registered)
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, SerfHostedService>());
 
         return services;
     }

@@ -6,10 +6,40 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+
+    <!-- NuGet Package Metadata -->
+    <PackageId>NSerf</PackageId>
+    <Version>0.1.0-beta</Version>
+    <Authors>BoolHak</Authors>
+    <Company>BoolHak, Inc.</Company>
+    <Product>NSerf</Product>
+    <Description>A complete C# port of HashiCorp Serf for decentralized cluster membership, failure detection, and event dissemination. Includes ASP.NET Core integration, RPC client/server, and full SWIM-based gossip protocol implementation.</Description>
+    <PackageTags>serf;cluster;membership;gossip;distributed;swim;hashicorp;service-discovery;failover;aspnetcore</PackageTags>
+    <PackageLicenseExpression>MPL-2.0</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/BoolHak/NSerfProject</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/BoolHak/NSerfProject</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageReadmeFile>README.nuget.md</PackageReadmeFile>
+    <PackageIcon>icon.png</PackageIcon>
+    <Copyright>Copyright (c) BoolHak, Inc. - Licensed under MPL-2.0</Copyright>
+    <PackageReleaseNotes>Initial beta release. Full Serf 1.6.x feature parity with .NET 8+ support.</PackageReleaseNotes>
+    
+    <!-- Include symbols for debugging -->
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    
+    <!-- Generate XML documentation -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="NSerfTests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.nuget.md" Pack="true" PackagePath="\" />
+    <None Include="icon.png" Pack="true" PackagePath="\" />
   </ItemGroup>
 
   <ItemGroup>
