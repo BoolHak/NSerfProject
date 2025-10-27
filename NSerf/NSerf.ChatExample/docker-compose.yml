@@ -1,0 +1,76 @@
+services:
+  chat-node-1:
+    build:
+      context: ..
+      dockerfile: NSerf.ChatExample/Dockerfile
+    container_name: chat-node-1
+    hostname: chat-node-1
+    command: ["chat-node-1", "5000", "7946"]
+    ports:
+      - "5000:5000"
+      - "7946:7946"
+    networks:
+      - serf-chat-network
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:5000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  chat-node-2:
+    build:
+      context: ..
+      dockerfile: NSerf.ChatExample/Dockerfile
+    container_name: chat-node-2
+    hostname: chat-node-2
+    command: ["chat-node-2", "5000", "7946", "chat-node-1:7946"]
+    ports:
+      - "5001:5000"
+      - "7947:7946"
+    networks:
+      - serf-chat-network
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:5000
+    depends_on:
+      chat-node-1:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  chat-node-3:
+    build:
+      context: ..
+      dockerfile: NSerf.ChatExample/Dockerfile
+    container_name: chat-node-3
+    hostname: chat-node-3
+    command: ["chat-node-3", "5000", "7946", "chat-node-1:7946"]
+    ports:
+      - "5002:5000"
+      - "7948:7946"
+    networks:
+      - serf-chat-network
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:5000
+    depends_on:
+      chat-node-1:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+networks:
+  serf-chat-network:
+    driver: bridge
