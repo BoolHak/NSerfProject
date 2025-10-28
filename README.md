@@ -9,6 +9,7 @@ NSerf is a full, from-scratch port of [HashiCorp Serf](https://www.serf.io/) to 
 - [Getting Started](#getting-started)
 - [ASP.NET Core Integration](#aspnet-core-integration)
 - [Distributed Chat Example](#distributed-chat-example)
+- [YARP Service Discovery Example](#yarp-service-discovery-example)
 - [Docker Deployment](#docker-deployment)
 - [Testing](#testing)
 - [Project Status](#project-status)
@@ -19,7 +20,7 @@ NSerf is a full, from-scratch port of [HashiCorp Serf](https://www.serf.io/) to 
 While the behaviour and surface area match Serf's reference implementation, a few platform-specific choices differ:
 
 - **Serialization** relies on the high-performance [MessagePack-CSharp](https://github.com/neuecc/MessagePack-CSharp) stack instead of Go's native MessagePack bindings, keeping message layouts identical to the original protocol.
-- **Compression** uses the built-in .NET `System.IO.Compression.GZipStream` for gossip payload compression, replacing the Go zlib adapter while preserving wire compatibility.
+- **Compression** uses the built-in .NET `System.IO.Compression.GZipStream` for gossip payload compression, replacing the Go LZW (Lempel-Ziv-Welch) adapter while preserving wire compatibility.
 - **Async orchestration** embraces task-based patterns and the C# transaction-style locking helpers introduced during the port, matching Go's channel semantics without blocking threads.
 
 ## Repository Layout
@@ -36,7 +37,9 @@ NSerf/
 │  └─ ...
 ├─ NSerf.CLI/                  # dotnet CLI facade mirroring `serf` command
 ├─ NSerf.CLI.Tests/            # End-to-end and command-level test harnesses
-├─ NSerf.ChatExample/          # Distributed chat demo with Docker support
+├─ NSerf.ChatExample/          # Distributed chat demo with SignalR
+├─ NSerf.YarpExample/          # YARP reverse proxy with dynamic service discovery
+├─ NSerf.BackendService/       # Sample backend service for YARP example
 ├─ NSerfTests/                 # Comprehensive unit, integration, and verification tests
 └─ documentation *.md          # Test plans, remediation reports, design notes
 ```
@@ -50,6 +53,8 @@ NSerf/
 - **Client** – Typed RPC requests/responses and ergonomic helpers for building management tooling.
 - **CLI** – A drop-in `serf` CLI replacement built on `System.CommandLine`, sharing the same RPC surface and defaults as the Go binary.
 - **ChatExample** – Real-world distributed chat application demonstrating NSerf capabilities with SignalR and Docker.
+- **YarpExample** – Production-ready service discovery and load balancing with Microsoft YARP reverse proxy.
+- **BackendService** – Sample microservice demonstrating auto-registration and cluster participation.
 
 ## Getting Started
 
@@ -385,6 +390,150 @@ docker-compose start chat-node-2
 ```bash
 curl http://localhost:5000/members | jq
 ```
+
+---
+
+## YARP Service Discovery Example
+
+The `NSerf.YarpExample` project demonstrates **production-ready service discovery and load balancing** by integrating NSerf with Microsoft YARP (Yet Another Reverse Proxy). This showcases the **real production value** of NSerf for microservices architectures.
+
+### Why This Matters
+
+This example solves a critical production problem: **How do you dynamically discover and load balance backend services without external dependencies like Consul or Eureka?**
+
+**NSerf + YARP provides:**
+- ✅ **Zero-configuration service discovery** - No hardcoded endpoints
+- ✅ **Automatic load balancing** - Round-robin across healthy nodes
+- ✅ **Dynamic scaling** - Add/remove services without restarting the proxy
+- ✅ **Health monitoring** - Automatic removal of failed backends
+- ✅ **Encrypted cluster communication** - AES-256-GCM secure gossip
+- ✅ **Persistent snapshots** - Cluster state survives restarts
+- ✅ **No external dependencies** - Everything built into your .NET application
+
+### Architecture
+
+```
+Client Request → YARP Proxy → [NSerf Cluster Discovery] → Backend-1
+                                                         → Backend-2
+                                                         → Backend-3
+```
+
+The YARP proxy:
+1. Joins the Serf cluster with role `proxy`
+2. Discovers backend services tagged with `service=backend`
+3. Dynamically updates YARP routing configuration
+4. Load balances requests across healthy backends
+5. Monitors backend health and removes failed nodes
+
+### Quick Start - Docker
+
+Run a complete setup with 1 proxy and 3 backend services:
+
+```bash
+cd NSerf/NSerf.YarpExample
+docker-compose up --build
+```
+
+This starts:
+- **YARP Proxy** on `http://localhost:8080`
+- **Backend-1** on `http://localhost:5001`
+- **Backend-2** on `http://localhost:5002`
+- **Backend-3** on `http://localhost:5003`
+
+### Testing Service Discovery
+
+**1. Verify the proxy discovered all backends:**
+```bash
+curl http://localhost:8080/proxy/members | jq
+```
+
+**2. Test load balancing (requests round-robin across backends):**
+```bash
+for i in {1..10}; do
+  curl http://localhost:8080/api/info | jq '.instance'
+done
+```
+
+Output shows requests distributed: `backend-1`, `backend-2`, `backend-3`, `backend-1`, ...
+
+**3. Test dynamic service addition:**
+```bash
+# Add a new backend - it's automatically discovered and added to load balancing!
+docker-compose up -d --scale backend-3=2
+
+# Wait 5 seconds for discovery, then:
+curl http://localhost:8080/proxy/members | jq '.backends'
+# Shows 4 backends now!
+```
+
+**4. Test automatic failover:**
+```bash
+# Stop a backend
+docker-compose stop backend-2
+
+# Requests automatically route around the failed node
+for i in {1..10}; do
+  curl http://localhost:8080/api/info | jq '.instance'
+done
+# Only shows backend-1 and backend-3
+
+# Restart it - automatically rejoins
+docker-compose start backend-2
+```
+
+### API Endpoints
+
+**YARP Proxy (port 8080):**
+- **`/{any-path}`** - Proxied to discovered backends
+- **`GET /proxy/health`** - Proxy health check
+- **`GET /proxy/members`** - View discovered services
+
+**Backend Services (ports 5001-5003):**
+- **`GET /health`** - Health check endpoint
+- **`GET /api/info`** - Backend instance information
+- **`GET /api/work/{id}`** - Simulates processing work
+- **`GET /api/cluster`** - View cluster from backend perspective
+
+### Production Use Cases
+
+**1. Microservices API Gateway**
+- Services auto-register on startup
+- Gateway discovers and routes automatically
+- No manual configuration management
+
+**2. Multi-Region Load Balancing**
+```csharp
+options.Tags["service"] = "api";
+options.Tags["region"] = "us-east-1";
+options.Tags["zone"] = "1a";
+```
+
+**3. Canary Deployments**
+```csharp
+options.Tags["version"] = "2.0";
+options.Tags["canary"] = "true";
+// Route 90% to stable, 10% to canary
+```
+
+**4. Service Mesh**
+- Combined with mTLS
+- Circuit breakers
+- Advanced health checks
+- Traffic shaping
+
+### Why This Is Important
+
+This example demonstrates that **NSerf provides enterprise-grade service discovery** for .NET microservices:
+
+- **No Consul/Eureka needed** - Gossip protocol handles discovery
+- **No Kubernetes required** - Works anywhere .NET runs
+- **Production-ready** - Used patterns from HashiCorp and Netflix
+- **Simple integration** - < 200 lines of integration code
+- **Zero external dependencies** - Everything in your .NET stack
+
+**This is the killer feature that makes NSerf indispensable for .NET cloud-native applications!**
+
+For detailed documentation, see [`NSerf.YarpExample/README.md`](NSerf/NSerf.YarpExample/README.md).
 
 ---
 
