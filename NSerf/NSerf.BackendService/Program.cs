@@ -24,6 +24,10 @@ builder.Services.AddSerf(options =>
     options.Tags["http-port"] = httpPort.ToString();
     options.Tags["version"] = "1.0";
     options.RejoinAfterLeave = true;
+    
+    // Enable snapshot persistence
+    options.SnapshotPath = "/serf/snapshots/serf.snapshot";
+    Console.WriteLine($"[Snapshot] Enabled at /serf/snapshots/serf.snapshot");
 
     // Enable encryption if key provided
     if (!string.IsNullOrEmpty(encryptKey))
@@ -31,8 +35,6 @@ builder.Services.AddSerf(options =>
         options.EncryptKey = encryptKey;
         Console.WriteLine($"[Security] Encryption enabled");
     }
-
-    options.RejoinAfterLeave = true;
 
     if (!string.IsNullOrEmpty(joinNode))
     {

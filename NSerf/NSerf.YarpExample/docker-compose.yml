@@ -12,6 +12,8 @@ services:
       - "7951:7946"
     networks:
       - nserf-yarp-network
+    volumes:
+      - backend-1-snapshots:/serf/snapshots
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_URLS=http://+:5000
@@ -25,7 +27,6 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
-    
 
   backend-2:
     build:
@@ -39,6 +40,8 @@ services:
       - "7952:7946"
     networks:
       - nserf-yarp-network
+    volumes:
+      - backend-2-snapshots:/serf/snapshots
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_URLS=http://+:5000
@@ -53,7 +56,6 @@ services:
       retries: 3
       start_period: 10s
 
-
   backend-3:
     build:
       context: ..
@@ -66,6 +68,8 @@ services:
       - "7953:7946"
     networks:
       - nserf-yarp-network
+    volumes:
+      - backend-3-snapshots:/serf/snapshots
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_URLS=http://+:5000
@@ -92,6 +96,8 @@ services:
       - "7950:7946"
     networks:
       - nserf-yarp-network
+    volumes:
+      - yarp-proxy-snapshots:/serf/snapshots
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_URLS=http://+:8080
@@ -106,3 +112,13 @@ services:
 networks:
   nserf-yarp-network:
     driver: bridge
+
+volumes:
+  yarp-proxy-snapshots:
+    driver: local
+  backend-1-snapshots:
+    driver: local
+  backend-2-snapshots:
+    driver: local
+  backend-3-snapshots:
+    driver: local
