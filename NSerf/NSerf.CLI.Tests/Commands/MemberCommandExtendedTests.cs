@@ -97,7 +97,7 @@ public class MemberCommandExtendedTests : IAsyncLifetime
     }
 
     [Fact(Timeout = 20000)]
-    public async Task Members_AfterFailed_ShowsFailed()
+    public async Task Members_AfterGracefulShutdown_ShowsLeft()
     {
         await using var agent2 = new AgentFixture();
         await agent2.InitializeAsync();
@@ -106,15 +106,15 @@ public class MemberCommandExtendedTests : IAsyncLifetime
         await _fixture!.Agent!.Serf!.JoinAsync(new[] { addr }, ignoreOld: false);
         await Task.Delay(2000);
 
+        // Graceful shutdown broadcasts leave message
         await agent2.Agent.ShutdownAsync();
-        await Task.Delay(10000);
+        await Task.Delay(5000); // Reduced wait time since leave is now broadcasted correctly
 
         var members = _fixture.Agent.Serf.Members();
-        var failedMember = members.FirstOrDefault(m => m.Name == agent2.Agent.NodeName);
-        Assert.NotNull(failedMember);
-        // Node may still be alive or failed depending on timing
-        Assert.True(failedMember.Status == Serf.MemberStatus.Failed || failedMember.Status == Serf.MemberStatus.Alive,
-            $"Expected Failed or Alive, got {failedMember.Status}");
+        var leftMember = members.FirstOrDefault(m => m.Name == agent2.Agent.NodeName);
+        Assert.NotNull(leftMember);
+        // Graceful shutdown should result in Left status (our leave fix ensures this)
+        Assert.Equal(Serf.MemberStatus.Left, leftMember.Status);
     }
 
     [Fact(Timeout = 10000)]

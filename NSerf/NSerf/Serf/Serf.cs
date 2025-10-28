@@ -610,9 +610,13 @@ public partial class Serf : IDisposable, IAsyncDisposable
 
         try
         {
+            Logger?.LogInformation("[Serf] Starting leave operation for node: {Node}", Config.NodeName);
 
             if (Snapshotter != null)
+            {
+                Logger?.LogDebug("[Serf] Notifying snapshotter of leave");
                 await Snapshotter.LeaveAsync();
+            }
 
             var leaveMsg = new MessageLeave
             {
@@ -620,11 +624,13 @@ public partial class Serf : IDisposable, IAsyncDisposable
                 Node = Config.NodeName
             };
 
+            Logger?.LogDebug("[Serf] Processing local leave intent (LTime: {LTime})", leaveMsg.LTime);
             HandleNodeLeaveIntent(leaveMsg);
 
             var encoded = EncodeMessage(MessageType.Leave, leaveMsg);
             if (encoded.Length > 0)
             {
+                //don't ue the async version here
                 Broadcasts.QueueBytes(encoded);
                 Logger?.LogDebug("[Serf] Broadcasted leave intent for: {Node}", Config.NodeName);
             }
@@ -633,10 +639,12 @@ public partial class Serf : IDisposable, IAsyncDisposable
             {
                 try
                 {
+                    Logger?.LogDebug("[Serf] Calling memberlist.LeaveAsync (timeout: {Timeout}s)", Config.BroadcastTimeout.TotalSeconds);
                     var error = await Memberlist.LeaveAsync(Config.BroadcastTimeout);
                     if (error != null)
                         Logger?.LogWarning("[Serf] Error during memberlist leave: {Error}", error.Message);
-
+                    else
+                        Logger?.LogDebug("[Serf] Memberlist leave completed successfully");
                 }
                 catch (Exception ex)
                 {
@@ -646,10 +654,11 @@ public partial class Serf : IDisposable, IAsyncDisposable
 
             Logger?.LogDebug("[Serf] Waiting {Delay}ms for leave propagation", Config.LeavePropagateDelay.TotalMilliseconds);
             await Task.Delay(Config.LeavePropagateDelay);
-            
+            Logger?.LogDebug("[Serf] Leave propagation delay completed");
+
             // Transition cluster state to Left
             _clusterCoordinator.TryTransitionToLeft();
-            
+
             // Also transition local member status from Leaving to Left
             _memberManager.ExecuteUnderLock(accessor =>
             {
@@ -776,6 +785,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
         if (Memberlist != null && Memberlist.NumMembers() > 1)
         {
             var encoded = EncodeMessage(MessageType.Leave, leaveMsg);
+            // Use QueueBytes (not QueueBytesAsync) - simple fire-and-forget broadcast
             Broadcasts.QueueBytes(encoded);
             await Task.Delay(Config.BroadcastTimeout);
         }
@@ -910,6 +920,9 @@ public partial class Serf : IDisposable, IAsyncDisposable
             var memberStatus = (node.State == NSerf.Memberlist.State.NodeStateType.Dead)
                 ? MemberStatus.Failed
                 : MemberStatus.Left;
+
+            Logger?.LogInformation("[Serf] HandleNodeLeave: {Node} with memberlist state={MemberlistState} → Serf status={SerfStatus}",
+                node.Name, node.State, memberStatus);
 
             Config.Metrics.IncrCounter(new[] { "serf", "member", memberStatus.ToStatusString() }, 1, Config.MetricLabels);
 

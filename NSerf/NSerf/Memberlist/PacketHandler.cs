@@ -28,7 +28,7 @@ internal class PacketHandler
     /// </summary>
     public void IngestPacket(byte[] buf, EndPoint from, DateTimeOffset timestamp)
     {
-        Console.WriteLine($"[PACKET] Received {buf.Length} bytes from {from}, first byte: {buf[0]}");
+        _logger?.LogInformation("[PACKET] Received {Size} bytes from {From}, first byte: {FirstByte}", buf.Length, from, buf[0]);
         _logger?.LogDebug("[PACKET] Received {Size} bytes from {From}", buf.Length, from);
 
         // Remove label header if present
@@ -400,7 +400,7 @@ internal class PacketHandler
 
     private void QueueMessage(MessageType msgType, byte[] buf, EndPoint from)
     {
-        Console.WriteLine($"[QUEUE] Processing {msgType} message from {from}");
+        _logger?.LogInformation("[QUEUE] Processing {MessageType} message from {From}", msgType, from);
 
         // Process messages synchronously for now
         var stateHandler = new StateHandlers(_memberlist, _logger);
@@ -435,9 +435,10 @@ internal class PacketHandler
                     break;
 
                 case MessageType.Dead:
-                    Console.WriteLine($"[QUEUE] Decoding Dead message, buf length: {buf.Length}");
+                    _logger?.LogInformation("[QUEUE] Decoding Dead message, buf length: {Length}", buf.Length);
                     var deadMsg = Messages.MessageEncoder.Decode<Messages.DeadMessage>(buf);
-                    Console.WriteLine($"[QUEUE] Decoded Dead: Node={deadMsg.Node}, From={deadMsg.From}, Inc={deadMsg.Incarnation}");
+                    _logger?.LogInformation("[QUEUE] Decoded Dead: Node={Node}, From={From}, Inc={Inc}", 
+                        deadMsg.Node, deadMsg.From, deadMsg.Incarnation);
                     var dead = new Messages.Dead
                     {
                         Incarnation = deadMsg.Incarnation,
@@ -445,7 +446,7 @@ internal class PacketHandler
                         From = deadMsg.From
                     };
                     stateHandler.HandleDeadNode(dead);
-                    Console.WriteLine($"[QUEUE] HandleDeadNode returned");
+                    _logger?.LogInformation("[QUEUE] HandleDeadNode returned for {Node}", deadMsg.Node);
                     break;
 
                 case MessageType.User:
@@ -466,8 +467,6 @@ internal class PacketHandler
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[QUEUE] Exception processing {msgType}: {ex.Message}");
-            Console.WriteLine($"[QUEUE] Stack trace: {ex.StackTrace}");
             _logger?.LogError(ex, "Failed to process {Type} message from {From}", msgType, from);
         }
     }

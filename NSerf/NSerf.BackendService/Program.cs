@@ -36,8 +36,8 @@ builder.Services.AddSerf(options =>
 
     if (!string.IsNullOrEmpty(joinNode))
     {
-        options.StartJoin = new[] { joinNode };
-        options.RetryJoin = new[] { joinNode };
+        options.StartJoin = [joinNode];
+        options.RetryJoin = [joinNode];
     }
 });
 

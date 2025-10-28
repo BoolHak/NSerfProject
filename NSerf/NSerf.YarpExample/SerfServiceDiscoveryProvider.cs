@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Primitives;
 using NSerf.Agent;
+using NSerf.Serf.Events;
 using System.Net;
 using System.Net.Sockets;
 using Yarp.ReverseProxy.Configuration;
@@ -8,17 +9,19 @@ namespace NSerf.YarpExample;
 
 /// <summary>
 /// Dynamic service discovery provider that integrates NSerf cluster membership with YARP.
-/// Automatically discovers backend services from the Serf cluster and updates YARP routing.
+/// Uses Serf's event system for immediate updates when members join/leave/fail,
+/// with a slower reconciliation timer as fallback for eventual consistency.
 /// </summary>
-public class SerfServiceDiscoveryProvider : IProxyConfigProvider, IDisposable
+public class SerfServiceDiscoveryProvider : IProxyConfigProvider, IEventHandler, IDisposable
 {
     private readonly SerfAgent _agent;
     private readonly ILogger<SerfServiceDiscoveryProvider> _logger;
-    private readonly Timer _updateTimer;
+    private readonly Timer _reconciliationTimer;
     private volatile InMemoryConfig _config;
 
     private int _updating = 0;
     private bool _hadBackends = false;
+    private bool _disposed = false;
 
     public SerfServiceDiscoveryProvider(
         SerfAgent agent,
@@ -27,11 +30,47 @@ public class SerfServiceDiscoveryProvider : IProxyConfigProvider, IDisposable
         _agent = agent ?? throw new ArgumentNullException(nameof(agent));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _config = new InMemoryConfig(Array.Empty<RouteConfig>(), Array.Empty<ClusterConfig>());
-        _updateTimer = new Timer(UpdateConfiguration, null, TimeSpan.Zero, TimeSpan.FromSeconds(2));
-        _logger.LogInformation("SerfServiceDiscoveryProvider initialized");
+        
+        // Register event handler for immediate updates
+        _agent.RegisterEventHandler(this);
+        
+        // Slower reconciliation timer as fallback (every 30 seconds)
+        // This ensures eventual consistency even if events are missed
+        _reconciliationTimer = new Timer(UpdateConfiguration, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(30));
+        
+        _logger.LogInformation("SerfServiceDiscoveryProvider initialized with event-driven updates");
     }
 
     public IProxyConfig GetConfig() => _config;
+
+    /// <summary>
+    /// Handle Serf events for immediate configuration updates.
+    /// </summary>
+    public void HandleEvent(Event @event)
+    {
+        if (_disposed)
+            return;
+
+        // Only care about member events that affect backend availability
+        if (@event is MemberEvent memberEvent)
+        {
+            var eventType = memberEvent.Type;
+            
+            // Log event for visibility
+            var memberNames = string.Join(", ", memberEvent.Members.Select(m => m.Name));
+            _logger.LogDebug("Received {EventType} for members: {Members}", eventType.String(), memberNames);
+
+            // Check if any affected members are backends
+            var hasBackendMembers = memberEvent.Members.Any(m => 
+                m.Tags.TryGetValue("service", out var svc) && svc == "backend");
+
+            if (hasBackendMembers)
+            {
+                _logger.LogInformation("Backend member {EventType} detected - updating configuration", eventType.String());
+                UpdateConfiguration(null);
+            }
+        }
+    }
     private static string BuildAddress(IPAddress ip, string port, string scheme = "http")
     {
         var host = ip.ToString();
@@ -133,7 +172,6 @@ public class SerfServiceDiscoveryProvider : IProxyConfigProvider, IDisposable
                     Enabled = true,
                     Interval = TimeSpan.FromSeconds(2),
                     Timeout = TimeSpan.FromSeconds(1),
-                    // Consider omitting Policy or set to a verified active policy for your YARP version
                     Path = "/health"
                 }
             }
@@ -158,7 +196,15 @@ public class SerfServiceDiscoveryProvider : IProxyConfigProvider, IDisposable
 
     public void Dispose()
     {
-        _updateTimer?.Dispose();
+        if (_disposed)
+            return;
+
+        _disposed = true;
+        
+        // Deregister event handler
+        _agent.DeregisterEventHandler(this);
+        
+        _reconciliationTimer?.Dispose();
         _config?.Dispose();
     }
 

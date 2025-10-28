@@ -127,7 +127,7 @@ internal class IntentHandler : IIntentHandler
     /// <summary>
     /// Handles a leave intent message.
     /// Transitions: Alive → Leaving, Failed → Left
-    /// Emits: EventMemberLeave when Failed→Left
+    /// Emits: EventMemberLeave when Alive→Leaving (graceful leave) or Failed→Left (removal)
     /// </summary>
     public bool HandleLeaveIntent(MessageLeave leaveIntent)
     {
@@ -181,12 +181,14 @@ internal class IntentHandler : IIntentHandler
                         _logger?.LogInformation("[IntentHandler] {Reason}", result.Reason);
 
                         // Emit EventMemberLeave when Failed→Left (per Go implementation)
+                        // Note: Alive→Leaving does NOT emit events - events are emitted by NodeEventHandler
+                        // when the final Left state is reached via memberlist callback
                         if (oldStatus == MemberStatus.Failed && m.Status == MemberStatus.Left && m.Member != null)
                         {
                             var memberEvent = new MemberEvent
                             {
                                 Type = EventType.MemberLeave,
-                                Members = new List<Member> { m.Member }
+                                Members = [m.Member]
                             };
                             _eventLog.Add(memberEvent);
                         }

@@ -27,30 +27,6 @@ public class AgentIntegrationTests
         await agent.DisposeAsync();
     }
 
-    [Fact(Timeout = 5000)]
-    public async Task Agent_RpcHandshakeOnly()
-    {
-        var config = new AgentConfig
-        {
-            NodeName = "test-handshake",
-            BindAddr = "127.0.0.1:0",
-            RPCAddr = "127.0.0.1:17380"
-        };
-
-        await using var agent = new SerfAgent(config);
-        await agent.StartAsync();
-        await Task.Delay(100);
-
-        var rpcConfig = new RpcConfig
-        {
-            Address = "127.0.0.1:17380",
-            Timeout = TimeSpan.FromSeconds(2)
-        };
-
-        using var client = new RpcClient(rpcConfig);
-        await client.ConnectAsync();
-    }
-
     [Fact(Timeout = 10000)]
     public async Task Agent_RpcClient_CanConnect()
     {

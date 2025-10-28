@@ -27,6 +27,17 @@ public class BroadcastQueue
     }
     
     /// <summary>
+    /// Queues a broadcast with completion notification.
+    /// Returns a task that completes when the broadcast is sent.
+    /// </summary>
+    public Task QueueBytesAsync(byte[] data)
+    {
+        var tcs = new TaskCompletionSource();
+        _queue.QueueBroadcast(new NotifyingBroadcast(data, tcs));
+        return tcs.Task;
+    }
+    
+    /// <summary>
     /// Queues a named broadcast that can be invalidated.
     /// </summary>
     public void QueueNamed(string name, byte[] data)
@@ -93,4 +104,29 @@ internal class NamedBroadcast : INamedBroadcast
     public bool Invalidates(IBroadcast other) => false;
     public byte[] Message() => _data;
     public void Finished() { }
+}
+
+/// <summary>
+/// Broadcast that notifies when transmission completes.
+/// Matches Go's broadcast notification pattern.
+/// </summary>
+internal class NotifyingBroadcast : IBroadcast
+{
+    private readonly byte[] _data;
+    private readonly TaskCompletionSource _notifier;
+    
+    public NotifyingBroadcast(byte[] data, TaskCompletionSource notifier)
+    {
+        _data = data;
+        _notifier = notifier;
+    }
+    
+    public bool Invalidates(IBroadcast other) => false;
+    public byte[] Message() => _data;
+    
+    public void Finished()
+    {
+        // Signal that broadcast has been sent (matches Go closing the notify channel)
+        _notifier.TrySetResult();
+    }
 }

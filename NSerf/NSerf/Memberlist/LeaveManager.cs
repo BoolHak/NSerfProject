@@ -32,12 +32,10 @@ public class LeaveManager
     {
         try
         {
-            Console.WriteLine($"[LEAVE] Initiating graceful leave for {localNodeName}");
             _logger?.LogInformation("Initiating graceful leave for {Node}", localNodeName);
             
             // Increment incarnation to override any other messages
             var incarnation = _memberlist.NextIncarnation();
-            Console.WriteLine($"[LEAVE] Using incarnation {incarnation}");
             
             // Create dead message for ourselves
             var deadMsg = new Dead
@@ -47,19 +45,40 @@ public class LeaveManager
                 From = localNodeName
             };
             
-            Console.WriteLine($"[LEAVE] Broadcasting dead message for {localNodeName}");
-            Console.WriteLine($"[LEAVE] Dead message: Node={deadMsg.Node}, From={deadMsg.From}, Inc={deadMsg.Incarnation}");
-            Console.WriteLine($"[LEAVE] DeadNodeReclaimTime={_memberlist._config.DeadNodeReclaimTime}");
-            Console.WriteLine($"[LEAVE] Broadcasts queued BEFORE: {_memberlist._broadcasts.NumQueued()}");
-            // Broadcast the leave (dead) message
-            _memberlist.EncodeAndBroadcast(localNodeName, MessageType.Dead, deadMsg);
-            Console.WriteLine($"[LEAVE] Broadcast encode complete");
-            // Check immediately before gossip can consume
-            var queuedNow = _memberlist._broadcasts.NumQueued();
-            Console.WriteLine($"[LEAVE] Broadcasts queued IMMEDIATELY after: {queuedNow}");
+            // CRITICAL: Force immediate gossip to send the queued broadcasts
+            // Do 3 rounds - queue then gossip each time (background task may consume between rounds)
+            // Use CancellationToken.None so shutdown doesn't cancel UDP writes
+            _logger?.LogInformation("[LEAVE] Forcing 3 gossip rounds for leave broadcast");
             
-            // Wait for broadcast to propagate
-            await Task.Delay(broadcastTimeout, cancellationToken);
+            for (int i = 0; i < 3; i++)
+            {
+                try
+                {
+                    // Queue the dead message before each gossip round
+                    // Background task may have consumed previous broadcast
+                    _memberlist.EncodeAndBroadcast(localNodeName, MessageType.Dead, deadMsg);
+                    
+                    // Gossip immediately to send the queued broadcast
+                    await _memberlist.GossipAsync(CancellationToken.None);
+                    
+                    // Wait between gossip rounds for transmission
+                    if (i < 2)
+                    {
+                        await Task.Delay(TimeSpan.FromMilliseconds(200), CancellationToken.None);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogWarning(ex, "[LEAVE] Error during gossip round {Round}", i + 1);
+                }
+            }
+            
+            var finalQueued = _memberlist._broadcasts.NumQueued();
+            _logger?.LogInformation("[LEAVE] Leave broadcast complete, {Remaining} still queued", finalQueued);
+            
+            // Brief wait to allow network transmission and retransmits
+            await Task.Delay(TimeSpan.FromMilliseconds(500));
+            _logger?.LogInformation("[LEAVE] Leave broadcast complete");
             
             return new LeaveResult
             {

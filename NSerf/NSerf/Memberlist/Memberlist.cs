@@ -783,8 +783,9 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
     /// <summary>
     /// Gossip is invoked every GossipInterval to broadcast our gossip messages
     /// to a few random nodes.
+    /// Made internal to allow LeaveManager to force immediate gossip during graceful leave.
     /// </summary>
-    private async Task GossipAsync()
+    internal async Task GossipAsync(CancellationToken cancellationToken = default)
     {
         // Get some random live, suspect, or recently dead nodes
         List<Node> kNodes;
@@ -804,11 +805,13 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
                         return false;
 
                     case NodeStateType.Dead:
-                        // Only gossip to dead nodes if they died recently
+                    case NodeStateType.Left:
+                        // Gossip to dead/left nodes if they transitioned recently
+                        // This allows leave messages to propagate even to nodes that already left
                         return (DateTimeOffset.UtcNow - node.StateChange) > _config.GossipToTheDeadTime;
 
                     default:
-                        return true; // Exclude left nodes
+                        return true; // Exclude other states
                 }
             });
         }
@@ -843,32 +846,43 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
 
             try
             {
+                byte[] packet;
                 if (msgs.Count == 1)
                 {
                     // Send single message as-is
-                    var packet = msgs[0];
-
-                    // Add label header if configured
-                    if (!string.IsNullOrEmpty(_config.Label))
-                    {
-                        packet = LabelHandler.AddLabelHeaderToPacket(packet, _config.Label);
-                    }
-
-                    await _transport.WriteToAddressAsync(packet, addr, _shutdownCts.Token);
+                    packet = msgs[0];
                 }
                 else
                 {
                     // Create compound message
-                    var compoundBytes = Messages.CompoundMessage.MakeCompoundMessage(msgs);
-
-                    // Add label header if configured
-                    if (!string.IsNullOrEmpty(_config.Label))
-                    {
-                        compoundBytes = LabelHandler.AddLabelHeaderToPacket(compoundBytes, _config.Label);
-                    }
-
-                    await _transport.WriteToAddressAsync(compoundBytes, addr, _shutdownCts.Token);
+                    packet = Messages.CompoundMessage.MakeCompoundMessage(msgs);
                 }
+
+                // Encrypt if enabled (BEFORE adding label header, matching SendPacketAsync)
+                if (_config.EncryptionEnabled() && _config.GossipVerifyOutgoing)
+                {
+                    try
+                    {
+                        var authData = System.Text.Encoding.UTF8.GetBytes(_config.Label ?? "");
+                        var primaryKey = _config.Keyring?.GetPrimaryKey() ?? throw new InvalidOperationException("No primary key available");
+                        packet = Security.EncryptPayload(1, primaryKey, packet, authData);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger?.LogError(ex, "[GOSSIP] Failed to encrypt packet for {Node}", node.Name);
+                        throw;
+                    }
+                }
+
+                // Add label header if configured (AFTER encryption, matching SendPacketAsync)
+                if (!string.IsNullOrEmpty(_config.Label))
+                {
+                    packet = LabelHandler.AddLabelHeaderToPacket(packet, _config.Label);
+                }
+
+                // Use provided token (not shutdown token) to allow leave messages during shutdown
+                var tokenToUse = cancellationToken == default ? _shutdownCts.Token : cancellationToken;
+                await _transport.WriteToAddressAsync(packet, addr, tokenToUse);
 
                 _logger?.LogDebug("[GOSSIP] Successfully sent {Count} messages to {Node} at {Addr}", msgs.Count, node.Name, addr.Addr);
             }

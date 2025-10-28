@@ -541,9 +541,32 @@ public class SerfAgent : IAsyncDisposable
                 _rpcServer = null;
             }
             
-            // Shutdown Serf (triggers event channel close)
+            // Gracefully leave cluster before shutdown (broadcasts leave event)
             if (_serf != null)
             {
+                try
+                {
+                    // Attempt graceful leave with timeout to avoid hanging on shutdown
+                    // Timeout = BroadcastTimeout (5s) + LeavePropagateDelay (1s) + buffer (4s) = 10s
+                    var leaveTask = _serf.LeaveAsync();
+                    var timeoutTask = Task.Delay(TimeSpan.FromSeconds(10));
+                    var completedTask = await Task.WhenAny(leaveTask, timeoutTask);
+                    
+                    if (completedTask == timeoutTask)
+                    {
+                        _logger?.LogWarning("[Agent] Leave timed out after 10 seconds, forcing shutdown");
+                    }
+                    else
+                    {
+                        _logger?.LogInformation("[Agent] Successfully left cluster");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogWarning(ex, "[Agent] Error during leave, forcing shutdown");
+                }
+                
+                // Shutdown Serf (triggers event channel close)
                 await _serf.ShutdownAsync();
                 _serf = null;
             }

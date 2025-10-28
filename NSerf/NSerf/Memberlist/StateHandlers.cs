@@ -518,17 +518,23 @@ public class StateHandlers
     /// </summary>
     public void HandleDeadNode(Dead dead)
     {
+        _logger?.LogDebug("[HandleDeadNode] Received: Node={Node}, From={From}, Inc={Inc}", 
+            dead.Node, dead.From, dead.Incarnation);
+        
         lock (_memberlist._nodeLock)
         {
             if (!_memberlist._nodeMap.TryGetValue(dead.Node, out var state))
             {
                 // Never heard of this node, ignore
+                _logger?.LogDebug("[HandleDeadNode] Unknown node {Node}, ignoring", dead.Node);
                 return;
             }
 
             // Ignore old incarnation
             if (dead.Incarnation < state.Incarnation)
             {
+                _logger?.LogDebug("[HandleDeadNode] Old incarnation {DeadInc} < {StateInc} for {Node}, ignoring", 
+                    dead.Incarnation, state.Incarnation, dead.Node);
                 return;
             }
 
@@ -548,29 +554,38 @@ public class StateHandlers
                 }
             }
 
-            // Ignore if already dead or left
-            if (state.State == NodeStateType.Dead || state.State == NodeStateType.Left)
+            // Check if already in final state
+            // CRITICAL: Allow graceful leave (Node==From) to override Dead state
+            // This handles the case where failure detector marks node Dead before graceful leave arrives
+            if (state.State == NodeStateType.Left)
             {
+                // Already left, nothing to do
+                return;
+            }
+            
+            if (state.State == NodeStateType.Dead && dead.Node != dead.From)
+            {
+                // Already dead from failure, and this is not a graceful leave override
                 return;
             }
 
             // Check if this is us
             if (state.Node.Name == _memberlist._config.Name)
             {
-                // If not leaving, refute
-                if (!_memberlist.IsLeaving)
+                // If this is NOT a graceful leave (Node != From) and we're not leaving, refute it
+                if (dead.Node != dead.From && !_memberlist.IsLeaving)
                 {
                     RefuteNode(state, dead.Incarnation);
                     _logger?.LogWarning("Refuting dead message from {From}", dead.From);
                     return; // Don't mark ourselves dead
                 }
 
-                // If leaving, broadcast dead message
+                // If it's a graceful leave (Node==From) or we're leaving, broadcast and continue processing
                 _memberlist.EncodeAndBroadcast(dead.Node, Messages.MessageType.Dead, dead);
             }
             else
             {
-                // Broadcast the dead message
+                // Broadcast the dead message for other nodes
                 _memberlist.EncodeAndBroadcast(dead.Node, Messages.MessageType.Dead, dead);
             }
 
@@ -580,11 +595,22 @@ public class StateHandlers
             // If the dead message was sent by the node itself, mark as left instead
             if (dead.Node == dead.From)
             {
+                var wasAlreadyDead = state.State == NodeStateType.Dead;
+                if (wasAlreadyDead)
+                {
+                    _logger?.LogInformation("[HandleDeadNode] Graceful leave OVERRIDING failure: {Node} Dead→Left", dead.Node);
+                }
+                else
+                {
+                    _logger?.LogInformation("[HandleDeadNode] Graceful leave detected (Node==From): {Node} → Left", dead.Node);
+                }
                 state.State = NodeStateType.Left;
                 state.Node.State = NodeStateType.Left; // CRITICAL: Update Node.State too
             }
             else
             {
+                _logger?.LogInformation("[HandleDeadNode] Node failure detected (Node!=From): {Node} → Dead (reported by {From})", 
+                    dead.Node, dead.From);
                 state.State = NodeStateType.Dead;
                 state.Node.State = NodeStateType.Dead; // CRITICAL: Update Node.State too
             }
