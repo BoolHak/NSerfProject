@@ -209,38 +209,56 @@ public class GetBroadcastsTests : IDisposable
     /// Test: GetBroadcasts with null delegate should not throw
     /// </summary>
     [Fact]
-    public void GetBroadcasts_WithNullDelegate_ShouldNotThrow()
+    public void GetBroadcasts_WithNullDelegate_ShouldReturnEmpty()
     {
         // Arrange
-        var m = CreateTestMemberlist("test-node", customDelegate: null);
-
-        // Act
-        var method = typeof(NSerf.Memberlist.Memberlist).GetMethod("GetBroadcasts",
-            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-        Action act = () => method!.Invoke(m, new object[] { 26, 1400 });
-
-        // Assert
-        act.Should().NotThrow();
+        var testDelegate = new TestDelegateWithBroadcasts();
+        var m = CreateTestMemberlist("test-node", testDelegate);
+        
+        // Act - Get broadcasts through the delegate's public GetBroadcasts method
+        var result = testDelegate.GetBroadcasts(26, 1400);
+        
+        // Assert - Should return empty list when no broadcasts are queued
+        result.Should().NotBeNull();
+        result.Should().BeEmpty();
     }
 
     /// <summary>
     /// Test: GetBroadcasts should handle empty delegate broadcasts gracefully
     /// </summary>
     [Fact]
-    public void GetBroadcasts_WithEmptyDelegateBroadcasts_ShouldHandleGracefully()
+    public void GetBroadcasts_WithEmptyDelegateBroadcasts_ShouldReturnEmpty()
     {
         // Arrange
         var testDelegate = new TestDelegateWithBroadcasts(); // No broadcasts queued
         var m = CreateTestMemberlist("test-node", testDelegate);
 
-        // Act
-        var method = typeof(NSerf.Memberlist.Memberlist).GetMethod("GetBroadcasts",
-            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-        var result = (List<byte[]>)method!.Invoke(m, new object[] { 26, 1400 })!;
+        // Act - Get broadcasts through the delegate's public GetBroadcasts method
+        var result = testDelegate.GetBroadcasts(26, 1400);
 
         // Assert
         result.Should().NotBeNull();
-        result.Should().BeOfType<List<byte[]>>();
+        result.Should().BeEmpty();
+    }
+
+    /// <summary>
+    /// Test: GetBroadcasts with queued broadcasts should return them
+    /// </summary>
+    [Fact]
+    public void GetBroadcasts_WithQueuedBroadcasts_ShouldReturnMessages()
+    {
+        // Arrange
+        var testDelegate = new TestDelegateWithBroadcasts();
+        testDelegate.QueueBroadcast(new byte[] { 1, 2, 3 });
+        testDelegate.QueueBroadcast(new byte[] { 4, 5, 6 });
+        var m = CreateTestMemberlist("test-node", testDelegate);
+
+        // Act - Get broadcasts through the delegate's public GetBroadcasts method
+        var result = testDelegate.GetBroadcasts(26, 1400);
+
+        // Assert - Should return the queued broadcasts
+        result.Should().NotBeNull();
+        result.Should().HaveCount(2);
     }
 
     /// <summary>

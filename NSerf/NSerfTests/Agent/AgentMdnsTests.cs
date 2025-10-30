@@ -11,27 +11,83 @@ public class AgentMdnsTests
     [Fact]
     public void AgentMdns_Constructor_SetsServiceName()
     {
-        var mdns = new AgentMdns("serf");
-        Assert.NotNull(mdns);
+        // Arrange
+        const string expectedService = "serf";
+        
+        // Act
+        var mdns = new AgentMdns(expectedService);
+        
+        // Assert
+        Assert.Equal(expectedService, mdns.ServiceName);
+        
         mdns.Dispose();
     }
 
     [Fact]
-    public void AgentMdns_Start_DoesNotThrow()
+    public void AgentMdns_ServiceNameUsedInQuery()
     {
-        var mdns = new AgentMdns("serf");
-
-        // May fail to bind (port in use) but should not throw
-        try
-        {
-            mdns.Start();
-        }
-        catch
-        {
-            // Ignore - port may be in use
-        }
-
+        // Arrange
+        const string serviceName = "test-cluster";
+        var mdns = new AgentMdns(serviceName);
+        
+        // Act - Get the query through reflection to verify service name is used
+        var buildMdnsQueryMethod = typeof(AgentMdns).GetMethod("BuildMdnsQuery", 
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        var query = (byte[])buildMdnsQueryMethod!.Invoke(mdns, null)!;
+        
+        // Assert - Verify the service name is embedded in the DNS-encoded query
+        // DNS format: length byte + label for each part
+        var queryStr = System.Text.Encoding.UTF8.GetString(query);
+        
+        // Check for DNS-encoded format: \x0ctest-cluster\x04_tcp\x05local\x00
+        Assert.Contains("\x0ctest-cluster", queryStr);
+        Assert.Contains("\x04_tcp", queryStr);
+        Assert.Contains("\x05local", queryStr);
+        
         mdns.Dispose();
+    }
+
+    [Fact]
+    public void AgentMdns_Start_InitializesCorrectly()
+    {
+        // Arrange
+        var mdns = new AgentMdns("test-service", "local", 0); // Port 0 = dynamic assignment
+        
+        // Act
+        var started = mdns.Start();
+        
+        // Assert - Verify the service started successfully
+        Assert.True(started);
+        Assert.True(mdns.IsStarted);
+        
+        // Clean up
+        mdns.Dispose();
+    }
+
+    [Fact]
+    public void AgentMdns_Start_WhenCalledTwice_ReturnsFalse()
+    {
+        // Arrange
+        var mdns = new AgentMdns("test-service", "local", 0); // Port 0 = dynamic assignment
+        var firstStart = mdns.Start();
+        Assert.True(firstStart);
+        
+        // Act & Assert - Second start should return false (already started)
+        var secondStart = mdns.Start();
+        Assert.False(secondStart);
+        
+        mdns.Dispose();
+    }
+
+    [Fact]
+    public void AgentMdns_Start_AfterDispose_ThrowsObjectDisposed()
+    {
+        // Arrange
+        var mdns = new AgentMdns("test-service");
+        mdns.Dispose();
+        
+        // Act & Assert
+        Assert.Throws<ObjectDisposedException>(() => mdns.Start());
     }
 
     [Fact]
@@ -80,8 +136,17 @@ public class AgentMdnsTests
     [Fact]
     public void AgentMdns_CustomDomain_Accepted()
     {
-        var mdns = new AgentMdns("serf", "custom.domain");
-        Assert.NotNull(mdns);
+        // Arrange
+        const string expectedService = "serf";
+        const string expectedDomain = "custom.domain";
+        
+        // Act
+        var mdns = new AgentMdns(expectedService, expectedDomain);
+        
+        // Assert
+        Assert.Equal(expectedService, mdns.ServiceName);
+        Assert.Equal(expectedDomain, mdns.Domain);
+        
         mdns.Dispose();
     }
 

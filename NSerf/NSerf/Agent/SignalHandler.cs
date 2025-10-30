@@ -38,6 +38,8 @@ public class SignalHandler : IDisposable
     {
         lock (_lock)
         {
+            if (_disposed)
+                return;
             _callbacks.Add(callback);
         }
     }
@@ -47,6 +49,8 @@ public class SignalHandler : IDisposable
         SignalCallback[] callbacks;
         lock (_lock)
         {
+            if (_disposed)
+                return;
             callbacks = _callbacks.ToArray();
         }
 

@@ -8,18 +8,37 @@ namespace NSerfTests.Agent;
 
 public class CircularLogWriterTests
 {
+    private class MockLogHandler : ILogHandler
+    {
+        public List<string> Logs { get; } = new();
+        
+        public void HandleLog(string log)
+        {
+            Logs.Add(log);
+        }
+    }
+
     [Fact]
     public void CircularLogWriter_BuffersLogs()
     {
+        // Arrange
         var logWriter = new CircularLogWriter(10);
-
+        var handler = new MockLogHandler();
+        
+        // Act - Write some logs
         logWriter.WriteLine("Log 1");
         logWriter.WriteLine("Log 2");
         logWriter.WriteLine("Log 3");
-
-        // Should not throw
-        Assert.NotNull(logWriter);
-
+        
+        // Register handler to receive buffered logs
+        logWriter.RegisterHandler(handler);
+        
+        // Assert - Handler should receive all buffered logs
+        Assert.Equal(3, handler.Logs.Count);
+        Assert.Equal("Log 1", handler.Logs[0]);
+        Assert.Equal("Log 2", handler.Logs[1]);
+        Assert.Equal("Log 3", handler.Logs[2]);
+        
         logWriter.Dispose();
     }
 

@@ -24,33 +24,68 @@ public class AgentMdns : IDisposable
     private const int MdnsPort = 5353;
     private const string MdnsAddress = "224.0.0.251";
 
+    private readonly int _port;
+
     public AgentMdns(string service, string domain = "local", ILogger? logger = null)
+        : this(service, domain, MdnsPort, logger)
+    {
+    }
+
+    public AgentMdns(string service, string domain, int port, ILogger? logger = null)
     {
         _service = service ?? throw new ArgumentNullException(nameof(service));
         _domain = domain;
+        _port = port;
         _logger = logger;
     }
 
     /// <summary>
+    /// Gets the service name used for mDNS discovery.
+    /// </summary>
+    public string ServiceName => _service;
+
+    /// <summary>
+    /// Gets the domain used for mDNS discovery.
+    /// </summary>
+    public string Domain => _domain;
+
+    /// <summary>
+    /// Gets whether the mDNS service is started.
+    /// </summary>
+    public bool IsStarted => _client != null && _listenerTask != null && !_disposed;
+
+    /// <summary>
     /// Start mDNS discovery.
     /// </summary>
-    public void Start()
+    /// <returns>True if started successfully, false otherwise</returns>
+    public bool Start()
     {
         if (_disposed)
             throw new ObjectDisposedException(nameof(AgentMdns));
 
+        // Check if already started
+        if (_client != null && _listenerTask != null)
+            return false;
+
         try
         {
-            _client = new UdpClient(MdnsPort);
-            _client.JoinMulticastGroup(IPAddress.Parse(MdnsAddress));
+            _client = new UdpClient(_port);
+            
+            // Only join multicast group if using a real port (not 0)
+            if (_port != 0)
+            {
+                _client.JoinMulticastGroup(IPAddress.Parse(MdnsAddress));
+            }
             
             _listenerTask = Task.Run(() => ListenAsync(_cts.Token), _cts.Token);
             
-            _logger?.LogInformation("[mDNS] Started discovery for service: {Service}", _service);
+            _logger?.LogInformation("[mDNS] Started discovery for service: {Service} on port: {Port}", _service, _port);
+            return true;
         }
         catch (Exception ex)
         {
             _logger?.LogWarning(ex, "[mDNS] Failed to start discovery");
+            return false;
         }
     }
 
