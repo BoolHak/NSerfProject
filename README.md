@@ -2,6 +2,8 @@
 
 NSerf is a full, from-scratch port of [HashiCorp Serf](https://www.serf.io/) to modern C#. The project mirrors Serf's decentralized cluster membership, failure detection, and event dissemination model while embracing idiomatic .NET patterns for concurrency, async I/O, and tooling. The codebase targets .NET 8+ and is currently in **beta** while the team polishes APIs and round-trips real-world workloads.
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/BoolHak/NSerfProject)
+
 ## Table of Contents
 
 - [Key Differences](#key-differences-from-the-go-implementation)
