@@ -40,9 +40,9 @@ public partial class Serf
             ["member_time"] = Clock.Time().ToString(),
             ["event_time"] = EventClock.Time().ToString(),
             ["query_time"] = QueryClock.Time().ToString(),
-            ["intent_queue"] = "0", // TODO: Implement once BroadcastQueue exposes queue size
-            ["event_queue"] = "0",  // TODO: Implement once BroadcastQueue exposes queue size
-            ["query_queue"] = "0",  // TODO: Implement once BroadcastQueue exposes queue size
+            ["intent_queue"] = Broadcasts.Count.ToString(),
+            ["event_queue"] = EventBroadcasts.Count.ToString(),
+            ["query_queue"] = QueryBroadcasts.Count.ToString(),
             ["encrypted"] = EncryptionEnabled().ToString().ToLowerInvariant()
         };
 
