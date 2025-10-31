@@ -1177,7 +1177,10 @@ public partial class Serf : IDisposable, IAsyncDisposable
             _coordCacheLock.EnterWriteLock();
             try
             {
-                _coordCache[nodeName] = updated;
+                // Cache the remote node's coordinate (from payload)
+                _coordCache[nodeName] = coordinate;
+                // Cache the local node's updated coordinate (from coordClient)
+                _coordCache[Config.NodeName] = updated;
             }
             finally
             {

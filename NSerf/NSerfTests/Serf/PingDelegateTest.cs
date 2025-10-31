@@ -3,6 +3,9 @@
 // Ported from: github.com/hashicorp/serf/serf/ping_delegate.go
 
 using FluentAssertions;
+using MessagePack;
+using NSerf.Coordinate;
+using NSerf.Memberlist.Configuration;
 using NSerf.Memberlist.State;
 using NSerf.Serf;
 using System.Net;
@@ -56,10 +59,21 @@ public class PingDelegateTest
         var payload = pingDelegate.AckPayload();
 
         // Assert - Should return coordinate data (non-empty when coordinates enabled)
-        // Note: Actual coordinate implementation tested in coordinate tests
+        payload.Should().NotBeEmpty("coordinates are enabled");
         
-        // TODO: Phase 9 - Add assertions to verify payload structure
-        // Should verify: payload[0] == PingVersion, payload contains serialized coordinate
+        // Verify payload structure: [version byte][msgpack coordinate]
+        payload[0].Should().Be(PingDelegate.PingVersion, "first byte should be ping version");
+        
+        // Deserialize and verify we got a valid coordinate
+        var coordinateBytes = payload[1..];
+        coordinateBytes.Should().NotBeEmpty("coordinate data should be present");
+        
+        var act = () => MessagePackSerializer.Deserialize<NSerf.Coordinate.Coordinate>(coordinateBytes);
+        act.Should().NotThrow("payload should contain valid MessagePack coordinate");
+        
+        var coordinate = act();
+        coordinate.Should().NotBeNull("deserialized coordinate should not be null");
+        coordinate.Vec.Should().NotBeNull("coordinate vector should be initialized");
     }
 
     [Fact]
@@ -89,42 +103,68 @@ public class PingDelegateTest
         var act = () => pingDelegate.NotifyPingComplete(node, rtt, payload);
         act.Should().NotThrow("PingDelegate should handle ping completion without errors");
         
-        // TODO: Phase 9 - Add assertions to verify RTT was recorded
-        // Should verify: RTT metric was recorded, coordinate was NOT updated (empty payload)
+        // Verify coordinate was NOT updated (empty payload)
+        var cachedCoordinate = serf.GetCachedCoordinate(node.Name);
+        cachedCoordinate.Should().BeNull("coordinate should not be cached when payload is empty");
     }
 
     [Fact]
-    public void NotifyPingComplete_WithCoordinatePayload_ShouldUpdateCoordinate()
+    public async Task NotifyPingComplete_WithCoordinatePayload_ShouldUpdateCoordinate()
     {
         // Arrange
-        var config = new Config
+        var config = new NSerf.Serf.Config
         {
             NodeName = "test-node",
             Tags = new Dictionary<string, string>(),
-            DisableCoordinates = false
+            DisableCoordinates = false,
+            MemberlistConfig = MemberlistConfig.DefaultLANConfig()
         };
-        var serf = new NSerf.Serf.Serf(config);
-        var pingDelegate = new PingDelegate(serf);
-
-        var node = new Node
-        {
-            Name = "remote-node",
-            Addr = IPAddress.Parse("127.0.0.1"),
-            Port = 8000,
-            Meta = Array.Empty<byte>()
-        };
-
-        var rtt = TimeSpan.FromMilliseconds(10);
-        var coordinatePayload = new byte[] { 1, 2, 3, 4, 5 }; // Mock coordinate data
-
-        // Act - Should handle coordinate update
-        var act = () => pingDelegate.NotifyPingComplete(node, rtt, coordinatePayload);
-
-        // Assert
-        act.Should().NotThrow();
+        config.MemberlistConfig.BindAddr = "127.0.0.1";
+        config.MemberlistConfig.BindPort = 0; // Random port
         
-        // TODO: Phase 9 - Add assertions to verify coordinate was updated
-        // Should verify: node's coordinate was updated in cache, adjustment metric was recorded
+        var serf = await NSerf.Serf.Serf.CreateAsync(config);
+        var pingDelegate = new PingDelegate(serf);
+        
+        try
+        {
+            var node = new Node
+            {
+                Name = "remote-node",
+                Addr = IPAddress.Parse("127.0.0.1"),
+                Port = 8000,
+                Meta = Array.Empty<byte>()
+            };
+
+            var rtt = TimeSpan.FromMilliseconds(10);
+            
+            // Create proper coordinate payload: [PingVersion byte][MessagePack serialized coordinate]
+            // Note: Default coordinate dimensionality is 8
+            var remoteCoordinate = new NSerf.Coordinate.Coordinate
+            {
+                Vec = new double[] { 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8 },
+                Error = 1.5,
+                Adjustment = 0.0,
+                Height = 0.001
+            };
+            var coordinateBytes = MessagePackSerializer.Serialize(remoteCoordinate);
+            var coordinatePayload = new byte[1 + coordinateBytes.Length];
+            coordinatePayload[0] = PingDelegate.PingVersion;
+            Array.Copy(coordinateBytes, 0, coordinatePayload, 1, coordinateBytes.Length);
+
+            // Act - Should handle coordinate update
+            pingDelegate.NotifyPingComplete(node, rtt, coordinatePayload);
+            
+            // Verify coordinate was updated in cache
+            var cachedCoordinate = serf.GetCachedCoordinate(node.Name);
+            cachedCoordinate.Should().NotBeNull("coordinate should be cached after ping complete");
+            cachedCoordinate!.Vec.Should().NotBeNull("cached coordinate should have a vector");
+            cachedCoordinate.Vec.Length.Should().Be(8, "coordinate should have 8 dimensions");
+        }
+        finally
+        {
+            await serf.ShutdownAsync();
+            await serf.DisposeAsync();
+        }
     }
 
     [Fact]
