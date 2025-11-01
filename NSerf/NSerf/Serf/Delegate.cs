@@ -59,9 +59,8 @@ internal class Delegate : IDelegate
         bool rebroadcast = false;
         BroadcastQueue? rebroadcastQueue = _serf.Broadcasts;
         var messageType = (MessageType)message[0];
-
-        // DEBUG: Log the message type we're processing
-        Console.WriteLine($"[DELEGATE] NotifyMsg: type={messageType} ({(byte)messageType}), length={message.Length}");
+        
+        _serf.Logger?.LogInformation("[Serf.Delegate] *** Received message type: {Type}, length: {Length} ***", messageType, message.Length);
 
         // Check if message should be dropped (for testing)
         if (_serf.Config.ShouldDropMessage(messageType))
@@ -101,12 +100,9 @@ internal class Delegate : IDelegate
                 break;
 
             case MessageType.Query:
-                Console.WriteLine($"[DELEGATE] Processing Query case");
                 var query = DecodeMessage<MessageQuery>(message[1..]);
-                Console.WriteLine($"[DELEGATE] Query decoded: {(query != null ? "SUCCESS" : "NULL")}");
                 if (query != null)
                 {
-                    Console.WriteLine($"[DELEGATE] Query name: {query.Name}, Flags: {query.Flags}");
                     _serf.Logger?.LogDebug("[Serf] messageQueryType: {Name}", query.Name);
                     rebroadcast = _serf.HandleQuery(query);
                     rebroadcastQueue = _serf.QueryBroadcasts;
@@ -114,12 +110,9 @@ internal class Delegate : IDelegate
                 break;
 
             case MessageType.QueryResponse:
-                Console.WriteLine($"[DELEGATE] Processing QueryResponse case");
                 var resp = DecodeMessage<MessageQueryResponse>(message[1..]);
-                Console.WriteLine($"[DELEGATE] QueryResponse decoded: {(resp != null ? "SUCCESS" : "NULL")}");
                 if (resp != null)
                 {
-                    Console.WriteLine($"[DELEGATE] QueryResponse from: {resp.From}, ID: {resp.ID}, Flags: {resp.Flags}");
                     _serf.Logger?.LogDebug("[Serf] messageQueryResponseType: {From}", resp.From);
                     _serf.HandleQueryResponse(resp);
                 }
@@ -140,7 +133,6 @@ internal class Delegate : IDelegate
         {
             // Copy the buffer since we cannot rely on the slice not changing
             var newBuf = message.ToArray();
-
             rebroadcastQueue.QueueBytes(newBuf);
         }
     }
@@ -200,6 +192,7 @@ internal class Delegate : IDelegate
         
         // Get regular broadcasts
         var msgs = _serf.Broadcasts.GetBroadcasts(overhead, limit);
+        _serf.Logger?.LogInformation("[Serf.Delegate] Regular broadcasts: {Count}", msgs.Count);
 
         // Determine the bytes used already
         int bytesUsed = 0;
@@ -211,15 +204,26 @@ internal class Delegate : IDelegate
         }
 
         // Get query broadcasts
-        var queryMsgs = _serf.QueryBroadcasts.GetBroadcasts(overhead, limit - bytesUsed);
+        var availForQueries = limit - bytesUsed;
+        var queryQueueCount = _serf.QueryBroadcasts.Count;
+        _serf.Logger?.LogInformation("[Serf.Delegate] *** Calling QueryBroadcasts.GetBroadcasts(overhead={OH}, limit={LIM}), queue has {QCount} items ***", overhead, availForQueries, queryQueueCount);
+        
+        var queryMsgs = _serf.QueryBroadcasts.GetBroadcasts(overhead, availForQueries);
+        _serf.Logger?.LogInformation("[Serf.Delegate] *** QueryBroadcasts returned {Count} messages (had {QCount} queued, {Avail} bytes available) ***", queryMsgs.Count, queryQueueCount, availForQueries);
+        
         if (queryMsgs.Count > 0)
         {
+            _serf.Logger?.LogInformation("[Serf.Delegate] *** Adding {Count} query broadcasts to send ***", queryMsgs.Count);
             foreach (var m in queryMsgs)
             {
                 bytesUsed += m.Length + overhead;
                 _serf.RecordMessageSent(m.Length);
             }
             msgs.AddRange(queryMsgs);
+        }
+        else if (queryQueueCount > 0)
+        {
+            _serf.Logger?.LogWarning("[Serf.Delegate] *** {QCount} queries queued but GetBroadcasts returned 0! Avail bytes: {Avail} ***", queryQueueCount, availForQueries);
         }
 
         // Get event broadcasts

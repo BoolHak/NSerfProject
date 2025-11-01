@@ -89,6 +89,7 @@ public partial class Serf
         HandleQuery(q);
 
         // Start broadcasting the query
+        Logger?.LogInformation("[Serf/Query] Queuing query '{Name}' for broadcast ({Size} bytes)", name, raw.Length);
         QueryBroadcasts.QueueBytes(raw);
 
         return await Task.FromResult(resp);
@@ -124,19 +125,14 @@ public partial class Serf
     /// </summary>
     internal bool HandleQuery(MessageQuery query)
     {
-        Console.WriteLine($"[HANDLEQUERY] ENTER: query={query.Name}, LTime={query.LTime}, ID={query.ID}");
-        
         // Witness a potentially newer time
         QueryClock.Witness(query.LTime);
 
         return WithWriteLock(_queryLock, () =>
         {
-            Console.WriteLine($"[HANDLEQUERY] Inside lock for query {query.Name}");
-            
             // Ignore if it is before our minimum query time
             if (query.LTime < QueryMinTime)
             {
-                Console.WriteLine($"[HANDLEQUERY] REJECTED: query too old (LTime={query.LTime} < Min={QueryMinTime})");
                 return false;
             }
 
@@ -145,7 +141,6 @@ public partial class Serf
             var bufferSize = (ulong)Config.QueryBuffer;
             if (curTime > bufferSize && query.LTime < (curTime - bufferSize))
             {
-                Console.WriteLine($"[HANDLEQUERY] REJECTED: query too old for buffer (curTime={curTime}, LTime={query.LTime}, buffer={bufferSize})");
                 Logger?.LogWarning(
                     "[Serf] Received old query {Name} from time {LTime} (current: {CurTime})",
                     query.Name, query.LTime, curTime);
@@ -155,20 +150,16 @@ public partial class Serf
             // Check if we've already seen this query
             if (QueryBuffer.TryGetValue(query.LTime, out var seen))
             {
-                Console.WriteLine($"[HANDLEQUERY] QueryBuffer HAS entry for LTime={query.LTime}, contains {seen.QueryIDs.Count} IDs");
                 // Check for duplicate
                 if (seen.QueryIDs.Contains(query.ID))
                 {
-                    Console.WriteLine($"[HANDLEQUERY] REJECTED: duplicate query ID={query.ID} (already in buffer)");
                     // Already seen this query
                     return false;
                 }
-                Console.WriteLine($"[HANDLEQUERY] Query ID={query.ID} is NEW for this LTime, adding to buffer");
                 seen.QueryIDs.Add(query.ID);
             }
             else
             {
-                Console.WriteLine($"[HANDLEQUERY] QueryBuffer has NO entry for LTime={query.LTime}, creating new");
                 // Create new collection for this LTime
                 seen = new QueryCollection { LTime = query.LTime };
                 seen.QueryIDs.Add(query.ID);
@@ -180,22 +171,16 @@ public partial class Serf
             Config.Metrics.IncrCounter(new[] { "serf", "queries" }, 1, Config.MetricLabels);
             Config.Metrics.IncrCounter(new[] { "serf", "queries", query.Name }, 1, Config.MetricLabels);
 
-            Console.WriteLine($"[HANDLEQUERY] Checking filters for query {query.Name}, filter count={query.Filters.Count}");
             // Check if we should process this query
             if (!ShouldProcessQuery(query.Filters))
             {
-                Console.WriteLine($"[HANDLEQUERY] REJECTED by filter");
                 Logger?.LogDebug("[Serf] Ignoring query {Name} due to filters", query.Name);
                 return true; // Rebroadcast but don't process
             }
-            Console.WriteLine($"[HANDLEQUERY] Filter PASSED for query {query.Name}");
 
             // Send acknowledgement if requested (send directly to originator, not via broadcast)
-            Console.WriteLine($"[HANDLEQUERY] Checking ack flag: query.Flags={query.Flags}, Ack flag={(uint)QueryFlags.Ack}");
             if ((query.Flags & (uint)QueryFlags.Ack) != 0)
             {
-                Console.WriteLine($"[HANDLEQUERY] ACK REQUESTED for query {query.Name}");
-                
                 var ack = new MessageQueryResponse
                 {
                     LTime = query.LTime,
@@ -220,43 +205,34 @@ public partial class Serf
                     Name = query.SourceNode ?? string.Empty
                 };
                 
-                Console.WriteLine($"[HANDLEQUERY] Sending ack to {targetAddr.Addr} for query {query.Name}");
-                
                 // Queue async send to avoid blocking the lock
                 // Use Task.Run to ensure it executes on thread pool
                 _ = Task.Run(async () => await SendAckAsync(wrapped, targetAddr, query.Name));
             }
-            else
+
+            // Emit query event through EventManager (flows to SerfQueries for internal queries)
+            var evt = new Events.Query
             {
-                Console.WriteLine($"[HANDLEQUERY] Query {query.Name} does NOT request ack");
+                LTime = query.LTime,
+                Name = query.Name,
+                Payload = query.Payload,
+                Id = query.ID,
+                Addr = query.Addr,
+                Port = query.Port,
+                SourceNodeName = query.SourceNode ?? string.Empty,
+                Deadline = DateTime.UtcNow.Add(query.Timeout),
+                RelayFactor = query.RelayFactor,
+                SerfInstance = this // CRITICAL: Set Serf instance so RespondAsync() works
+            };
+
+            try
+            {
+                _eventManager?.EmitEvent(evt);
+                Logger?.LogTrace("[Serf] Emitted Query: {Name} at LTime {LTime}", query.Name, query.LTime);
             }
-
-            // Send to EventCh if configured
-            if (Config.EventCh != null)
+            catch (Exception ex)
             {
-                var evt = new Events.Query
-                {
-                    LTime = query.LTime,
-                    Name = query.Name,
-                    Payload = query.Payload,
-                    Id = query.ID,
-                    Addr = query.Addr,
-                    Port = query.Port,
-                    SourceNodeName = query.SourceNode ?? string.Empty,
-                    Deadline = DateTime.UtcNow.Add(query.Timeout),
-                    RelayFactor = query.RelayFactor,
-                    SerfInstance = this // CRITICAL: Set Serf instance so RespondAsync() works
-                };
-
-                try
-                {
-                    Config.EventCh.TryWrite(evt);
-                    Logger?.LogTrace("[Serf] Emitted Query: {Name} at LTime {LTime}", query.Name, query.LTime);
-                }
-                catch (Exception ex)
-                {
-                    Logger?.LogError(ex, "[Serf] Failed to emit Query: {Name}", query.Name);
-                }
+                Logger?.LogError(ex, "[Serf] Failed to emit Query: {Name}", query.Name);
             }
 
             return true; // Rebroadcast this query
@@ -370,15 +346,12 @@ public partial class Serf
     /// </summary>
     private async Task SendAckAsync(byte[] raw, Memberlist.Transport.Address targetAddr, string queryName)
     {
-        Console.WriteLine($"[SENDACK] Starting send to {targetAddr.Addr}, size={raw.Length} bytes");
         try
         {
             await Memberlist!.SendToAddress(targetAddr, raw, CancellationToken.None);
-            Console.WriteLine($"[SENDACK] SUCCESS: Sent ack for query {queryName} to {targetAddr.Addr}");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[SENDACK] FAILED: {ex.Message}");
             Logger?.LogError(ex, "[Serf] Failed to send ack for query {Name}", queryName);
         }
     }

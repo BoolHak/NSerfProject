@@ -278,6 +278,19 @@ public class AgentCommand : IAsyncDisposable
     {
         await _shutdownCts.CancelAsync();
 
+        // Wait for retry join task to complete after cancellation
+        if (_retryJoinTask != null)
+        {
+            try
+            {
+                await _retryJoinTask;
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected when shutdown token is canceled
+            }
+        }
+
         if (_rpcServer != null)
         {
             await _rpcServer.DisposeAsync();

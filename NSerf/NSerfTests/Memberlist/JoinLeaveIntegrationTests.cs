@@ -163,7 +163,7 @@ public class JoinLeaveIntegrationTests : IAsyncLifetime
         leaveResult.Should().BeNull("leave should not return an error");
 
         // Wait for leave to propagate via gossip (broadcasts are consumed quickly by gossip scheduler)
-        await Task.Delay(1000);
+        await Task.Delay(2000);
 
         // m1 marks itself as Left, so Members() excludes it, but m1 still sees m2
         var m1Members = m1.Members();

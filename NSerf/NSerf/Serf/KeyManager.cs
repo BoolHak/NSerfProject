@@ -148,12 +148,16 @@ public class KeyManager
         // Create internal query name (_serf_<query>)
         var queryName = $"_serf_{query}";
 
-        // Encode the key request message
+        // Encode the key request message with MessageType.KeyRequest header
+        // This matches Go's encodeMessage(messageKeyRequestType, keyRequest{Key: rawKey}, ...)
         var keyRequest = new KeyRequest { Key = keyBytes };
-        var payload = MessagePackSerializer.Serialize(keyRequest);
+        var payload = _serf.EncodeMessage(MessageType.KeyRequest, keyRequest);
 
-        // Set up query parameters - use default for now
-        var queryParams = new QueryParam();
+        // Set up query parameters with sufficient timeout for cluster propagation
+        var queryParams = new QueryParam
+        {
+            Timeout = TimeSpan.FromSeconds(5) // Allow time for gossip propagation
+        };
 
         // Broadcast the query
         var queryResp = await _serf.QueryAsync(queryName, payload, queryParams);
@@ -162,6 +166,7 @@ public class KeyManager
         resp.NumNodes = _serf.NumMembers();
 
         // Stream and process responses
+        // The query timeout (5s) gives enough time for gossip propagation
         await StreamKeyResp(resp, queryResp.ResponseCh);
 
         return resp;

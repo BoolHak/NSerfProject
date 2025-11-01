@@ -272,8 +272,9 @@ public class StateHandlers
             // Check incarnation numbers
             bool isLocalNode = state.Node.Name == _memberlist._config.Name;
 
-            // Bail if incarnation is older (strict less than)
-            if (alive.Incarnation < state.Incarnation && !isLocalNode && !updatesNode)
+            // Allow Left nodes to rejoin with ANY incarnation (even lower) - they've been removed
+            // Bail if incarnation is older (strict less than), UNLESS node is Left (rejoining)
+            if (alive.Incarnation < state.Incarnation && !isLocalNode && !updatesNode && state.State != NodeStateType.Left)
             {
                 return;
             }

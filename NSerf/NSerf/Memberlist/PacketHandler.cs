@@ -65,9 +65,10 @@ internal class PacketHandler
         if (_memberlist._config.EncryptionEnabled())
         {
             var authData = System.Text.Encoding.UTF8.GetBytes(packetLabel);
+            var keys = _memberlist._config.Keyring!.GetKeys();
             try
             {
-                buf = Security.DecryptPayload([.. _memberlist._config.Keyring!.GetKeys()], buf, authData);
+                buf = Security.DecryptPayload([.. keys], buf, authData);
             }
             catch (Exception ex)
             {
@@ -78,7 +79,7 @@ internal class PacketHandler
                 }
                 else
                 {
-                    _logger?.LogError(ex, "Failed to decrypt packet from {From}", from);
+                    _logger?.LogError(ex, "Failed to decrypt packet from {From} - DROPPING PACKET!", from);
                     return;
                 }
             }

@@ -329,7 +329,7 @@ public class SerfQueries
         try
         {
             // Decode the key request (skip first byte which is message type)
-            var req = MessagePackSerializer.Deserialize<KeyRequest>(query.Payload.AsMemory().Slice(1));
+            var req = MessagePackSerializer.Deserialize<KeyRequest>(query.Payload.AsMemory(1));
 
             if (!_serf.EncryptionEnabled())
             {
@@ -380,7 +380,7 @@ public class SerfQueries
         try
         {
             // Decode the key request (skip first byte which is message type)
-            var req = MessagePackSerializer.Deserialize<KeyRequest>(query.Payload.AsMemory().Slice(1));
+            var req = MessagePackSerializer.Deserialize<KeyRequest>(query.Payload.AsMemory(1));
 
             if (!_serf.EncryptionEnabled())
             {
@@ -431,7 +431,7 @@ public class SerfQueries
         try
         {
             // Decode the key request (skip first byte which is message type)
-            var req = MessagePackSerializer.Deserialize<KeyRequest>(query.Payload.AsMemory().Slice(1));
+            var req = MessagePackSerializer.Deserialize<KeyRequest>(query.Payload.AsMemory(1));
 
             if (!_serf.EncryptionEnabled())
             {

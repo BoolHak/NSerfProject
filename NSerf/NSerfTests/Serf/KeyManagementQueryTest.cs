@@ -39,10 +39,10 @@ public class KeyManagementQueryTest
 
         using var serf = await NSerf.Serf.Serf.CreateAsync(config);
         var outCh = Channel.CreateUnbounded<Event>();
-        var cts = new CancellationTokenSource();
+        using var cts = new CancellationTokenSource();
 
         // Act - Create handler
-        var (inCh, handler) = SerfQueries.Create(serf, outCh.Writer, cts.Token);
+        var (inCh, _) = SerfQueries.Create(serf, outCh.Writer, cts.Token);
 
         // Send list-keys query
         var query = new Query
@@ -64,7 +64,7 @@ public class KeyManagementQueryTest
         // Since we can't easily intercept the response, we just verify no crash
 
         // Cleanup
-        cts.Cancel();
+        await cts.CancelAsync();
         await serf.ShutdownAsync();
     }
 
@@ -97,10 +97,10 @@ public class KeyManagementQueryTest
         serf.EncryptionEnabled().Should().BeTrue();
 
         var outCh = Channel.CreateUnbounded<Event>();
-        var cts = new CancellationTokenSource();
+        using var cts = new CancellationTokenSource();
 
         // Act - Create handler
-        var (inCh, handler) = SerfQueries.Create(serf, outCh.Writer, cts.Token);
+        var (inCh, _) = SerfQueries.Create(serf, outCh.Writer, cts.Token);
 
         // Send list-keys query
         var query = new Query
@@ -122,7 +122,7 @@ public class KeyManagementQueryTest
         // The response would contain the key list in the real implementation
 
         // Cleanup
-        cts.Cancel();
+        await cts.CancelAsync();
         await serf.ShutdownAsync();
     }
 
@@ -423,7 +423,7 @@ public class KeyManagementQueryTest
         var key2 = "HvY8ubRZMgafUOWvrOadwOckVa1wN3QWAo46FVKbVN8=";
         var key1Bytes = Convert.FromBase64String(key1);
         var key2Bytes = Convert.FromBase64String(key2);
-        
+
         var keyring = Keyring.Create(null, key1Bytes);
         keyring.AddKey(key2Bytes);
 
@@ -554,7 +554,7 @@ public class KeyManagementQueryTest
         var key2 = "HvY8ubRZMgafUOWvrOadwOckVa1wN3QWAo46FVKbVN8=";
         var key1Bytes = Convert.FromBase64String(key1);
         var key2Bytes = Convert.FromBase64String(key2);
-        
+
         var keyring = Keyring.Create(null, key1Bytes);
         keyring.AddKey(key2Bytes);
 
@@ -606,7 +606,7 @@ public class KeyManagementQueryTest
 
         // Assert - Key should have been removed
         keyring.GetKeys().Should().HaveCount(1, "key2 should have been removed");
-        
+
         // Verify remaining key is key1
         var remainingKeys = keyring.GetKeys();
         remainingKeys[0].Should().BeEquivalentTo(key1Bytes);
@@ -687,7 +687,7 @@ public class KeyManagementQueryTest
         var key2 = "HvY8ubRZMgafUOWvrOadwOckVa1wN3QWAo46FVKbVN8=";
         var key1Bytes = Convert.FromBase64String(key1);
         var key2Bytes = Convert.FromBase64String(key2);
-        
+
         var keyring = Keyring.Create(null, key1Bytes);
         keyring.AddKey(key2Bytes);
 

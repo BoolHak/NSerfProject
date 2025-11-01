@@ -488,6 +488,91 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
             }, _shutdownCts.Token);
             _backgroundTasks.Add(probeTask);
         }
+
+        // Push-pull scheduler - periodically performs full state sync with a random node
+        if (_config.PushPullInterval > TimeSpan.Zero)
+        {
+            var pushPullTask = Task.Run(async () =>
+            {
+                try
+                {
+                    // Add initial random stagger to avoid synchronization
+                    var stagger = TimeSpan.FromMilliseconds(Random.Shared.Next(0, (int)_config.PushPullInterval.TotalMilliseconds));
+                    await Task.Delay(stagger, _shutdownCts.Token);
+
+                    while (!_shutdownCts.IsCancellationRequested)
+                    {
+                        try
+                        {
+                            await Task.Delay(_config.PushPullInterval, _shutdownCts.Token);
+                            await PeriodicPushPullAsync();
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            break;
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger?.LogError(ex, "Push-pull scheduler error");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogError(ex, "Push-pull scheduler crashed");
+                }
+            }, _shutdownCts.Token);
+            _backgroundTasks.Add(pushPullTask);
+        }
+    }
+
+    /// <summary>
+    /// Performs periodic push-pull with a random node for full state synchronization.
+    /// This ensures eventual consistency across the cluster.
+    /// </summary>
+    private async Task PeriodicPushPullAsync()
+    {
+        // Skip if we're leaving the cluster
+        if (IsLeaving)
+        {
+            return;
+        }
+
+        // Get a random node to sync with
+        NodeState? nodeState;
+        lock (_nodeLock)
+        {
+            if (_nodes.Count == 0)
+            {
+                return;
+            }
+            
+            // Pick a random node
+            var index = Random.Shared.Next(_nodes.Count);
+            nodeState = _nodes[index];
+        }
+
+        if (nodeState == null)
+        {
+            return;
+        }
+
+        var addr = new Address
+        {
+            Addr = $"{nodeState.Node.Addr}:{nodeState.Node.Port}",
+            Name = nodeState.Name
+        };
+
+        try
+        {
+            _logger?.LogDebug("[PUSH-PULL] Starting periodic push-pull with {Node}", nodeState.Name);
+            await PushPullNodeAsync(addr, join: false, CancellationToken.None);
+            _logger?.LogDebug("[PUSH-PULL] Completed periodic push-pull with {Node}", nodeState.Name);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogDebug(ex, "[PUSH-PULL] Failed periodic push-pull with {Node}", nodeState.Name);
+        }
     }
 
     /// <summary>
@@ -826,17 +911,19 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
 
         _logger?.LogDebug("[GOSSIP] Starting gossip round to {Count} nodes, {Queued} broadcasts queued", kNodes.Count, _broadcasts.NumQueued());
 
+        // CRITICAL: Get broadcasts ONCE per gossip interval, not per node!
+        // The same messages are sent to all K random nodes in this interval
+        var msgs = GetBroadcasts(Messages.MessageConstants.CompoundOverhead, bytesAvail);
+        
+        if (msgs.Count == 0)
+        {
+            _logger?.LogDebug("[GOSSIP] No broadcasts available, skipping gossip round");
+            return;
+        }
+
         foreach (var node in kNodes)
         {
-            // Get pending broadcasts (including delegate broadcasts)
-            var msgs = GetBroadcasts(Messages.MessageConstants.CompoundOverhead, bytesAvail);
-            if (msgs.Count == 0)
-            {
-                _logger?.LogDebug("[GOSSIP] No more broadcasts to send");
-                return; // No more broadcasts to send
-            }
-
-            _logger?.LogDebug("[GOSSIP] Got {Count} broadcasts to send to {Node}", msgs.Count, node.Name);
+            _logger?.LogInformation("[GOSSIP] *** Sending {Count} broadcasts to {Node} ***", msgs.Count, node.Name);
 
             var addr = new Transport.Address
             {

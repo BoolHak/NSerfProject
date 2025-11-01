@@ -68,9 +68,20 @@ public partial class Serf : IDisposable, IAsyncDisposable
         Clock = new LamportClock();
         EventClock = new LamportClock();
         QueryClock = new LamportClock();
-        Broadcasts = new BroadcastQueue(new TransmitLimitedQueue());
-        EventBroadcasts = new BroadcastQueue(new TransmitLimitedQueue());
-        QueryBroadcasts = new BroadcastQueue(new TransmitLimitedQueue());
+
+        // Initialize broadcast queues with proper NumNodes function
+        var broadcastsQueue = new TransmitLimitedQueue { RetransmitMult = 4 };
+        var eventBroadcastsQueue = new TransmitLimitedQueue { RetransmitMult = 4 };
+        var queryBroadcastsQueue = new TransmitLimitedQueue { RetransmitMult = 4 };
+
+        // Set NumNodes to return member count from memberlist (via callback to avoid circular ref)
+        broadcastsQueue.NumNodes = () => Memberlist?.EstNumNodes() ?? 1;
+        eventBroadcastsQueue.NumNodes = () => Memberlist?.EstNumNodes() ?? 1;
+        queryBroadcastsQueue.NumNodes = () => Memberlist?.EstNumNodes() ?? 1;
+
+        Broadcasts = new BroadcastQueue(broadcastsQueue);
+        EventBroadcasts = new BroadcastQueue(eventBroadcastsQueue);
+        QueryBroadcasts = new BroadcastQueue(queryBroadcastsQueue);
         QueryBuffer = [];
         _memberManager = new MemberManager();
         _eventManager = new EventManager(
@@ -81,7 +92,6 @@ public partial class Serf : IDisposable, IAsyncDisposable
         EventJoinIgnore = false;
         QueryMinTime = 0;
 
-        // Phase 16: Initialize IPC event channel (bounded, drop-on-full to prevent blocking)
         _ipcEventChannel = Channel.CreateBounded<Event>(new BoundedChannelOptions(64)
         {
             FullMode = BoundedChannelFullMode.DropWrite,
@@ -257,20 +267,18 @@ public partial class Serf : IDisposable, IAsyncDisposable
             serf.Logger?.LogInformation("[Serf/Snapshot] No snapshot path configured for node {NodeName}", config.NodeName);
         }
 
-        // Step 2: Create query handler if needed (wraps current eventDestination)
-        if (config.EventCh != null)
-        {
-            serf.Logger?.LogInformation("[Serf/InternalQuery] Setting up internal query handler");
-            var (queryInputCh, queryHandler) = SerfQueries.Create(
-                serf,
-                eventDestination,  // Query handler wraps snapshotter or config.EventCh
-                serf._shutdownCts.Token);
+        // Step 2: Always create query handler for internal queries (key management, conflict resolution, etc)
+        // It wraps current eventDestination (snapshotter or config.EventCh, can be null)
+        serf.Logger?.LogInformation("[Serf/InternalQuery] Setting up internal query handler");
+        var (queryInputCh, queryHandler) = SerfQueries.Create(
+            serf,
+            eventDestination,  // Query handler wraps snapshotter or config.EventCh (can be null)
+            serf._shutdownCts.Token);
 
-            internalQueryInput = queryInputCh;
-            eventDestination = queryInputCh;
+        internalQueryInput = queryInputCh;
+        eventDestination = queryInputCh;
 
-            serf.Logger?.LogInformation("[Serf/InternalQuery] ✓ Internal query handler created");
-        }
+        serf.Logger?.LogInformation("[Serf/InternalQuery] ✓ Internal query handler created");
 
         // Step 3: Create EventManager with final eventDestination
         // Now eventDestination points to: snapshotter.InCh → QueryHandler → config.EventCh
@@ -295,6 +303,10 @@ public partial class Serf : IDisposable, IAsyncDisposable
 
         if (config.MemberlistConfig != null)
         {
+            // CRITICAL: Ensure Memberlist uses the same node name as Serf
+            // DefaultLANConfig() sets Name = Environment.MachineName, so ALWAYS override with Serf's NodeName
+            config.MemberlistConfig.Name = config.NodeName;
+
             serf._eventDelegate = new SerfEventDelegate(serf);
             config.MemberlistConfig.Events = serf._eventDelegate;
             var serfDelegate = new Delegate(serf);

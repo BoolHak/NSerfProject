@@ -119,7 +119,9 @@ public class TransmitLimitedQueue
                 return new List<byte[]>();
             }
             
-            int transmitLimit = Common.MemberlistMath.RetransmitLimit(RetransmitMult, NumNodes());
+            var numNodes = NumNodes();
+            int transmitLimit = Common.MemberlistMath.RetransmitLimit(RetransmitMult, numNodes);
+            
             int bytesUsed = 0;
             var toSend = new List<byte[]>();
             var toReinsert = new List<LimitedBroadcast>();
