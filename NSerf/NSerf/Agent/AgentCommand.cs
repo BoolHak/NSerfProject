@@ -27,6 +27,7 @@ public class AgentCommand : IAsyncDisposable
     private readonly object _shutdownLock = new();
 
     private const int GracefulTimeoutSeconds = 3;
+    private static readonly TimeSpan MinInterval = TimeSpan.FromSeconds(1);
 
     public AgentCommand(AgentConfig config, ILogger? logger = null)
     {
@@ -49,24 +50,21 @@ public class AgentCommand : IAsyncDisposable
             // Redirect console output through log writer
             Console.SetOut(_logWriter);
 
-            _logger?.LogInformation("[Agent] Starting Serf agent...");
-            _logger?.LogInformation("[Agent] Node name: {NodeName}", _config.NodeName);
-            _logger?.LogInformation("[Agent] Bind addr: {BindAddr}", _config.BindAddr);
+            _logger?.LogInformation("[Agent] Starting Serf agent Node name: {NodeName} Bind addr: {BindAddr}", _config.NodeName, _config.BindAddr);
+
 
             // Create and start agent
             _agent = new SerfAgent(_config, _logger);
             await _agent.StartAsync(cancellationToken);
 
             // Release buffered logs now that startup succeeded
-            _gatedWriter.Flush();
-
-            _logger?.LogInformation("[Agent] Agent started successfully");
+            await _gatedWriter.FlushAsync(cancellationToken);
 
             // Start RPC server if configured
             if (!string.IsNullOrEmpty(_config.RPCAddr))
             {
                 _rpcServer = new RPC.RpcServer(_agent, _config.RPCAddr, _config.RPCAuthKey);
-                await _rpcServer.StartAsync();
+                await _rpcServer.StartAsync(cancellationToken);
                 _logger?.LogInformation("[Agent] RPC server listening on {RPCAddr}", _config.RPCAddr);
             }
 
@@ -132,16 +130,7 @@ public class AgentCommand : IAsyncDisposable
             // First signal: graceful shutdown (if configured)
             if (_signalCount == 1)
             {
-                bool shouldGraceful = false;
-
-                if (signal == Signal.SIGINT && !_config.SkipLeaveOnInt)
-                {
-                    shouldGraceful = true;
-                }
-                else if (signal == Signal.SIGTERM && _config.LeaveOnTerm)
-                {
-                    shouldGraceful = true;
-                }
+                bool shouldGraceful = signal == Signal.SIGINT && !_config.SkipLeaveOnInt || signal == Signal.SIGTERM && _config.LeaveOnTerm;
 
                 if (shouldGraceful)
                 {
@@ -196,12 +185,10 @@ public class AgentCommand : IAsyncDisposable
 
     private async Task RetryJoinAsync(CancellationToken cancellationToken)
     {
-        if (_agent == null || _agent.Serf == null || _config.RetryJoin == null || _config.RetryJoin.Length == 0)
-            return;
+        if (!IsAbleToRetry()) return;
 
+        var interval = GetRetryInterval();
         var attempt = 0;
-        var minInterval = TimeSpan.FromSeconds(1);
-        var interval = _config.RetryInterval > minInterval ? _config.RetryInterval : minInterval;
 
         while (!cancellationToken.IsCancellationRequested)
         {
@@ -209,7 +196,7 @@ public class AgentCommand : IAsyncDisposable
 
             try
             {
-                if (_agent.Serf != null && _config.RetryJoin != null)
+                if (_agent!.Serf != null && _config.RetryJoin != null)
                 {
                     var joined = await _agent.Serf.JoinAsync(_config.RetryJoin, !_config.ReplayOnJoin);
                     if (joined > 0)
@@ -242,6 +229,13 @@ public class AgentCommand : IAsyncDisposable
             }
         }
     }
+
+    private bool IsAbleToRetry() =>
+        _agent != null && _agent.Serf != null &&
+        _config.RetryJoin != null && _config.RetryJoin.Length > 0;
+
+    private TimeSpan GetRetryInterval() =>
+        _config.RetryInterval > MinInterval ? _config.RetryInterval : MinInterval;
 
     private Task ReloadConfigAsync()
     {
@@ -310,5 +304,6 @@ public class AgentCommand : IAsyncDisposable
             Console.SetOut(Console.Out);
             await _gatedWriter.DisposeAsync();
         }
+        GC.SuppressFinalize(this);
     }
 }
