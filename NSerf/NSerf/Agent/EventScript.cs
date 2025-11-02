@@ -34,14 +34,14 @@ public class EventScript
 
         // Split on '=' to get events and script
         var parts = spec.Split('=', 2);
-        
+
         if (parts.Length == 1)
         {
             // No filter, matches all events: "script.sh"
-            return new List<EventScript>
-            {
+            return
+            [
                 new EventScript(new EventFilter("*", ""), parts[0].Trim())
-            };
+            ];
         }
 
         var eventsPart = parts[0].Trim();
@@ -49,7 +49,7 @@ public class EventScript
 
         // Split comma-separated events: "member-leave,member-failed"
         var events = eventsPart.Split(',', StringSplitOptions.RemoveEmptyEntries);
-        
+
         var results = new List<EventScript>();
         foreach (var eventSpec in events)
         {

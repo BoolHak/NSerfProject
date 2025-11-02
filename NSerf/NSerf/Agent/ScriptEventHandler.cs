@@ -12,22 +12,15 @@ namespace NSerf.Agent;
 /// Supports hot-reload of scripts without restarting.
 /// Maps to: Go's ScriptEventHandler in event_handler.go
 /// </summary>
-public class ScriptEventHandler : IEventHandler
+public class ScriptEventHandler(Func<Member> selfFunc, EventScript[] scripts, ILogger? logger = null) : IEventHandler
 {
-    private readonly Func<Member> _selfFunc;
-    private readonly ILogger? _logger;
+    private readonly Func<Member> _selfFunc = selfFunc ?? throw new ArgumentNullException(nameof(selfFunc));
+    private readonly ILogger? _logger = logger;
     private readonly object _scriptLock = new();
-    private EventScript[] _scripts;
+    private EventScript[] _scripts = scripts ?? [];
     private EventScript[]? _newScripts;  // Staged for atomic swap
 
-    public ScriptEventHandler(Func<Member> selfFunc, EventScript[] scripts, ILogger? logger = null)
-    {
-        _selfFunc = selfFunc ?? throw new ArgumentNullException(nameof(selfFunc));
-        _scripts = scripts ?? Array.Empty<EventScript>();
-        _logger = logger;
-    }
-
-    public void HandleEvent(Event evt)
+    public void HandleEvent(Event @event)
     {
         // Atomic swap of scripts if update pending (hot-reload)
         lock (_scriptLock)
@@ -44,7 +37,7 @@ public class ScriptEventHandler : IEventHandler
 
         foreach (var script in _scripts)
         {
-            if (!script.Filter.Matches(evt))
+            if (!script.Filter.Matches(@event))
                 continue;
 
             // Execute script asynchronously (don't block event loop)
@@ -52,7 +45,7 @@ public class ScriptEventHandler : IEventHandler
             {
                 try
                 {
-                    await InvokeScriptAsync(script, self, evt);
+                    await InvokeScriptAsync(script, self, @event);
                 }
                 catch (Exception ex)
                 {
@@ -75,10 +68,10 @@ public class ScriptEventHandler : IEventHandler
         }
     }
 
-    private async Task InvokeScriptAsync(EventScript script, Member self, Event evt)
+    private async Task InvokeScriptAsync(EventScript script, Member self, Event @event)
     {
-        var envVars = ScriptInvoker.BuildEnvironmentVariables(self, evt);
-        var stdin = ScriptInvoker.BuildStdin(evt);
+        var envVars = ScriptInvoker.BuildEnvironmentVariables(self, @event);
+        var stdin = ScriptInvoker.BuildStdin(@event);
 
         var result = await ScriptInvoker.ExecuteAsync(
             script.Script,
@@ -86,7 +79,7 @@ public class ScriptEventHandler : IEventHandler
             stdin,
             _logger,
             timeout: TimeSpan.FromSeconds(30),
-            evt: evt);
+            evt: @event);
 
         if (result.ExitCode != 0)
         {

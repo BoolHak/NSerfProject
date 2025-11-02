@@ -12,7 +12,7 @@ public class EventScriptRunner
 
     public EventScriptRunner(string[] eventHandlers)
     {
-        _scripts = new Dictionary<string, string>();
+        _scripts = [];
         foreach (var handler in eventHandlers)
         {
             ParseEventHandler(handler);
@@ -51,7 +51,7 @@ public class EventScriptRunner
         return await ExecuteScriptAsync(script, env, null, cancellationToken);
     }
 
-    private Dictionary<string, string> BuildEnvironment(string eventName, ulong ltime)
+    private static Dictionary<string, string> BuildEnvironment(string eventName, ulong ltime)
     {
         return new Dictionary<string, string>
         {
@@ -61,7 +61,7 @@ public class EventScriptRunner
         };
     }
 
-    private Dictionary<string, string> BuildMemberEnvironment(string eventType, Member member)
+    private static Dictionary<string, string> BuildMemberEnvironment(string eventType, Member member)
     {
         return new Dictionary<string, string>
         {
@@ -75,7 +75,7 @@ public class EventScriptRunner
         };
     }
 
-    private async Task<int> ExecuteScriptAsync(
+    private static async Task<int> ExecuteScriptAsync(
         string script,
         Dictionary<string, string> env,
         byte[]? input,

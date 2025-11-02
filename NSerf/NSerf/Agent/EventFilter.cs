@@ -9,16 +9,10 @@ namespace NSerf.Agent;
 /// Filters events based on event type and name.
 /// Maps to: Go's EventFilter in event_handler.go
 /// </summary>
-public class EventFilter
+public class EventFilter(string eventType = "*", string name = "")
 {
-    public string Event { get; set; } = "*";  // "*", "member-join", "user", "query", etc.
-    public string Name { get; set; } = "";   // For user:name or query:name filters
-
-    public EventFilter(string eventType, string name)
-    {
-        Event = eventType;
-        Name = name;
-    }
+    public string Event { get; set; } = eventType;
+    public string Name { get; set; } = name;
 
     public bool Matches(Event evt)
     {
@@ -70,7 +64,7 @@ public class EventFilter
     {
         // Format: "event" or "event:name"
         var parts = eventSpec.Split(':', 2);
-        
+
         var eventType = parts[0].Trim();
         var name = parts.Length > 1 ? parts[1].Trim() : "";
 
@@ -82,10 +76,10 @@ public class EventFilter
 
     private static void ValidateEventType(string eventType)
     {
-        var validEvents = new[] 
-        { 
-            "*", "member-join", "member-leave", "member-failed", 
-            "member-update", "member-reap", "user", "query" 
+        var validEvents = new[]
+        {
+            "*", "member-join", "member-leave", "member-failed",
+            "member-update", "member-reap", "user", "query"
         };
 
         if (!validEvents.Contains(eventType))

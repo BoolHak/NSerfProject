@@ -84,7 +84,7 @@ public class AgentMdns(string service, string domain = "local", int port = 5353,
         try
         {
             // Send mDNS query
-            var query = BuildMdnsQuery(service, domain);
+            var query = BuildMdnsQuery();
             var endpoint = new IPEndPoint(IPAddress.Parse(MdnsAddress), MdnsPort);
             await _client.SendAsync(query, query.Length, endpoint);
 
@@ -142,7 +142,7 @@ public class AgentMdns(string service, string domain = "local", int port = 5353,
         }
     }
 
-    private static byte[] BuildMdnsQuery(string service, string domain)
+    private byte[] BuildMdnsQuery()
     {
         // Basic mDNS query packet
         // Format: [Header][Question]

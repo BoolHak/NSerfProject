@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 using System.CommandLine;
+using System.IO;
 using NSerf.Agent;
 
 namespace NSerf.CLI.Commands;
@@ -65,6 +66,11 @@ public static class AgentCommand
             AllowMultipleArgumentsPerToken = true
         };
 
+        var configFileOption = new Option<string?>("--config-file")
+        {
+            Description = "Path to a config file or directory of .json files (loaded before CLI overrides)"
+        };
+
         command.Add(nodeOption);
         command.Add(bindOption);
         command.Add(advertiseOption);
@@ -74,6 +80,7 @@ public static class AgentCommand
         command.Add(joinOption);
         command.Add(replayOption);
         command.Add(tagOption);
+        command.Add(configFileOption);
 
         command.SetAction(async (parseResult, cancellationToken) =>
         {
@@ -86,6 +93,7 @@ public static class AgentCommand
             var joinAddr = parseResult.GetValue(joinOption);
             var replay = parseResult.GetValue(replayOption);
             var tags = parseResult.GetValue(tagOption);
+            var configPath = parseResult.GetValue(configFileOption);
 
             try
             {
@@ -99,6 +107,7 @@ public static class AgentCommand
                     joinAddr,
                     replay,
                     tags,
+                    configPath,
                     shutdownToken);
             }
             catch (Exception ex)
@@ -121,10 +130,11 @@ public static class AgentCommand
         string? joinAddr,
         bool replay,
         string[]? tags,
+        string? configPath,
         CancellationToken shutdownToken)
     {
-        // Build agent configuration
-        var config = new AgentConfig
+        // Build agent configuration from CLI
+        var cliConfig = new AgentConfig
         {
             NodeName = nodeName ?? Environment.MachineName,
             BindAddr = bindAddr,
@@ -135,9 +145,31 @@ public static class AgentCommand
             RPCAuthKey = rpcAuth
         };
 
+        // Load config file or directory if provided, then merge with CLI where CLI overrides file
+        AgentConfig finalConfig = cliConfig;
+        if (!string.IsNullOrWhiteSpace(configPath))
+        {
+            AgentConfig loaded;
+            if (Directory.Exists(configPath))
+            {
+                loaded = await ConfigLoader.LoadFromDirectoryAsync(configPath, shutdownToken);
+            }
+            else if (File.Exists(configPath))
+            {
+                loaded = await ConfigLoader.LoadFromFileAsync(configPath, shutdownToken);
+            }
+            else
+            {
+                throw new FileNotFoundException($"Config file or directory not found: {configPath}");
+            }
+
+            // File provides base, CLI overrides
+            finalConfig = AgentConfig.Merge(loaded, cliConfig);
+        }
+
         // Create and start agent
-        var agent = new SerfAgent(config);
-        
+        var agent = new SerfAgent(finalConfig);
+
         try
         {
             await agent.StartAsync(shutdownToken);
@@ -168,7 +200,7 @@ public static class AgentCommand
 
             // Wait for shutdown signal
             await Task.Delay(Timeout.Infinite, shutdownToken);
-            
+
             return 0;
         }
         catch (OperationCanceledException)
@@ -191,7 +223,7 @@ public static class AgentCommand
     private static Dictionary<string, string> ParseTags(string[]? tags)
     {
         var result = new Dictionary<string, string>();
-        
+
         if (tags == null)
             return result;
 

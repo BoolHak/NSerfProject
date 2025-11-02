@@ -15,6 +15,7 @@ public static class ConfigLoader
         AllowTrailingCommas = true,
         ReadCommentHandling = JsonCommentHandling.Skip,
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
+        WriteIndented = true,
         Converters =
         {
             new GoDurationJsonConverter(),
@@ -28,13 +29,11 @@ public static class ConfigLoader
             throw new FileNotFoundException($"Configuration file not found: {path}");
 
         var json = await File.ReadAllTextAsync(path, cancellationToken);
-        
+
         try
         {
-            var config = JsonSerializer.Deserialize<AgentConfig>(json, JsonOptions);
-            
-            if (config == null)
-                throw new InvalidOperationException("Failed to deserialize configuration");
+            var config = JsonSerializer.Deserialize<AgentConfig>(json, JsonOptions)
+                ?? throw new InvalidOperationException("Failed to deserialize configuration");
 
             return config;
         }
@@ -50,117 +49,128 @@ public static class ConfigLoader
             throw new DirectoryNotFoundException($"Configuration directory not found: {directoryPath}");
 
         var result = AgentConfig.Default();
-        
+
         var jsonFiles = Directory.GetFiles(directoryPath, "*.json")
             .OrderBy(f => f, StringComparer.Ordinal);  // Lexical order
-        
+
         foreach (var file in jsonFiles)
         {
             var config = await LoadFromFileAsync(file, cancellationToken);
             result = AgentConfig.Merge(result, config);
         }
-        
+
         return result;
     }
 
     public static async Task<Dictionary<string, string>> LoadTagsFromFileAsync(string path, CancellationToken cancellationToken = default)
     {
-        if (!File.Exists(path))
-            return new Dictionary<string, string>();
+        if (!File.Exists(path)) return [];
 
         var json = await File.ReadAllTextAsync(path, cancellationToken);
         var tags = JsonSerializer.Deserialize<Dictionary<string, string>>(json);
-        
-        return tags ?? new Dictionary<string, string>();
+
+        return tags ?? [];
     }
 
     public static async Task SaveTagsToFileAsync(string path, Dictionary<string, string> tags, CancellationToken cancellationToken = default)
     {
-        var json = JsonSerializer.Serialize(tags, new JsonSerializerOptions { WriteIndented = true });
+        var json = JsonSerializer.Serialize(tags, JsonOptions);
         await File.WriteAllTextAsync(path, json, cancellationToken);
     }
 
     public static async Task<string[]> LoadKeyringFromFileAsync(string path, CancellationToken cancellationToken = default)
     {
-        if (!File.Exists(path))
-            return Array.Empty<string>();
+        if (!File.Exists(path)) return [];
 
         var json = await File.ReadAllTextAsync(path, cancellationToken);
         var keys = JsonSerializer.Deserialize<string[]>(json);
-        
-        return keys ?? Array.Empty<string>();
+
+        return keys ?? [];
     }
 
     public static AgentConfig LoadFromArgs(string[] args)
     {
         var config = new AgentConfig();
+        var i = 0;
 
-        for (int i = 0; i < args.Length; i++)
+        while (i < args.Length)
         {
-            switch (args[i])
+            var arg = args[i];
+            i++;
+
+            switch (arg)
             {
-                case "-node":
-                case "--node":
-                    config.NodeName = args[++i];
+                case "-node" or "--node":
+                    config.NodeName = ConsumeNextArg(args, ref i, arg);
                     break;
 
-                case "-bind":
-                case "--bind":
-                    config.BindAddr = args[++i];
+                case "-bind" or "--bind":
+                    config.BindAddr = ConsumeNextArg(args, ref i, arg);
                     break;
 
-                case "-rpc-addr":
-                case "--rpc-addr":
-                    config.RPCAddr = args[++i];
+                case "-rpc-addr" or "--rpc-addr":
+                    config.RPCAddr = ConsumeNextArg(args, ref i, arg);
                     break;
 
-                case "-rpc-auth":
-                case "--rpc-auth":
-                    config.RPCAuthKey = args[++i];
+                case "-rpc-auth" or "--rpc-auth":
+                    config.RPCAuthKey = ConsumeNextArg(args, ref i, arg);
                     break;
 
-                case "-join":
-                case "--join":
-                    var joins = new List<string>();
-                    while (i + 1 < args.Length && !args[i + 1].StartsWith("-"))
-                    {
-                        joins.Add(args[++i]);
-                    }
-                    config.StartJoin = joins.ToArray();
+                case "-join" or "--join":
+                    config.StartJoin = [.. ConsumeMultipleArgs(args, ref i)];
                     break;
 
-                case "-tag":
-                case "--tag":
-                    var tagParts = args[++i].Split('=', 2);
-                    if (tagParts.Length == 2)
-                    {
-                        config.Tags[tagParts[0]] = tagParts[1];
-                    }
+                case "-tag" or "--tag":
+                    ParseAndAddTag(config, ConsumeNextArg(args, ref i, arg));
                     break;
 
-                case "-log-level":
-                case "--log-level":
-                    config.LogLevel = args[++i];
+                case "-log-level" or "--log-level":
+                    config.LogLevel = ConsumeNextArg(args, ref i, arg);
                     break;
 
-                case "-snapshot":
-                case "--snapshot":
-                    config.SnapshotPath = args[++i];
+                case "-snapshot" or "--snapshot":
+                    config.SnapshotPath = ConsumeNextArg(args, ref i, arg);
                     break;
 
-                case "-rejoin":
-                case "--rejoin":
+                case "-rejoin" or "--rejoin":
                     config.RejoinAfterLeave = true;
                     break;
 
-                case "-config-file":
-                case "--config-file":
+                case "-config-file" or "--config-file":
                     // Config file will be loaded separately
                     break;
             }
         }
 
         return config;
+    }
+
+    private static string ConsumeNextArg(string[] args, ref int index, string argName)
+    {
+        if (index >= args.Length)
+        {
+            throw new ArgumentException($"Missing value for argument '{argName}'");
+        }
+        return args[index++];
+    }
+
+    private static List<string> ConsumeMultipleArgs(string[] args, ref int index)
+    {
+        var results = new List<string>();
+        while (index < args.Length && !args[index].StartsWith('-'))
+        {
+            results.Add(args[index++]);
+        }
+        return results;
+    }
+
+    private static void ParseAndAddTag(AgentConfig config, string tagValue)
+    {
+        var tagParts = tagValue.Split('=', 2);
+        if (tagParts.Length == 2)
+        {
+            config.Tags[tagParts[0]] = tagParts[1];
+        }
     }
 
     public static void Validate(AgentConfig config)

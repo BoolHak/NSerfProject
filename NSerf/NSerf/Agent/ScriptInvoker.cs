@@ -1,13 +1,14 @@
 // Copyright (c) BoolHak, Inc.
 // SPDX-License-Identifier: MPL-2.0
 
+using Microsoft.Extensions.Logging;
+using NSerf.Serf;
+using NSerf.Serf.Events;
+using System.Collections;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
-using Microsoft.Extensions.Logging;
-using NSerf.Serf;
-using NSerf.Serf.Events;
 
 namespace NSerf.Agent;
 
@@ -20,8 +21,10 @@ public class ScriptInvoker
     private const int MaxBufferSize = 8 * 1024;  // 8KB output limit
     private static readonly TimeSpan SlowScriptWarnTime = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(30);
-
-    private static readonly Regex SanitizeTagRegex = new(@"[^A-Z0-9_]", RegexOptions.Compiled);
+    private static readonly Regex SanitizeTagRegex = new(
+        @"[^A-Z0-9_]",
+        RegexOptions.Compiled,
+        TimeSpan.FromMilliseconds(100));
 
     public class ScriptResult
     {
@@ -40,9 +43,30 @@ public class ScriptInvoker
         TimeSpan? timeout = null,
         Event? evt = null)
     {
-        var result = new ScriptResult();
         var output = new CircularBuffer(MaxBufferSize);
+        var actualTimeout = timeout ?? DefaultTimeout;
+        var result = new ScriptResult();
 
+        using var process = CreateProcess(script, envVars);
+        using var slowWarningTimer = CreateSlowScriptTimer(script, logger, result.Warnings);
+
+        AttachOutputHandlers(process, output);
+
+        process.Start();
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
+
+        await WriteStdinAsync(process, stdin);
+        await WaitForCompletionAsync(process, script, actualTimeout);
+
+        result = BuildResult(process, output, script, logger, result);
+        await HandleQueryResponseAsync(evt, result, logger);
+
+        return result;
+    }
+
+    private static Process CreateProcess(string script, Dictionary<string, string> envVars)
+    {
         var (shell, flag) = GetShellCommand();
 
         var psi = new ProcessStartInfo
@@ -56,128 +80,167 @@ public class ScriptInvoker
             CreateNoWindow = true
         };
 
-        // Inherit OS environment + add Serf-specific vars
-        foreach (System.Collections.DictionaryEntry kvp in Environment.GetEnvironmentVariables())
-        {
-            if (kvp.Key != null && kvp.Value != null)
-                psi.Environment[(string)kvp.Key] = (string)kvp.Value;
-        }
+        ConfigureEnvironmentVariables(psi, envVars);
 
-        foreach (var kvp in envVars)
-        {
-            psi.Environment[kvp.Key] = kvp.Value;
-        }
+        return new Process { StartInfo = psi };
+    }
 
-        using var process = new Process { StartInfo = psi };
-
-        // Slow script warning timer
-        var slowWarningShown = false;
-        var slowTimer = new System.Threading.Timer(_ =>
+    private static void ConfigureEnvironmentVariables(
+        ProcessStartInfo psi,
+        Dictionary<string, string> envVars)
+    {
+        foreach (DictionaryEntry entry in Environment.GetEnvironmentVariables())
         {
-            if (!slowWarningShown)
+            if (entry.Key is string key && entry.Value is string value)
             {
-                slowWarningShown = true;
-                var warning = $"Script '{script}' slow, execution exceeding {SlowScriptWarnTime.TotalSeconds}s";
-                lock (result.Warnings)
-                {
-                    result.Warnings.Add(warning);
-                }
-                logger?.LogWarning("[Agent/Script] {Warning}", warning);
+                psi.Environment[key] = value;
             }
-        }, null, SlowScriptWarnTime, Timeout.InfiniteTimeSpan);
-
-        // Capture stdout and stderr to same buffer
-        process.OutputDataReceived += (_, e) =>
-        {
-            if (e.Data != null)
-                output.Write(Encoding.UTF8.GetBytes(e.Data + "\n"));
-        };
-        process.ErrorDataReceived += (_, e) =>
-        {
-            if (e.Data != null)
-                output.Write(Encoding.UTF8.GetBytes(e.Data + "\n"));
-        };
-
-        process.Start();
-        process.BeginOutputReadLine();
-        process.BeginErrorReadLine();
-
-        // Write stdin in background (prevents deadlock)
-        if (!string.IsNullOrEmpty(stdin))
-        {
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    await process.StandardInput.WriteAsync(stdin);
-                    await process.StandardInput.FlushAsync();
-                    process.StandardInput.Close();
-                }
-                catch
-                {
-                    // Ignore - script may not read stdin
-                }
-            });
         }
-        else
+
+        foreach (var (key, value) in envVars)
+        {
+            psi.Environment[key] = value;
+        }
+    }
+
+    private static Timer CreateSlowScriptTimer(string script, ILogger? logger, List<string> warnings)
+    {
+        var warningShown = false;
+
+        return new Timer(_ =>
+        {
+            if (warningShown) return;
+
+            warningShown = true;
+            var warning = $"Script '{script}' slow, execution exceeding {SlowScriptWarnTime.TotalSeconds}s";
+            warnings.Add(warning);
+            logger?.LogWarning("[Agent/Script] {Warning}", warning);
+        }, null, SlowScriptWarnTime, Timeout.InfiniteTimeSpan);
+    }
+
+    private static void AttachOutputHandlers(Process process, CircularBuffer output)
+    {
+        void WriteOutput(object _, DataReceivedEventArgs e)
+        {
+            if (e.Data is not null)
+            {
+                output.Write(Encoding.UTF8.GetBytes(e.Data + "\n"));
+            }
+        }
+
+        process.OutputDataReceived += WriteOutput;
+        process.ErrorDataReceived += WriteOutput;
+    }
+
+    private static async Task WriteStdinAsync(Process process, string? stdin)
+    {
+        if (string.IsNullOrEmpty(stdin))
         {
             process.StandardInput.Close();
+            return;
         }
 
-        // Wait for completion with timeout
-        var actualTimeout = timeout ?? DefaultTimeout;
-        var completed = await Task.Run(() => process.WaitForExit((int)actualTimeout.TotalMilliseconds));
-
-        // Stop the timer (matches Go's slowTimer.Stop() - no delay needed)
-        slowTimer.Dispose();
-
-        if (!completed)
+        try
         {
-            try
-            {
-                process.Kill(true);
-            }
-            catch
-            {
-                // Process may have already exited
-            }
-            throw new TimeoutException($"Script '{script}' exceeded timeout of {actualTimeout.TotalSeconds}s");
+            await process.StandardInput.WriteAsync(stdin);
+            await process.StandardInput.FlushAsync();
+            process.StandardInput.Close();
+        }
+        catch
+        {
+            // Script may not read stdin
         }
 
-        // Wait for async output readers to finish
-        await process.WaitForExitAsync();
+    }
 
+    private static async Task WaitForCompletionAsync(
+        Process process,
+        string script,
+        TimeSpan timeout)
+    {
+        var completed = await Task.Run(() =>
+            process.WaitForExit((int)timeout.TotalMilliseconds));
+
+        if (completed)
+        {
+            await process.WaitForExitAsync();
+            return;
+        }
+
+        KillProcess(process);
+        throw new TimeoutException(
+            $"Script '{script}' exceeded timeout of {timeout.TotalSeconds}s");
+    }
+
+    private static void KillProcess(Process process)
+    {
+        try
+        {
+            process.Kill(entireProcessTree: true);
+        }
+        catch
+        {
+            // Process may have already exited
+        }
+    }
+
+    private static ScriptResult BuildResult(
+        Process process,
+        CircularBuffer output,
+        string script,
+        ILogger? logger,
+        ScriptResult result)
+    {
         result.ExitCode = process.ExitCode;
         result.TotalWritten = output.TotalWritten;
         result.WasTruncated = output.WasTruncated;
         result.Output = output.GetString().TrimEnd();
 
-        // Warn if output was truncated
         if (result.WasTruncated)
         {
-            var warning = $"Script '{script}' generated {result.TotalWritten} bytes of output, truncated to {MaxBufferSize}";
-            result.Warnings.Add(warning);
-            logger?.LogWarning("[Agent/Script] {Warning}", warning);
+            AddTruncationWarning(result, script, logger);
         }
 
-        // Debug log output
         logger?.LogDebug("[Agent/Script] Event script output: {Output}", result.Output);
-
-        // Auto-respond to query if output present
-        if (evt is Query query && result.TotalWritten > 0)
-        {
-            try
-            {
-                await query.RespondAsync(Encoding.UTF8.GetBytes(result.Output));
-            }
-            catch (Exception ex)
-            {
-                logger?.LogWarning(ex, "[Agent/Script] Failed to respond to query '{QueryName}'", query.Name);
-            }
-        }
 
         return result;
     }
+
+    private static void AddTruncationWarning(
+        ScriptResult result,
+        string script,
+        ILogger? logger)
+    {
+        var warning = $"Script '{script}' generated {result.TotalWritten} bytes of output, " +
+                      $"truncated to {MaxBufferSize}";
+        result.Warnings.Add(warning);
+        logger?.LogWarning("[Agent/Script] {Warning}", warning);
+    }
+
+    private static async Task HandleQueryResponseAsync(
+        Event? evt,
+        ScriptResult result,
+        ILogger? logger)
+    {
+        if (evt is not Query query || result.TotalWritten == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            await query.RespondAsync(Encoding.UTF8.GetBytes(result.Output));
+        }
+        catch (Exception ex)
+        {
+            logger?.LogWarning(ex,
+                "[Agent/Script] Failed to respond to query '{QueryName}'",
+                query.Name);
+        }
+    }
+
+
+
 
     public static Dictionary<string, string> BuildEnvironmentVariables(Member self, Event evt)
     {

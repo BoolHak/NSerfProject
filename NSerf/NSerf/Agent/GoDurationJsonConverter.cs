@@ -11,7 +11,7 @@ namespace NSerf.Agent;
 /// JSON converter for Go duration format (e.g., "15s", "48h", "30m")
 /// Maps to Go's time.ParseDuration
 /// </summary>
-public class GoDurationJsonConverter : JsonConverter<TimeSpan>
+public partial class GoDurationJsonConverter : JsonConverter<TimeSpan>
 {
     public override TimeSpan Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
@@ -20,11 +20,11 @@ public class GoDurationJsonConverter : JsonConverter<TimeSpan>
             // Handle numeric values as seconds (fallback)
             return TimeSpan.FromSeconds(reader.GetDouble());
         }
-        
+
         var value = reader.GetString();
         if (string.IsNullOrEmpty(value))
             return TimeSpan.Zero;
-        
+
         return ParseGoDuration(value);
     }
 
@@ -33,16 +33,19 @@ public class GoDurationJsonConverter : JsonConverter<TimeSpan>
         writer.WriteStringValue(FormatGoDuration(value));
     }
 
+    [GeneratedRegex(@"^(\d+(?:\.\d+)?)(ns|us|µs|ms|s|m|h)$", RegexOptions.CultureInvariant)]
+    private static partial Regex DurationRegex();
+
     public static TimeSpan ParseGoDuration(string input)
     {
         // Support Go duration format: h (hour), m (minute), s (second), ms (millisecond), us (microsecond), ns (nanosecond)
-        var match = Regex.Match(input, @"^(\d+(?:\.\d+)?)(ns|us|µs|ms|s|m|h)$");
+        var match = DurationRegex().Match(input);
         if (!match.Success)
             throw new FormatException($"Invalid duration format: {input}");
-        
+
         var value = double.Parse(match.Groups[1].Value);
         var unit = match.Groups[2].Value;
-        
+
         return unit switch
         {
             "h" => TimeSpan.FromHours(value),
@@ -57,15 +60,18 @@ public class GoDurationJsonConverter : JsonConverter<TimeSpan>
 
     private static string FormatGoDuration(TimeSpan value)
     {
-        if (value.TotalHours >= 1 && value.TotalHours == Math.Floor(value.TotalHours))
-            return $"{(int)value.TotalHours}h";
-        if (value.TotalMinutes >= 1 && value.TotalMinutes == Math.Floor(value.TotalMinutes))
-            return $"{(int)value.TotalMinutes}m";
-        if (value.TotalSeconds >= 1 && value.TotalSeconds == Math.Floor(value.TotalSeconds))
-            return $"{(int)value.TotalSeconds}s";
-        if (value.TotalMilliseconds >= 1)
-            return $"{(int)value.TotalMilliseconds}ms";
-        
-        return $"{value.Ticks * 100}ns";
+        return value switch
+        {
+            { TotalHours: >= 1 } when value.Ticks % TimeSpan.TicksPerHour == 0
+                => $"{(int)value.TotalHours}h",
+            { TotalMinutes: >= 1 } when value.Ticks % TimeSpan.TicksPerMinute == 0
+                => $"{(int)value.TotalMinutes}m",
+            { TotalSeconds: >= 1 } when value.Ticks % TimeSpan.TicksPerSecond == 0
+                => $"{(int)value.TotalSeconds}s",
+            { TotalMilliseconds: >= 1 }
+                => $"{(int)value.TotalMilliseconds}ms",
+            _
+                => $"{value.Ticks * 100}ns"
+        };
     }
 }

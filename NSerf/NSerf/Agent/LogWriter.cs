@@ -10,20 +10,17 @@ namespace NSerf.Agent;
 /// Filters log output based on log level.
 /// Maps to: Go's logutils.LevelFilter
 /// </summary>
-public class LogWriter : TextWriter
+public class LogWriter(TextWriter writer, LogLevel minLevel) : TextWriter
 {
-    private readonly TextWriter _writer;
-    private readonly LogLevel _minLevel;
+    private readonly TextWriter _writer = writer ?? throw new ArgumentNullException(nameof(writer));
+    private readonly LogLevel _minLevel = minLevel;
     private readonly object _lock = new();
-    private static readonly Regex LevelRegex = new(@"^\[(TRACE|DEBUG|INFO|WARN|ERR)\]", RegexOptions.Compiled);
+    private static readonly Regex LevelRegex = new(
+        @"^\[(TRACE|DEBUG|INFO|WARN|ERR)\]",
+        RegexOptions.Compiled,
+        TimeSpan.FromMilliseconds(100));
 
     public override Encoding Encoding => _writer.Encoding;
-
-    public LogWriter(TextWriter writer, LogLevel minLevel)
-    {
-        _writer = writer ?? throw new ArgumentNullException(nameof(writer));
-        _minLevel = minLevel;
-    }
 
     public override void Write(char value)
     {

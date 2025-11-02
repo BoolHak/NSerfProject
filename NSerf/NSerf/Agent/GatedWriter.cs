@@ -10,19 +10,14 @@ namespace NSerf.Agent;
 /// Buffers writes until Flush() is called.
 /// Maps to: Go's gatedwriter pattern
 /// </summary>
-public class GatedWriter : TextWriter
+public class GatedWriter(TextWriter writer) : TextWriter
 {
-    private readonly TextWriter _writer;
+    private readonly TextWriter _writer = writer ?? throw new ArgumentNullException(nameof(writer));
     private readonly StringBuilder _buffer = new();
     private readonly object _lock = new();
     private bool _flushed;
 
     public override Encoding Encoding => _writer.Encoding;
-
-    public GatedWriter(TextWriter writer)
-    {
-        _writer = writer ?? throw new ArgumentNullException(nameof(writer));
-    }
 
     public override void Write(char value)
     {
