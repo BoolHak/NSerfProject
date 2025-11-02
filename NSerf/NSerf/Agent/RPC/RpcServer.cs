@@ -19,6 +19,7 @@ public class RpcServer(SerfAgent agent, string bindAddr, string? authKey = null)
     private readonly List<RpcSession> _sessions = [];
     private readonly object _sessionsLock = new();
     private bool _stopped;
+    private bool _disposed;
 
     public string? Address { get; private set; }
 
@@ -94,27 +95,50 @@ public class RpcServer(SerfAgent agent, string bindAddr, string? authKey = null)
 
     public async ValueTask DisposeAsync()
     {
+        if (_disposed)
+        {
+            return;
+        }
+        _disposed = true;
+
         // Set stop flag FIRST (under lock)
         lock (_sessionsLock)
         {
             _stopped = true;
         }
 
-        // Stop accepting new connections
-        _cts?.Cancel();
-        _cts?.Dispose();
+        // Stop listener to unblock AcceptTcpClientAsync immediately
         _listener?.Stop();
 
-        if (_acceptTask != null)
+        // Safely capture and clear CTS, then cancel to break loops
+        var cts = System.Threading.Interlocked.Exchange(ref _cts, null);
+        try
+        {
+            if (cts != null)
+            {
+                await cts.CancelAsync();
+            }
+        }
+        catch (ObjectDisposedException)
+        {
+            // Ignore if CTS was already disposed elsewhere
+        }
+
+        // Wait for accept loop to end before disposing CTS
+        var acceptTask = _acceptTask;
+        if (acceptTask != null)
         {
             try
             {
-                await _acceptTask;
+                await acceptTask;
             }
             catch (OperationCanceledException)
             {
             }
         }
+
+        // Now it's safe to dispose the CTS
+        cts?.Dispose();
 
         // Close all existing sessions
         var disposeTasks = new List<Task>();

@@ -35,7 +35,7 @@ public class CoordinateClient
         _config = config;
         _adjustmentIndex = 0;
         _adjustmentSamples = new double[config.AdjustmentWindowSize];
-        _latencyFilterSamples = new Dictionary<string, List<double>>();
+        _latencyFilterSamples = [];
         _stats = new ClientStats();
     }
 
@@ -212,7 +212,6 @@ public class CoordinateClient
             }
 
             // Note: In Go they track zero RTTs with metrics, we'll skip that for now
-            // if (rtt == TimeSpan.Zero) { /* increment metric */ }
 
             var rttSeconds = LatencyFilter(node, rtt.TotalSeconds);
             UpdateVivaldi(other, rttSeconds);

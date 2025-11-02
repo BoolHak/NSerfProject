@@ -88,17 +88,10 @@ public class Coordinate
     /// </summary>
     public bool IsValid()
     {
-        foreach (var component in Vec)
-        {
-            if (!ComponentIsValid(component))
-            {
-                return false;
-            }
-        }
-
-        return ComponentIsValid(Error) &&
-               ComponentIsValid(Adjustment) &&
-               ComponentIsValid(Height);
+        return Vec.All(ComponentIsValid) &&
+           ComponentIsValid(Error) &&
+           ComponentIsValid(Adjustment) &&
+           ComponentIsValid(Height);
     }
 
     /// <summary>
