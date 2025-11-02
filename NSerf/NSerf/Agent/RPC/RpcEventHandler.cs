@@ -12,25 +12,17 @@ namespace NSerf.Agent.RPC;
 /// <summary>
 /// RPC event handler for stream command.
 /// </summary>
-public class RpcEventHandler : IEventHandler, IDisposable
+public class RpcEventHandler(NetworkStream stream, SemaphoreSlim writeLock, string? eventFilter, CancellationToken cancellationToken) : IEventHandler, IDisposable
 {
-    private readonly NetworkStream _stream;
-    private readonly SemaphoreSlim _writeLock;
-    private readonly CancellationToken _cancellationToken;
-    private readonly string? _eventFilter;
+    private readonly NetworkStream _stream = stream;
+    private readonly SemaphoreSlim _writeLock = writeLock;
+    private readonly CancellationToken _cancellationToken = cancellationToken;
+    private readonly string? _eventFilter = eventFilter;
     private bool _disposed;
 
     private static readonly MessagePackSerializerOptions MsgPackOptions =
         MessagePackSerializerOptions.Standard
             .WithCompression(MessagePackCompression.None);
-
-    public RpcEventHandler(NetworkStream stream, SemaphoreSlim writeLock, string? eventFilter, CancellationToken cancellationToken)
-    {
-        _stream = stream;
-        _writeLock = writeLock;
-        _eventFilter = eventFilter;
-        _cancellationToken = cancellationToken;
-    }
 
     public void HandleEvent(Event @event)
     {
@@ -63,7 +55,7 @@ public class RpcEventHandler : IEventHandler, IDisposable
         }
     }
 
-    private Client.Responses.StreamEvent ConvertToStreamEvent(Event @event)
+    private static Client.Responses.StreamEvent ConvertToStreamEvent(Event @event)
     {
         var eventType = @event.EventType();
         var streamEvent = new Client.Responses.StreamEvent

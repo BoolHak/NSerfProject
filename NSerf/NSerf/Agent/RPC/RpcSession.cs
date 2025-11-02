@@ -15,8 +15,8 @@ public class RpcSession : IAsyncDisposable
     private readonly SerfAgent _agent;
     private readonly TcpClient _client;
     private readonly string? _authKey;
-    private NetworkStream? _stream;
-    private MessagePackStreamReader? _reader;
+    private readonly NetworkStream? _stream;
+    private readonly MessagePackStreamReader? _reader;
     private bool _authenticated;
     private bool _disposed;
     private int _clientVersion;  // 0 = no handshake yet
@@ -260,8 +260,8 @@ public class RpcSession : IAsyncDisposable
             return;
         }
 
-        var members = _agent.Serf?.Members() ?? Array.Empty<Member>();
-        if (members == null) members = Array.Empty<Member>();
+        var members = _agent.Serf?.Members() ?? [];
+        members ??= [];
 
         var rpcMembers = members.Select(m => new Client.Responses.Member
         {
@@ -366,7 +366,7 @@ public class RpcSession : IAsyncDisposable
 
         var request = MessagePackSerializer.Deserialize<Client.Requests.MembersFilteredRequest>(requestBytes.Value, MsgPackOptions, cancellationToken);
 
-        var allMembers = _agent.Serf?.Members() ?? Array.Empty<Member>();
+        var allMembers = _agent.Serf?.Members() ?? [];
 
         // Pre-compile regex patterns with anchors (^$) for exact match
         System.Text.RegularExpressions.Regex? nameRegex = null;
@@ -383,7 +383,7 @@ public class RpcSession : IAsyncDisposable
 
             if (request.Tags != null && request.Tags.Count > 0)
             {
-                tagRegexes = new Dictionary<string, System.Text.RegularExpressions.Regex>();
+                tagRegexes = [];
                 foreach (var tag in request.Tags)
                 {
                     tagRegexes[tag.Key] = new System.Text.RegularExpressions.Regex($"^{tag.Value}$");
@@ -523,7 +523,7 @@ public class RpcSession : IAsyncDisposable
         var mergedTags = new Dictionary<string, string>();
 
         // Start with existing tags
-        var currentTags = _agent.Serf?.Config.Tags ?? new Dictionary<string, string>();
+        var currentTags = _agent.Serf?.Config.Tags ?? [];
         foreach (var tag in currentTags)
         {
             // Only include if not in delete list
@@ -585,7 +585,7 @@ public class RpcSession : IAsyncDisposable
 
         var queryParam = new Serf.QueryParam
         {
-            FilterNodes = string.IsNullOrEmpty(request.FilterNodes) ? null : new[] { request.FilterNodes },
+            FilterNodes = string.IsNullOrEmpty(request.FilterNodes) ? null : [request.FilterNodes],
             FilterTags = filterTags,
             RequestAck = request.RequestAck,
             Timeout = TimeSpan.FromSeconds(request.Timeout)
@@ -702,7 +702,7 @@ public class RpcSession : IAsyncDisposable
         Client.Requests.CoordinateRequest? request;
         try
         {
-            request = MessagePackSerializer.Deserialize<Client.Requests.CoordinateRequest>(requestBytes.Value, MsgPackOptions);
+            request = MessagePackSerializer.Deserialize<Client.Requests.CoordinateRequest>(requestBytes.Value, MsgPackOptions, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -723,7 +723,7 @@ public class RpcSession : IAsyncDisposable
             Ok = coord != null,
             Coord = coord != null ? new Client.Responses.Coordinate
             {
-                Vec = coord.Vec.Select(v => (float)v).ToArray(),
+                Vec = [.. coord.Vec.Select(v => (float)v)],
                 Error = (float)coord.Error,
                 Adjustment = (float)coord.Adjustment,
                 Height = (float)coord.Height
@@ -763,6 +763,7 @@ public class RpcSession : IAsyncDisposable
             return;
         }
 
+        //TODO: Loglevel filtering is not yet implemented
         var request = MessagePackSerializer.Deserialize<Client.Requests.MonitorRequest>(requestBytes.Value, MsgPackOptions, cancellationToken);
 
         // Send success response
@@ -892,6 +893,7 @@ public class RpcSession : IAsyncDisposable
         _client?.Dispose();
         _writeLock?.Dispose();
 
+        GC.SuppressFinalize(this);
         return ValueTask.CompletedTask;
     }
 }

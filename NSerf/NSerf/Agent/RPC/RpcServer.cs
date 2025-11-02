@@ -8,26 +8,19 @@ using NSerf.Client;
 
 namespace NSerf.Agent.RPC;
 
-public class RpcServer : IAsyncDisposable
+public class RpcServer(SerfAgent agent, string bindAddr, string? authKey = null) : IAsyncDisposable
 {
-    private readonly SerfAgent _agent;
-    private readonly string _bindAddr;
-    private readonly string? _authKey;
+    private readonly SerfAgent _agent = agent ?? throw new ArgumentNullException(nameof(agent));
+    private readonly string _bindAddr = bindAddr ?? throw new ArgumentNullException(nameof(bindAddr));
+    private readonly string? _authKey = authKey;
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
     private Task? _acceptTask;
-    private readonly List<RpcSession> _sessions = new();
+    private readonly List<RpcSession> _sessions = [];
     private readonly object _sessionsLock = new();
     private bool _stopped;
 
     public string? Address { get; private set; }
-
-    public RpcServer(SerfAgent agent, string bindAddr, string? authKey = null)
-    {
-        _agent = agent ?? throw new ArgumentNullException(nameof(agent));
-        _bindAddr = bindAddr ?? throw new ArgumentNullException(nameof(bindAddr));
-        _authKey = authKey;
-    }
 
     public Task StartAsync(CancellationToken cancellationToken = default)
     {
@@ -56,7 +49,7 @@ public class RpcServer : IAsyncDisposable
             try
             {
                 var client = await _listener!.AcceptTcpClientAsync(cancellationToken);
-                
+
                 // CRITICAL: Check if stopped before registering (race condition)
                 lock (_sessionsLock)
                 {
@@ -65,10 +58,10 @@ public class RpcServer : IAsyncDisposable
                         client.Close();  // Close immediately if already stopping
                         return;
                     }
-                    
+
                     var session = new RpcSession(_agent, client, _authKey);
                     _sessions.Add(session);
-                    
+
                     _ = Task.Run(async () =>
                     {
                         try
@@ -79,13 +72,13 @@ public class RpcServer : IAsyncDisposable
                         {
                             // Cleanup: dispose session first, then remove from list
                             await session.DisposeAsync();
-                            
+
                             lock (_sessionsLock)
                             {
                                 _sessions.Remove(session);
                             }
                         }
-                    });
+                    }, cancellationToken);
                 }
             }
             catch (OperationCanceledException)
@@ -106,9 +99,10 @@ public class RpcServer : IAsyncDisposable
         {
             _stopped = true;
         }
-        
+
         // Stop accepting new connections
         _cts?.Cancel();
+        _cts?.Dispose();
         _listener?.Stop();
 
         if (_acceptTask != null)
@@ -123,13 +117,21 @@ public class RpcServer : IAsyncDisposable
         }
 
         // Close all existing sessions
+        var disposeTasks = new List<Task>();
         lock (_sessionsLock)
         {
             foreach (var session in _sessions)
             {
-                _ = session.DisposeAsync();
+                disposeTasks.Add(session.DisposeAsync().AsTask());
             }
             _sessions.Clear();
         }
+
+        // Await all dispose operations
+        await Task.WhenAll(disposeTasks);
+
+        GC.SuppressFinalize(this);
     }
+
+
 }

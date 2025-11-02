@@ -11,23 +11,16 @@ namespace NSerf.Agent.RPC;
 /// <summary>
 /// RPC log handler for monitor command streaming.
 /// </summary>
-public class RpcLogHandler : ILogHandler, IDisposable
+public class RpcLogHandler(NetworkStream stream, SemaphoreSlim writeLock, CancellationToken cancellationToken) : ILogHandler, IDisposable
 {
-    private readonly NetworkStream _stream;
-    private readonly SemaphoreSlim _writeLock;
-    private readonly CancellationToken _cancellationToken;
+    private readonly NetworkStream _stream = stream;
+    private readonly SemaphoreSlim _writeLock = writeLock;
+    private readonly CancellationToken _cancellationToken = cancellationToken;
     private bool _disposed;
 
-    private static readonly MessagePackSerializerOptions MsgPackOptions = 
+    private static readonly MessagePackSerializerOptions MsgPackOptions =
         MessagePackSerializerOptions.Standard
             .WithCompression(MessagePackCompression.None);
-
-    public RpcLogHandler(NetworkStream stream, SemaphoreSlim writeLock, CancellationToken cancellationToken)
-    {
-        _stream = stream;
-        _writeLock = writeLock;
-        _cancellationToken = cancellationToken;
-    }
 
     public void HandleLog(string log)
     {

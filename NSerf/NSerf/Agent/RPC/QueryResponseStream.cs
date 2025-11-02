@@ -11,26 +11,18 @@ namespace NSerf.Agent.RPC;
 /// QueryResponseStream handles streaming query acks and responses back to the RPC client.
 /// Maps to: Go's queryResponseStream in ipc_query_response_stream.go
 /// </summary>
-internal class QueryResponseStream
+internal class QueryResponseStream(
+    SemaphoreSlim writeLock,
+    Stream stream,
+    ulong seq,
+    Serf.QueryResponse queryResponse)
 {
-    private readonly SemaphoreSlim _writeLock;
-    private readonly Stream _stream;
-    private readonly ulong _seq;
-    private readonly Serf.QueryResponse _queryResponse;
+    private readonly SemaphoreSlim _writeLock = writeLock;
+    private readonly Stream _stream = stream;
+    private readonly ulong _seq = seq;
+    private readonly Serf.QueryResponse _queryResponse = queryResponse;
     private static readonly MessagePackSerializerOptions MsgPackOptions =
         MessagePackSerializerOptions.Standard.WithCompression(MessagePackCompression.None);
-
-    public QueryResponseStream(
-        SemaphoreSlim writeLock,
-        Stream stream,
-        ulong seq,
-        Serf.QueryResponse queryResponse)
-    {
-        _writeLock = writeLock;
-        _stream = stream;
-        _seq = seq;
-        _queryResponse = queryResponse;
-    }
 
     /// <summary>
     /// Stream is a long-running routine that streams query results back to the client.
@@ -96,7 +88,7 @@ internal class QueryResponseStream
         {
             Type = QueryRecordType.Ack,
             From = from,
-            Payload = Array.Empty<byte>()
+            Payload = []
         };
 
         await SendRecordAsync(record, cancellationToken);
@@ -120,7 +112,7 @@ internal class QueryResponseStream
         {
             Type = QueryRecordType.Done,
             From = string.Empty,
-            Payload = Array.Empty<byte>()
+            Payload = []
         };
 
         await SendRecordAsync(record, cancellationToken);

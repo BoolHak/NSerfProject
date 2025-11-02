@@ -9,7 +9,7 @@
 
     <!-- NuGet Package Metadata -->
     <PackageId>NSerf</PackageId>
-    <Version>0.1.1-beta</Version>
+    <Version>0.1.2-beta</Version>
     <Authors>BoolHak</Authors>
     <Company>BoolHak, Inc.</Company>
     <Product>NSerf</Product>
