@@ -7,18 +7,13 @@ namespace NSerf.Agent;
 /// Circular buffer log writer for the monitor command.
 /// Maps to: Go's log_writer.go
 /// </summary>
-public class CircularLogWriter : IDisposable
+public class CircularLogWriter(int bufferSize = 512) : IDisposable
 {
-    private readonly string[] _logs;
+    private readonly string[] _logs = new string[bufferSize];
     private int _index;
-    private readonly List<ILogHandler> _handlers = new();
+    private readonly List<ILogHandler> _handlers = [];
     private readonly object _lock = new();
-    private bool _disposed;
-
-    public CircularLogWriter(int bufferSize = 512)
-    {
-        _logs = new string[bufferSize];
-    }
+    private bool _disposed = false;
 
     /// <summary>
     /// Register a handler and send it the backlog.
@@ -72,7 +67,7 @@ public class CircularLogWriter : IDisposable
             _index = (_index + 1) % _logs.Length;
 
             // Copy handlers for lock-free iteration
-            handlers = _handlers.ToArray();
+            handlers = [.. _handlers];
         }
 
         // Notify all handlers
@@ -91,39 +86,45 @@ public class CircularLogWriter : IDisposable
 
     private void SendBacklog(ILogHandler handler)
     {
-        // If buffer has wrapped (oldest log at current index)
-        if (!string.IsNullOrEmpty(_logs[_index]))
-        {
-            // Send from index to end
-            for (int i = _index; i < _logs.Length; i++)
-            {
-                if (!string.IsNullOrEmpty(_logs[i]))
-                    handler.HandleLog(_logs[i]);
-            }
-        }
+        var logsToSend = !string.IsNullOrEmpty(_logs[_index])
+        ? _logs.Skip(_index).Concat(_logs.Take(_index))
+        : _logs.Take(_index);
 
-        // Send from start to index
-        for (int i = 0; i < _index; i++)
+        foreach (var log in logsToSend.Where(log => !string.IsNullOrEmpty(log)))
         {
-            if (!string.IsNullOrEmpty(_logs[i]))
-                handler.HandleLog(_logs[i]);
+            handler.HandleLog(log);
         }
     }
 
     public void Dispose()
     {
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+
+    protected virtual void Dispose(bool disposing)
+    {
         lock (_lock)
         {
+            if (_disposed)
+                return;
+
+            if (disposing)
+            {
+                // Dispose managed resources
+                _handlers.Clear();
+            }
+
             _disposed = true;
-            _handlers.Clear();
         }
+    }
+
+    /// <summary>
+    /// Handler interface for receiving log lines.
+    /// </summary>
+    public interface ILogHandler
+    {
+        void HandleLog(string log);
     }
 }
 
-/// <summary>
-/// Handler interface for receiving log lines.
-/// </summary>
-public interface ILogHandler
-{
-    void HandleLog(string log);
-}

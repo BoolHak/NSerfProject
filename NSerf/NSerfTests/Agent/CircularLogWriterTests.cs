@@ -3,6 +3,7 @@
 
 using NSerf.Agent;
 using Xunit;
+using static NSerf.Agent.CircularLogWriter;
 
 namespace NSerfTests.Agent;
 

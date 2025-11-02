@@ -4,6 +4,7 @@
 using System.Net.Sockets;
 using MessagePack;
 using NSerf.Client;
+using static NSerf.Agent.CircularLogWriter;
 
 namespace NSerf.Agent.RPC;
 
