@@ -46,7 +46,7 @@ public class SerfOptions
     /// <summary>
     /// Node tags for metadata.
     /// </summary>
-    public Dictionary<string, string> Tags { get; set; } = new();
+    public Dictionary<string, string> Tags { get; set; } = [];
 
     /// <summary>
     /// Path to tags file (optional).
@@ -81,12 +81,12 @@ public class SerfOptions
     /// <summary>
     /// Nodes to join on startup.
     /// </summary>
-    public string[] StartJoin { get; set; } = Array.Empty<string>();
+    public string[] StartJoin { get; set; } = [];
 
     /// <summary>
     /// Nodes to retry joining in background.
     /// </summary>
-    public string[] RetryJoin { get; set; } = Array.Empty<string>();
+    public string[] RetryJoin { get; set; } = [];
 
     /// <summary>
     /// Retry join interval. Default: 30 seconds
@@ -106,7 +106,7 @@ public class SerfOptions
     /// <summary>
     /// Event handler scripts in format "type=script" or "type:filter=script".
     /// </summary>
-    public List<string> EventHandlers { get; set; } = new();
+    public List<string> EventHandlers { get; set; } = [];
 
     /// <summary>
     /// Reconnect interval for failed nodes. Default: 60 seconds
@@ -159,7 +159,7 @@ public class SerfOptions
             RetryInterval = RetryInterval,
             RetryMaxAttempts = RetryMaxAttempts,
             DisableCoordinates = DisableCoordinates,
-            EventHandlers = new List<string>(EventHandlers),
+            EventHandlers = [.. EventHandlers],
             ReconnectInterval = ReconnectInterval,
             ReconnectTimeout = ReconnectTimeout,
             TombstoneTimeout = TombstoneTimeout,

@@ -10,18 +10,12 @@ namespace NSerf.Extensions;
 /// Hosted service that manages the Serf agent lifecycle within ASP.NET Core applications.
 /// Starts the agent on application startup and gracefully shuts it down on application stop.
 /// </summary>
-internal sealed class SerfHostedService : IHostedService
+internal sealed class SerfHostedService(
+    Agent.SerfAgent agent,
+    ILogger<SerfHostedService> logger) : IHostedService
 {
-    private readonly Agent.SerfAgent _agent;
-    private readonly ILogger<SerfHostedService> _logger;
-
-    public SerfHostedService(
-        Agent.SerfAgent agent,
-        ILogger<SerfHostedService> logger)
-    {
-        _agent = agent ?? throw new ArgumentNullException(nameof(agent));
-        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-    }
+    private readonly Agent.SerfAgent _agent = agent ?? throw new ArgumentNullException(nameof(agent));
+    private readonly ILogger<SerfHostedService> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
@@ -51,9 +45,9 @@ internal sealed class SerfHostedService : IHostedService
         }
         catch (Exception ex)
         {
-            var message = $"Error during Serf agent shutdown for '{_agent.NodeName}'";
-            _logger.LogWarning(ex, message);
-            throw new InvalidOperationException(message, ex);
+            var nodeName = _agent.NodeName;
+            _logger.LogWarning(ex, "Error during Serf agent shutdown for '{NodeName}'", nodeName);
+            throw new InvalidOperationException($"Error during Serf agent shutdown for '{nodeName}'", ex);
         }
     }
 }
