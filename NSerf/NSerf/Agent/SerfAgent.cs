@@ -16,7 +16,7 @@ public class SerfAgent : IAsyncDisposable
     private readonly ILogger? _logger;
     private readonly HashSet<IEventHandler> _eventHandlers = new();
     private readonly object _eventHandlersLock = new();
-    private IEventHandler[] _eventHandlerList = Array.Empty<IEventHandler>();
+    private IEventHandler[] _eventHandlerList = [];
     private readonly Channel<Event> _eventChannel;
     private readonly CancellationTokenSource _cts = new();
     private Serf.Serf? _serf;
@@ -486,6 +486,36 @@ public class SerfAgent : IAsyncDisposable
         }
 
         return result;
+    }
+
+    public void UpdateEventHandlers(List<string> handlerSpecs)
+    {
+        ArgumentNullException.ThrowIfNull(handlerSpecs);
+
+        var scripts = new List<EventScript>();
+        foreach (var spec in handlerSpecs)
+        {
+            scripts.AddRange(EventScript.Parse(spec));
+        }
+
+        if (_scriptEventHandler == null)
+        {
+            if (scripts.Count == 0)
+                return;
+
+            if (_serf == null)
+                throw new InvalidOperationException("Agent not started");
+
+            _scriptEventHandler = new ScriptEventHandler(
+                () => _serf.LocalMember(),
+                [.. scripts],
+                _logger);
+            RegisterEventHandler(_scriptEventHandler);
+        }
+        else
+        {
+            _scriptEventHandler.UpdateScripts([.. scripts]);
+        }
     }
 
     /// <summary>

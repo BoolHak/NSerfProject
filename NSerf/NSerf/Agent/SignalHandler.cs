@@ -21,7 +21,7 @@ public delegate void SignalCallback(Signal signal);
 /// </summary>
 public class SignalHandler : IDisposable
 {
-    private readonly List<SignalCallback> _callbacks = new();
+    private readonly List<SignalCallback> _callbacks = [];
     private readonly object _lock = new();
     private bool _disposed;
 
@@ -29,7 +29,7 @@ public class SignalHandler : IDisposable
     {
         // Register for Ctrl+C (SIGINT on Unix, Ctrl+C on Windows)
         Console.CancelKeyPress += OnCancelKeyPress;
-        
+
         // Register for process exit (SIGTERM equivalent)
         AppDomain.CurrentDomain.ProcessExit += OnProcessExit;
     }
@@ -51,7 +51,7 @@ public class SignalHandler : IDisposable
         {
             if (_disposed)
                 return;
-            callbacks = _callbacks.ToArray();
+            callbacks = [.. _callbacks];
         }
 
         foreach (var callback in callbacks)
@@ -78,12 +78,23 @@ public class SignalHandler : IDisposable
         TriggerSignal(Signal.SIGTERM);
     }
 
-    public void Dispose()
+    protected virtual void Dispose(bool disposing)
     {
         if (_disposed) return;
+        
+        if (disposing)
+        {
+            // Free managed resources
+            Console.CancelKeyPress -= OnCancelKeyPress;
+            AppDomain.CurrentDomain.ProcessExit -= OnProcessExit;
+        }
+        
         _disposed = true;
-
-        Console.CancelKeyPress -= OnCancelKeyPress;
-        AppDomain.CurrentDomain.ProcessExit -= OnProcessExit;
+    }
+    
+    public void Dispose()
+    {
+        Dispose(true);
+        GC.SuppressFinalize(this);
     }
 }

@@ -3,6 +3,7 @@
 
 using System.CommandLine;
 using System.IO;
+using System.Linq;
 using NSerf.Agent;
 
 namespace NSerf.CLI.Commands;
@@ -71,6 +72,12 @@ public static class AgentCommand
             Description = "Path to a config file or directory of .json files (loaded before CLI overrides)"
         };
 
+        var eventHandlerOption = new Option<string[]?>("--event-handler")
+        {
+            Description = "Event handler specification (can be repeated)",
+            AllowMultipleArgumentsPerToken = true
+        };
+
         command.Add(nodeOption);
         command.Add(bindOption);
         command.Add(advertiseOption);
@@ -81,6 +88,7 @@ public static class AgentCommand
         command.Add(replayOption);
         command.Add(tagOption);
         command.Add(configFileOption);
+        command.Add(eventHandlerOption);
 
         command.SetAction(async (parseResult, cancellationToken) =>
         {
@@ -94,6 +102,7 @@ public static class AgentCommand
             var replay = parseResult.GetValue(replayOption);
             var tags = parseResult.GetValue(tagOption);
             var configPath = parseResult.GetValue(configFileOption);
+            var handlerSpecs = parseResult.GetValue(eventHandlerOption);
 
             try
             {
@@ -108,6 +117,7 @@ public static class AgentCommand
                     replay,
                     tags,
                     configPath,
+                    handlerSpecs,
                     shutdownToken);
             }
             catch (Exception ex)
@@ -131,6 +141,7 @@ public static class AgentCommand
         bool replay,
         string[]? tags,
         string? configPath,
+        string[]? handlerSpecs,
         CancellationToken shutdownToken)
     {
         // Build agent configuration from CLI
@@ -142,7 +153,8 @@ public static class AgentCommand
             EncryptKey = encryptKey,
             Tags = ParseTags(tags),
             RPCAddr = rpcAddr,
-            RPCAuthKey = rpcAuth
+            RPCAuthKey = rpcAuth,
+            EventHandlers = handlerSpecs?.ToList() ?? []
         };
 
         // Load config file or directory if provided, then merge with CLI where CLI overrides file
@@ -172,6 +184,42 @@ public static class AgentCommand
 
         try
         {
+            // Set up signal handling for SIGHUP-based reload of script handlers
+            using var signalHandler = new SignalHandler();
+            signalHandler.RegisterCallback(signal =>
+            {
+                if (signal != Signal.SIGHUP)
+                    return;
+
+                // Fire-and-forget to avoid blocking signal thread
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        AgentConfig reloaded = cliConfig; // base
+                        if (!string.IsNullOrWhiteSpace(configPath))
+                        {
+                            AgentConfig loaded;
+                            if (Directory.Exists(configPath))
+                                loaded = await ConfigLoader.LoadFromDirectoryAsync(configPath, shutdownToken);
+                            else if (File.Exists(configPath))
+                                loaded = await ConfigLoader.LoadFromFileAsync(configPath, shutdownToken);
+                            else
+                                throw new FileNotFoundException($"Config file or directory not found: {configPath}");
+
+                            reloaded = AgentConfig.Merge(loaded, cliConfig);
+                        }
+
+                        agent.UpdateEventHandlers(reloaded.EventHandlers);
+                        Console.WriteLine($"Reloaded {reloaded.EventHandlers.Count} event handler(s)");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.Error.WriteLine($"Reload failed: {ex.Message}");
+                    }
+                });
+            });
+
             await agent.StartAsync(shutdownToken);
 
             // Join cluster if specified
