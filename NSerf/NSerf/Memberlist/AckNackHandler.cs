@@ -10,16 +10,11 @@ namespace NSerf.Memberlist;
 /// <summary>
 /// Handles acknowledgment and negative acknowledgment responses.
 /// </summary>
-public class AckNackHandler
+public class AckNackHandler(ILogger? logger = null)
 {
     private readonly ConcurrentDictionary<uint, AckHandler> _handlers = new();
-    private readonly ILogger? _logger;
-    
-    public AckNackHandler(ILogger? logger = null)
-    {
-        _logger = logger;
-    }
-    
+    private readonly ILogger? _logger = logger;
+
     /// <summary>
     /// Sets an ack handler for a sequence number.
     /// </summary>
@@ -38,10 +33,10 @@ public class AckNackHandler
                 }
             }, null, timeout, Timeout.InfiniteTimeSpan)
         };
-        
+
         _handlers[seqNo] = handler;
     }
-    
+
     /// <summary>
     /// Invokes ack handler for a sequence number.
     /// </summary>
@@ -54,7 +49,7 @@ public class AckNackHandler
             handler.Dispose();
         }
     }
-    
+
     /// <summary>
     /// Invokes nack handler for a sequence number.
     /// </summary>
@@ -67,7 +62,7 @@ public class AckNackHandler
             handler.Dispose();
         }
     }
-    
+
     /// <summary>
     /// Clears all handlers.
     /// </summary>
@@ -78,8 +73,9 @@ public class AckNackHandler
             handler.Dispose();
         }
         _handlers.Clear();
+        _logger?.LogDebug("Cleared all handlers");
     }
-    
+
     /// <summary>
     /// Gets the count of pending handlers.
     /// </summary>

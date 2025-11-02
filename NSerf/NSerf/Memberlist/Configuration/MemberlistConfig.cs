@@ -344,15 +344,9 @@ public class MemberlistConfig
             return null;
         }
 
-        foreach (var network in CIDRsAllowed)
-        {
-            if (network.Contains(ip))
-            {
-                return null;
-            }
-        }
-
-        return $"{ip} is not allowed";
+        return CIDRsAllowed.Any(network => network.Contains(ip))
+            ? null
+            : $"{ip} is not allowed";
     }
 
     /// <summary>

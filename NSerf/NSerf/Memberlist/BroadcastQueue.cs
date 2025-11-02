@@ -9,15 +9,10 @@ namespace NSerf.Memberlist;
 /// <summary>
 /// High-level broadcast queue wrapper.
 /// </summary>
-public class BroadcastQueue
+public class BroadcastQueue(TransmitLimitedQueue queue)
 {
-    private readonly TransmitLimitedQueue _queue;
-    
-    public BroadcastQueue(TransmitLimitedQueue queue)
-    {
-        _queue = queue;
-    }
-    
+    private readonly TransmitLimitedQueue _queue = queue;
+
     /// <summary>
     /// Queues a simple byte array broadcast.
     /// </summary>
@@ -25,7 +20,7 @@ public class BroadcastQueue
     {
         _queue.QueueBroadcast(new SimpleBroadcast(data));
     }
-    
+
     /// <summary>
     /// Queues a broadcast with completion notification.
     /// Returns a task that completes when the broadcast is sent.
@@ -36,7 +31,7 @@ public class BroadcastQueue
         _queue.QueueBroadcast(new NotifyingBroadcast(data, tcs));
         return tcs.Task;
     }
-    
+
     /// <summary>
     /// Queues a named broadcast that can be invalidated.
     /// </summary>
@@ -44,7 +39,7 @@ public class BroadcastQueue
     {
         _queue.QueueBroadcast(new NamedBroadcast(name, data));
     }
-    
+
     /// <summary>
     /// Gets broadcasts up to the specified limits.
     /// </summary>
@@ -52,17 +47,17 @@ public class BroadcastQueue
     {
         return _queue.GetBroadcasts(overhead, limit);
     }
-    
+
     /// <summary>
     /// Gets the number of queued broadcasts.
     /// </summary>
     public int Count => _queue.NumQueued();
-    
+
     /// <summary>
     /// Resets the queue.
     /// </summary>
     public void Reset() => _queue.Reset();
-    
+
     /// <summary>
     /// Prunes old broadcasts.
     /// </summary>
@@ -72,15 +67,10 @@ public class BroadcastQueue
 /// <summary>
 /// Simple broadcast implementation.
 /// </summary>
-internal class SimpleBroadcast : IBroadcast
+internal class SimpleBroadcast(byte[] data) : IBroadcast
 {
-    private readonly byte[] _data;
-    
-    public SimpleBroadcast(byte[] data)
-    {
-        _data = data;
-    }
-    
+    private readonly byte[] _data = data;
+
     public bool Invalidates(IBroadcast other) => false;
     public byte[] Message() => _data;
     public void Finished() { }
@@ -89,17 +79,11 @@ internal class SimpleBroadcast : IBroadcast
 /// <summary>
 /// Named broadcast implementation.
 /// </summary>
-internal class NamedBroadcast : INamedBroadcast
+internal class NamedBroadcast(string name, byte[] data) : INamedBroadcast
 {
-    private readonly string _name;
-    private readonly byte[] _data;
-    
-    public NamedBroadcast(string name, byte[] data)
-    {
-        _name = name;
-        _data = data;
-    }
-    
+    private readonly string _name = name;
+    private readonly byte[] _data = data;
+
     public string Name() => _name;
     public bool Invalidates(IBroadcast other) => false;
     public byte[] Message() => _data;
@@ -110,20 +94,14 @@ internal class NamedBroadcast : INamedBroadcast
 /// Broadcast that notifies when transmission completes.
 /// Matches Go's broadcast notification pattern.
 /// </summary>
-internal class NotifyingBroadcast : IBroadcast
+internal class NotifyingBroadcast(byte[] data, TaskCompletionSource notifier) : IBroadcast
 {
-    private readonly byte[] _data;
-    private readonly TaskCompletionSource _notifier;
-    
-    public NotifyingBroadcast(byte[] data, TaskCompletionSource notifier)
-    {
-        _data = data;
-        _notifier = notifier;
-    }
-    
+    private readonly byte[] _data = data;
+    private readonly TaskCompletionSource _notifier = notifier;
+
     public bool Invalidates(IBroadcast other) => false;
     public byte[] Message() => _data;
-    
+
     public void Finished()
     {
         // Signal that broadcast has been sent (matches Go closing the notify channel)

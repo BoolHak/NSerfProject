@@ -24,7 +24,7 @@ public static class CollectionUtils
             (nodes[i], nodes[j]) = (nodes[j], nodes[i]);
         }
     }
-    
+
     /// <summary>
     /// Moves dead and left nodes that have not changed during the gossipToTheDeadTime interval
     /// to the end of the slice and returns the index of the first moved node.
@@ -34,31 +34,35 @@ public static class CollectionUtils
     /// <returns>Index of the first dead/left node in the array.</returns>
     public static int MoveDeadNodes(NodeState[] nodes, TimeSpan gossipToTheDeadTime)
     {
+        var now = DateTimeOffset.UtcNow;
         int numDead = 0;
         int n = nodes.Length;
-        
-        for (int i = 0; i < n - numDead; i++)
+        int i = 0;
+
+        while (i < n - numDead)
         {
-            if (!nodes[i].DeadOrLeft())
+            var node = nodes[i];
+
+            if (!node.DeadOrLeft() || now - node.StateChange <= gossipToTheDeadTime)
             {
+                i++;
                 continue;
             }
-            
-            // Respect the gossip to the dead interval
-            if (DateTimeOffset.UtcNow - nodes[i].StateChange <= gossipToTheDeadTime)
-            {
-                continue;
-            }
-            
-            // Move this node to the end
-            (nodes[i], nodes[n - numDead - 1]) = (nodes[n - numDead - 1], nodes[i]);
+
+            // Move dead node to the end
+            int deadIndex = n - numDead - 1;
+            (nodes[i], nodes[deadIndex]) = (nodes[deadIndex], nodes[i]);
             numDead++;
-            i--;
+            // Only re-check if we actually moved a different node into position i
+            if (i == deadIndex)
+            {
+                i++;
+            }
         }
-        
+
         return n - numDead;
     }
-    
+
     /// <summary>
     /// Selects up to k random nodes, excluding any nodes where the exclude function returns true.
     /// It is possible that less than k nodes are returned.
@@ -71,7 +75,7 @@ public static class CollectionUtils
     {
         int n = nodes.Length;
         var kNodes = new List<Node>(k);
-        
+
         // Probe up to 3*n times, with large n this is not necessary
         // since k << n, but with small n we want search to be exhaustive
         for (int i = 0; i < 3 * n && kNodes.Count < k; i++)
@@ -79,13 +83,13 @@ public static class CollectionUtils
             // Get random node state
             int idx = MemberlistMath.RandomOffset(n);
             var state = nodes[idx];
-            
+
             // Give the filter a shot at it
             if (exclude != null && exclude(state))
             {
                 continue;
             }
-            
+
             // Check if we have this node already
             bool duplicate = false;
             for (int j = 0; j < kNodes.Count; j++)
@@ -96,16 +100,16 @@ public static class CollectionUtils
                     break;
                 }
             }
-            
+
             if (duplicate)
             {
                 continue;
             }
-            
+
             // Append the node
             kNodes.Add(state.Node);
         }
-        
+
         return kNodes;
     }
 }

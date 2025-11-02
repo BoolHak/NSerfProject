@@ -12,10 +12,31 @@ internal class AckHandler : IDisposable
     public Action<byte[], DateTimeOffset>? AckFn { get; set; }
     public Action? NackFn { get; set; }
     public Timer? Timer { get; set; }
-    
+    private bool _disposed;
+
     public void Dispose()
     {
-        Timer?.Dispose();
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+
+    protected virtual void Dispose(bool disposing)
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        if (disposing)
+        {
+            // Dispose managed resources
+            Timer?.Dispose();
+            Timer = null;
+            AckFn = null;
+            NackFn = null;
+        }
+
+        _disposed = true;
     }
 }
 
@@ -23,13 +44,7 @@ internal class AckHandler : IDisposable
 /// Exception used to indicate a 'ping' packet was successfully issued
 /// but no response was received.
 /// </summary>
-public class NoPingResponseException : Exception
+public class NoPingResponseException(string nodeName) : Exception($"No response from node {nodeName}")
 {
-    public string NodeName { get; }
-    
-    public NoPingResponseException(string nodeName) 
-        : base($"No response from node {nodeName}")
-    {
-        NodeName = nodeName;
-    }
+    public string NodeName { get; } = nodeName;
 }

@@ -10,20 +10,13 @@ namespace NSerf.Memberlist;
 /// <summary>
 /// Broadcast for alive messages.
 /// </summary>
-public class AliveMessageBroadcast : IBroadcast
+public class AliveMessageBroadcast(string node, byte[] message, BroadcastNotifyChannel? notify = null) : IBroadcast
 {
-    private readonly byte[] _message;
-    private readonly BroadcastNotifyChannel? _notify;
-    
-    public string Node { get; }
-    
-    public AliveMessageBroadcast(string node, byte[] message, BroadcastNotifyChannel? notify = null)
-    {
-        Node = node;
-        _message = message;
-        _notify = notify;
-    }
-    
+    private readonly byte[] _message = message;
+    private readonly BroadcastNotifyChannel? _notify = notify;
+
+    public string Node { get; } = node;
+
     public bool Invalidates(IBroadcast other)
     {
         if (other is AliveMessageBroadcast alive && alive.Node == Node)
@@ -40,9 +33,9 @@ public class AliveMessageBroadcast : IBroadcast
         }
         return false;
     }
-    
+
     public byte[] Message() => _message;
-    
+
     public void Finished()
     {
         _notify?.Notify();
@@ -52,20 +45,13 @@ public class AliveMessageBroadcast : IBroadcast
 /// <summary>
 /// Broadcast for suspect messages.
 /// </summary>
-public class SuspectMessageBroadcast : IBroadcast
+public class SuspectMessageBroadcast(string node, byte[] message, BroadcastNotifyChannel? notify = null) : IBroadcast
 {
-    private readonly byte[] _message;
-    private readonly BroadcastNotifyChannel? _notify;
-    
-    public string Node { get; }
-    
-    public SuspectMessageBroadcast(string node, byte[] message, BroadcastNotifyChannel? notify = null)
-    {
-        Node = node;
-        _message = message;
-        _notify = notify;
-    }
-    
+    private readonly byte[] _message = message;
+    private readonly BroadcastNotifyChannel? _notify = notify;
+
+    public string Node { get; } = node;
+
     public bool Invalidates(IBroadcast other)
     {
         if (other is SuspectMessageBroadcast suspect && suspect.Node == Node)
@@ -74,9 +60,9 @@ public class SuspectMessageBroadcast : IBroadcast
         }
         return false;
     }
-    
+
     public byte[] Message() => _message;
-    
+
     public void Finished()
     {
         _notify?.Notify();
@@ -86,20 +72,13 @@ public class SuspectMessageBroadcast : IBroadcast
 /// <summary>
 /// Broadcast for dead messages.
 /// </summary>
-public class DeadMessageBroadcast : IBroadcast
+public class DeadMessageBroadcast(string node, byte[] message, BroadcastNotifyChannel? notify = null) : IBroadcast
 {
-    private readonly byte[] _message;
-    private readonly BroadcastNotifyChannel? _notify;
-    
-    public string Node { get; }
-    
-    public DeadMessageBroadcast(string node, byte[] message, BroadcastNotifyChannel? notify = null)
-    {
-        Node = node;
-        _message = message;
-        _notify = notify;
-    }
-    
+    private readonly byte[] _message = message;
+    private readonly BroadcastNotifyChannel? _notify = notify;
+
+    public string Node { get; } = node;
+
     public bool Invalidates(IBroadcast other)
     {
         if (other is DeadMessageBroadcast dead && dead.Node == Node)
@@ -117,9 +96,9 @@ public class DeadMessageBroadcast : IBroadcast
         }
         return false;
     }
-    
+
     public byte[] Message() => _message;
-    
+
     public void Finished()
     {
         _notify?.Notify();

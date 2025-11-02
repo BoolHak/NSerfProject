@@ -12,17 +12,11 @@ namespace NSerf.Memberlist;
 /// <summary>
 /// Detects and handles conflicts between nodes.
 /// </summary>
-public class ConflictDetector
+public class ConflictDetector(IConflictDelegate? conflictDelegate, ILogger? logger = null)
 {
-    private readonly IConflictDelegate? _conflictDelegate;
-    private readonly ILogger? _logger;
-    
-    public ConflictDetector(IConflictDelegate? conflictDelegate, ILogger? logger = null)
-    {
-        _conflictDelegate = conflictDelegate;
-        _logger = logger;
-    }
-    
+    private readonly IConflictDelegate? _conflictDelegate = conflictDelegate;
+    private readonly ILogger? _logger = logger;
+
     /// <summary>
     /// Checks for address conflicts between nodes.
     /// </summary>
@@ -32,14 +26,14 @@ public class ConflictDetector
         {
             return false;
         }
-        
+
         _logger?.LogError(
             "Conflicting address for {Node}. Mine: {OldAddr}:{OldPort} Theirs: {NewAddr}:{NewPort} State: {State}",
             existing.Name, existing.Node.Addr, existing.Node.Port, newAddr, newPort, existing.State);
-        
+
         return true;
     }
-    
+
     /// <summary>
     /// Notifies delegate of conflict.
     /// </summary>

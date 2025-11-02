@@ -7,19 +7,13 @@ namespace NSerf.Memberlist;
 /// <summary>
 /// Simple circuit breaker for network operations.
 /// </summary>
-public class CircuitBreaker
+public class CircuitBreaker(int threshold = 5, TimeSpan? resetTimeout = null)
 {
     private int _failureCount;
-    private readonly int _threshold;
+    private readonly int _threshold = threshold;
     private DateTimeOffset _lastFailure;
-    private readonly TimeSpan _resetTimeout;
-    
-    public CircuitBreaker(int threshold = 5, TimeSpan? resetTimeout = null)
-    {
-        _threshold = threshold;
-        _resetTimeout = resetTimeout ?? TimeSpan.FromMinutes(1);
-    }
-    
+    private readonly TimeSpan _resetTimeout = resetTimeout ?? TimeSpan.FromMinutes(1);
+
     /// <summary>
     /// Records a successful operation.
     /// </summary>
@@ -27,7 +21,7 @@ public class CircuitBreaker
     {
         Interlocked.Exchange(ref _failureCount, 0);
     }
-    
+
     /// <summary>
     /// Records a failed operation.
     /// </summary>
@@ -36,7 +30,7 @@ public class CircuitBreaker
         Interlocked.Increment(ref _failureCount);
         _lastFailure = DateTimeOffset.UtcNow;
     }
-    
+
     /// <summary>
     /// Checks if the circuit is open (too many failures).
     /// </summary>
@@ -46,14 +40,14 @@ public class CircuitBreaker
         {
             return false;
         }
-        
+
         // Check if reset timeout has passed
         if (DateTimeOffset.UtcNow - _lastFailure > _resetTimeout)
         {
             Interlocked.Exchange(ref _failureCount, 0);
             return false;
         }
-        
+
         return true;
     }
 }

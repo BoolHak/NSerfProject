@@ -11,22 +11,17 @@ namespace NSerf.Memberlist;
 /// <summary>
 /// Resolves addresses for cluster nodes.
 /// </summary>
-public class AddressResolver
+public class AddressResolver(ILogger? logger = null)
 {
-    private readonly ILogger? _logger;
-    
-    public AddressResolver(ILogger? logger = null)
-    {
-        _logger = logger;
-    }
-    
+    private readonly ILogger? _logger = logger;
+
     /// <summary>
     /// Resolves a host:port address to IP addresses.
     /// </summary>
     public async Task<List<IPEndPoint>> ResolveAsync(string address, int defaultPort, CancellationToken cancellationToken = default)
     {
         var results = new List<IPEndPoint>();
-        
+
         // Try to parse as IP:port first
         if (address.Contains(':'))
         {
@@ -37,21 +32,21 @@ public class AddressResolver
                 return results;
             }
         }
-        
+
         // Try to parse as IP only
         if (IPAddress.TryParse(address, out var ipAddr))
         {
             results.Add(new IPEndPoint(ipAddr, defaultPort));
             return results;
         }
-        
+
         // Perform DNS resolution
         try
         {
             var hostEntry = await Dns.GetHostEntryAsync(address, cancellationToken);
             foreach (var addr in hostEntry.AddressList)
             {
-                if (addr.AddressFamily == AddressFamily.InterNetwork || 
+                if (addr.AddressFamily == AddressFamily.InterNetwork ||
                     addr.AddressFamily == AddressFamily.InterNetworkV6)
                 {
                     results.Add(new IPEndPoint(addr, defaultPort));
@@ -62,7 +57,7 @@ public class AddressResolver
         {
             _logger?.LogWarning(ex, "Failed to resolve address {Address}", address);
         }
-        
+
         return results;
     }
 }

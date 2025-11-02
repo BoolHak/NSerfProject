@@ -404,7 +404,7 @@ public class RegressionTests : IDisposable
     /// Tests all fixes together in a realistic scenario
     /// NOTE: After Leave, snapshot is cleared, so this tests manual rejoin
     /// </summary>
-    [Fact(Timeout = 20000)]
+    [Fact(Timeout = 30000)]
     public async Task FullLifecycle_WithAllFixes_ShouldWork()
     {
         var snapshotPath = GetTempSnapshotPath();

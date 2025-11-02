@@ -7,20 +7,13 @@ namespace NSerf.Memberlist;
 /// <summary>
 /// Exponential backoff timer for retries.
 /// </summary>
-public class BackoffTimer
+public class BackoffTimer(TimeSpan minDelay, TimeSpan maxDelay)
 {
-    private readonly TimeSpan _minDelay;
-    private readonly TimeSpan _maxDelay;
-    private TimeSpan _currentDelay;
+    private readonly TimeSpan _minDelay = minDelay;
+    private readonly TimeSpan _maxDelay = maxDelay;
+    private TimeSpan _currentDelay = minDelay;
     private int _attempts;
-    
-    public BackoffTimer(TimeSpan minDelay, TimeSpan maxDelay)
-    {
-        _minDelay = minDelay;
-        _maxDelay = maxDelay;
-        _currentDelay = minDelay;
-    }
-    
+
     /// <summary>
     /// Gets the next delay duration.
     /// </summary>
@@ -28,17 +21,17 @@ public class BackoffTimer
     {
         var delay = _currentDelay;
         _attempts++;
-        
+
         // Exponential backoff
         _currentDelay = TimeSpan.FromTicks(_currentDelay.Ticks * 2);
         if (_currentDelay > _maxDelay)
         {
             _currentDelay = _maxDelay;
         }
-        
+
         return delay;
     }
-    
+
     /// <summary>
     /// Resets the backoff to minimum delay.
     /// </summary>
@@ -47,7 +40,7 @@ public class BackoffTimer
         _currentDelay = _minDelay;
         _attempts = 0;
     }
-    
+
     /// <summary>
     /// Gets the number of attempts.
     /// </summary>
