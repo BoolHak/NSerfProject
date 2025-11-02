@@ -1,5 +1,5 @@
 // Ported from: github.com/hashicorp/memberlist/util.go
-// Copyright (c) HashiCorp, Inc.
+// Copyright (c) Boolhak, Inc.
 // SPDX-License-Identifier: MPL-2.0
 
 namespace NSerf.Memberlist.Common;

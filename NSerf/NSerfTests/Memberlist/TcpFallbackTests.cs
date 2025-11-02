@@ -1,5 +1,5 @@
 // Integration tests for TCP fallback functionality
-// Copyright (c) HashiCorp, Inc.
+// Copyright (c) Boolhak, Inc.
 // SPDX-License-Identifier: MPL-2.0
 
 using System.Net;
