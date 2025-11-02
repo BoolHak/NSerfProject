@@ -1,6 +1,6 @@
 // Integration tests for Join/Leave operations
 // Ported from: github.com/hashicorp/memberlist/memberlist_test.go
-// Copyright (c) HashiCorp, Inc.
+// Copyright (c) Boolhak, Inc.
 // SPDX-License-Identifier: MPL-2.0
 
 using System.Net;

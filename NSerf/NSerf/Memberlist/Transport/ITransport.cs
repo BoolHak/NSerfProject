@@ -1,5 +1,5 @@
 // Ported from: github.com/hashicorp/memberlist/transport.go
-// Copyright (c) HashiCorp, Inc.
+// Copyright (c) Boolhak, Inc.
 // SPDX-License-Identifier: MPL-2.0
 
 using System.Net;
@@ -17,13 +17,13 @@ public class Packet
     /// <summary>
     /// Raw contents of the packet.
     /// </summary>
-    public byte[] Buf { get; set; } = Array.Empty<byte>();
-    
+    public byte[] Buf { get; set; } = [];
+
     /// <summary>
     /// Address of the peer that sent the packet.
     /// </summary>
     public EndPoint From { get; set; } = new IPEndPoint(IPAddress.None, 0);
-    
+
     /// <summary>
     /// Time when the packet was received. Taken as close as possible to actual receipt
     /// time to help make accurate RTT measurements during probes.
@@ -46,7 +46,7 @@ public interface ITransport : IDisposable
     /// <param name="port">User-configured port.</param>
     /// <returns>Tuple of (IP address, port).</returns>
     (IPAddress Ip, int Port) FinalAdvertiseAddr(string ip, int port);
-    
+
     /// <summary>
     /// Packet-oriented interface that fires off the given payload to the given address
     /// in a connectionless fashion. Returns a timestamp as close as possible to when
@@ -57,12 +57,12 @@ public interface ITransport : IDisposable
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Timestamp of transmission.</returns>
     Task<DateTimeOffset> WriteToAsync(byte[] buffer, string addr, CancellationToken cancellationToken = default);
-    
+
     /// <summary>
     /// Gets a channel that can be read to receive incoming packets from other peers.
     /// </summary>
     ChannelReader<Packet> PacketChannel { get; }
-    
+
     /// <summary>
     /// Creates a connection that allows two-way communication with a peer.
     /// Generally more expensive than packet connections, used for infrequent operations
@@ -73,12 +73,12 @@ public interface ITransport : IDisposable
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Connected stream.</returns>
     Task<NetworkStream> DialTimeoutAsync(string addr, TimeSpan timeout, CancellationToken cancellationToken = default);
-    
+
     /// <summary>
     /// Gets a channel that can be read to handle incoming stream connections from other peers.
     /// </summary>
     ChannelReader<NetworkStream> StreamChannel { get; }
-    
+
     /// <summary>
     /// Called when memberlist is shutting down to clean up listeners.
     /// </summary>
@@ -94,12 +94,12 @@ public class Address
     /// Network address as a string, usually in "host:port" format. Required.
     /// </summary>
     public string Addr { get; set; } = string.Empty;
-    
+
     /// <summary>
     /// Name of the node being addressed. Optional but some transports may require it.
     /// </summary>
     public string Name { get; set; } = string.Empty;
-    
+
     /// <summary>
     /// Returns a string representation of the address.
     /// </summary>
@@ -123,7 +123,7 @@ public interface INodeAwareTransport : ITransport
     /// Writes to an address including node name information.
     /// </summary>
     Task<DateTimeOffset> WriteToAddressAsync(byte[] buffer, Address addr, CancellationToken cancellationToken = default);
-    
+
     /// <summary>
     /// Dials with an address including node name information.
     /// </summary>

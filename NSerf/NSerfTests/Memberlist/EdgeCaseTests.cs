@@ -1,5 +1,5 @@
 // Edge case and boundary tests for Memberlist
-// Copyright (c) HashiCorp, Inc.
+// Copyright (c) Boolhak, Inc.
 // SPDX-License-Identifier: MPL-2.0
 
 using System.Net;

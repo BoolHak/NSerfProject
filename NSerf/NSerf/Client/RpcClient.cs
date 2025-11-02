@@ -12,25 +12,20 @@ namespace NSerf.Client;
 /// RPC client for connecting to Serf agent.
 /// Maps to: Go's client/rpc_client.go
 /// </summary>
-public class RpcClient : IDisposable, IAsyncDisposable
+public class RpcClient(RpcConfig config) : IDisposable, IAsyncDisposable
 {
-    private readonly RpcConfig _config;
+    private readonly RpcConfig _config = config ?? throw new ArgumentNullException(nameof(config));
     private TcpClient? _tcpClient;
     private NetworkStream? _stream;
     private MessagePackStreamReader? _reader;
     private ulong _seqCounter;
     private bool _disposed;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
-    
+
     // MessagePack options matching Go's codec
-    private static readonly MessagePackSerializerOptions MsgPackOptions = 
+    private static readonly MessagePackSerializerOptions MsgPackOptions =
         MessagePackSerializerOptions.Standard
             .WithCompression(MessagePackCompression.None);
-
-    public RpcClient(RpcConfig config)
-    {
-        _config = config ?? throw new ArgumentNullException(nameof(config));
-    }
 
     /// <summary>
     /// Connects to the Serf agent RPC endpoint.
@@ -38,8 +33,7 @@ public class RpcClient : IDisposable, IAsyncDisposable
     /// </summary>
     public async Task ConnectAsync(CancellationToken cancellationToken = default)
     {
-        if (_disposed)
-            throw new ObjectDisposedException(nameof(RpcClient));
+        ObjectDisposedException.ThrowIf(_disposed, this);
 
         if (_tcpClient != null)
             throw new InvalidOperationException("Already connected");
@@ -47,12 +41,12 @@ public class RpcClient : IDisposable, IAsyncDisposable
         try
         {
             _tcpClient = new TcpClient();
-            
+
             // Parse address (format: "host:port")
             var parts = _config.Address.Split(':');
             if (parts.Length != 2)
                 throw new ArgumentException($"Invalid address format: {_config.Address}. Expected 'host:port'");
-            
+
             var host = parts[0];
             if (!int.TryParse(parts[1], out var port))
                 throw new ArgumentException($"Invalid port: {parts[1]}");
@@ -60,7 +54,7 @@ public class RpcClient : IDisposable, IAsyncDisposable
             // Connect with timeout
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             cts.CancelAfter(_config.Timeout);
-            
+
             await _tcpClient.ConnectAsync(host, port, cts.Token);
             _tcpClient.NoDelay = true;
             _stream = _tcpClient.GetStream();
@@ -107,7 +101,7 @@ public class RpcClient : IDisposable, IAsyncDisposable
 
         await SendRequestAsync(header, request, cancellationToken);
         var response = await ReceiveResponseAsync<object>(seq, cancellationToken);
-        
+
         if (!string.IsNullOrEmpty(response.Error))
             throw new RpcException($"Handshake failed: {response.Error}");
     }
@@ -131,7 +125,7 @@ public class RpcClient : IDisposable, IAsyncDisposable
 
         await SendRequestAsync(header, request, cancellationToken);
         var response = await ReceiveResponseAsync<object>(seq, cancellationToken);
-        
+
         if (!string.IsNullOrEmpty(response.Error))
             throw new RpcException($"Authentication failed: {response.Error}");
     }
@@ -141,8 +135,8 @@ public class RpcClient : IDisposable, IAsyncDisposable
     /// Maps to: Go's send() in rpc_client.go
     /// </summary>
     private async Task SendRequestAsync<TRequest>(
-        RequestHeader header, 
-        TRequest? request, 
+        RequestHeader header,
+        TRequest? request,
         CancellationToken cancellationToken)
     {
         if (_stream == null)
@@ -159,7 +153,7 @@ public class RpcClient : IDisposable, IAsyncDisposable
             await _stream.WriteAsync(headerBytes, cancellationToken);
 
             // Encode and send request body if present
-            if (request != null)
+            if (!Equals(request, default(TRequest)))
             {
                 var requestBytes = MessagePackSerializer.Serialize(request, MsgPackOptions, cancellationToken);
                 await _stream.WriteAsync(requestBytes, cancellationToken);
@@ -178,7 +172,7 @@ public class RpcClient : IDisposable, IAsyncDisposable
     /// Maps to: Go's genericRPC() response handling in rpc_client.go
     /// </summary>
     private async Task<ResponseResult<TResponse>> ReceiveResponseAsync<TResponse>(
-        ulong expectedSeq, 
+        ulong expectedSeq,
         CancellationToken cancellationToken)
     {
         if (_reader == null)
@@ -191,10 +185,10 @@ public class RpcClient : IDisposable, IAsyncDisposable
         var headerBytes = await _reader.ReadAsync(cancellationToken);
         if (!headerBytes.HasValue)
             throw new RpcException("Connection closed while reading response header");
-        
+
         var responseHeader = MessagePackSerializer.Deserialize<ResponseHeader>(
-            headerBytes.Value, 
-            MsgPackOptions, 
+            headerBytes.Value,
+            MsgPackOptions,
             cancellationToken);
 
         // Verify sequence number matches
@@ -208,10 +202,10 @@ public class RpcClient : IDisposable, IAsyncDisposable
             var bodyBytes = await _reader.ReadAsync(cancellationToken);
             if (!bodyBytes.HasValue)
                 throw new RpcException("Connection closed while reading response body");
-            
+
             responseBody = MessagePackSerializer.Deserialize<TResponse>(
-                bodyBytes.Value, 
-                MsgPackOptions, 
+                bodyBytes.Value,
+                MsgPackOptions,
                 cancellationToken);
         }
 
@@ -235,13 +229,13 @@ public class RpcClient : IDisposable, IAsyncDisposable
     {
         var seq = GetNextSeq();
         var header = new RequestHeader { Command = RpcCommands.Members, Seq = seq };
-        
+
         await SendRequestAsync(header, (object?)null, cancellationToken);
         var response = await ReceiveResponseAsync<Responses.MembersResponse>(seq, cancellationToken);
-        
+
         if (!string.IsNullOrEmpty(response.Error))
             throw new RpcException($"Members command failed: {response.Error}");
-            
+
         return response.Body?.Members ?? Array.Empty<Responses.Member>();
     }
 
@@ -255,18 +249,18 @@ public class RpcClient : IDisposable, IAsyncDisposable
         var header = new RequestHeader { Command = RpcCommands.MembersFiltered, Seq = seq };
         var request = new Requests.MembersFilteredRequest
         {
-            Tags = tags ?? new Dictionary<string, string>(),
+            Tags = tags ?? [],
             Status = status ?? string.Empty,
             Name = name ?? string.Empty
         };
-        
+
         await SendRequestAsync(header, request, cancellationToken);
         var response = await ReceiveResponseAsync<Responses.MembersResponse>(seq, cancellationToken);
-        
+
         if (!string.IsNullOrEmpty(response.Error))
             throw new RpcException($"MembersFiltered command failed: {response.Error}");
-            
-        return response.Body?.Members ?? Array.Empty<Responses.Member>();
+
+        return response.Body?.Members ?? [];
     }
 
     public async Task<int> JoinAsync(string[] addresses, bool replay = false, CancellationToken cancellationToken = default)
@@ -274,13 +268,13 @@ public class RpcClient : IDisposable, IAsyncDisposable
         var seq = GetNextSeq();
         var header = new RequestHeader { Command = RpcCommands.Join, Seq = seq };
         var request = new Requests.JoinRequest { Existing = addresses, Replay = replay };
-        
+
         await SendRequestAsync(header, request, cancellationToken);
         var response = await ReceiveResponseAsync<Responses.JoinResponse>(seq, cancellationToken);
-        
+
         if (!string.IsNullOrEmpty(response.Error))
             throw new RpcException($"Join command failed: {response.Error}");
-            
+
         return response.Body?.Num ?? 0;
     }
 
@@ -289,10 +283,10 @@ public class RpcClient : IDisposable, IAsyncDisposable
         var seq = GetNextSeq();
         var header = new RequestHeader { Command = RpcCommands.ForceLeave, Seq = seq };
         var request = new Requests.ForceLeaveRequest { Node = node, Prune = prune };
-        
+
         await SendRequestAsync(header, request, cancellationToken);
         var response = await ReceiveResponseAsync<object>(seq, cancellationToken);
-        
+
         if (!string.IsNullOrEmpty(response.Error))
             throw new RpcException($"ForceLeave command failed: {response.Error}");
     }
@@ -301,10 +295,10 @@ public class RpcClient : IDisposable, IAsyncDisposable
     {
         var seq = GetNextSeq();
         var header = new RequestHeader { Command = RpcCommands.Leave, Seq = seq };
-        
+
         await SendRequestAsync(header, (object?)null, cancellationToken);
         var response = await ReceiveResponseAsync<object>(seq, cancellationToken);
-        
+
         if (!string.IsNullOrEmpty(response.Error))
             throw new RpcException($"Leave command failed: {response.Error}");
     }
@@ -315,16 +309,16 @@ public class RpcClient : IDisposable, IAsyncDisposable
     {
         var seq = GetNextSeq();
         var header = new RequestHeader { Command = RpcCommands.Event, Seq = seq };
-        var request = new Requests.EventRequest 
-        { 
+        var request = new Requests.EventRequest
+        {
             Name = name,
-            Payload = payload ?? Array.Empty<byte>(),
+            Payload = payload ?? [],
             Coalesce = coalesce
         };
-        
+
         await SendRequestAsync(header, request, cancellationToken);
         var response = await ReceiveResponseAsync<object>(seq, cancellationToken);
-        
+
         if (!string.IsNullOrEmpty(response.Error))
             throw new RpcException($"UserEvent command failed: {response.Error}");
     }
@@ -336,13 +330,13 @@ public class RpcClient : IDisposable, IAsyncDisposable
         var seq = GetNextSeq();
         var header = new RequestHeader { Command = RpcCommands.InstallKey, Seq = seq };
         var request = new Requests.KeyRequest { Key = key };
-        
+
         await SendRequestAsync(header, request, cancellationToken);
         var response = await ReceiveResponseAsync<Responses.KeyResponse>(seq, cancellationToken);
-        
+
         if (!string.IsNullOrEmpty(response.Error))
             throw new RpcException($"InstallKey command failed: {response.Error}");
-            
+
         return response.Body ?? new Responses.KeyResponse();
     }
 
@@ -351,13 +345,13 @@ public class RpcClient : IDisposable, IAsyncDisposable
         var seq = GetNextSeq();
         var header = new RequestHeader { Command = RpcCommands.UseKey, Seq = seq };
         var request = new Requests.KeyRequest { Key = key };
-        
+
         await SendRequestAsync(header, request, cancellationToken);
         var response = await ReceiveResponseAsync<Responses.KeyResponse>(seq, cancellationToken);
-        
+
         if (!string.IsNullOrEmpty(response.Error))
             throw new RpcException($"UseKey command failed: {response.Error}");
-            
+
         return response.Body ?? new Responses.KeyResponse();
     }
 
@@ -366,13 +360,13 @@ public class RpcClient : IDisposable, IAsyncDisposable
         var seq = GetNextSeq();
         var header = new RequestHeader { Command = RpcCommands.RemoveKey, Seq = seq };
         var request = new Requests.KeyRequest { Key = key };
-        
+
         await SendRequestAsync(header, request, cancellationToken);
         var response = await ReceiveResponseAsync<Responses.KeyResponse>(seq, cancellationToken);
-        
+
         if (!string.IsNullOrEmpty(response.Error))
             throw new RpcException($"RemoveKey command failed: {response.Error}");
-            
+
         return response.Body ?? new Responses.KeyResponse();
     }
 
@@ -380,13 +374,13 @@ public class RpcClient : IDisposable, IAsyncDisposable
     {
         var seq = GetNextSeq();
         var header = new RequestHeader { Command = RpcCommands.ListKeys, Seq = seq };
-        
+
         await SendRequestAsync(header, (object?)null, cancellationToken);
         var response = await ReceiveResponseAsync<Responses.KeyResponse>(seq, cancellationToken);
-        
+
         if (!string.IsNullOrEmpty(response.Error))
             throw new RpcException($"ListKeys command failed: {response.Error}");
-            
+
         return response.Body ?? new Responses.KeyResponse();
     }
 
@@ -406,19 +400,19 @@ public class RpcClient : IDisposable, IAsyncDisposable
         var request = new Requests.QueryRequest
         {
             Name = name,
-            Payload = payload ?? Array.Empty<byte>(),
+            Payload = payload ?? [],
             FilterNodes = filterNodes ?? string.Empty,
             FilterTags = filterTags != null ? string.Join(",", filterTags.Select(kv => $"{kv.Key}={kv.Value}")) : string.Empty,
             RequestAck = requestAck,
             Timeout = timeoutSeconds
         };
-        
+
         await SendRequestAsync(header, request, cancellationToken);
         var response = await ReceiveResponseAsync<Responses.QueryResponse>(seq, cancellationToken);
-        
+
         if (!string.IsNullOrEmpty(response.Error))
             throw new RpcException($"Query command failed: {response.Error}");
-            
+
         return response.Body?.Id ?? 0;
     }
 
@@ -427,10 +421,10 @@ public class RpcClient : IDisposable, IAsyncDisposable
         var seq = GetNextSeq();
         var header = new RequestHeader { Command = RpcCommands.Respond, Seq = seq };
         var request = new Requests.RespondRequest { ID = queryId, Payload = payload };
-        
+
         await SendRequestAsync(header, request, cancellationToken);
         var response = await ReceiveResponseAsync<object>(seq, cancellationToken);
-        
+
         if (!string.IsNullOrEmpty(response.Error))
             throw new RpcException($"Respond command failed: {response.Error}");
     }
@@ -441,15 +435,15 @@ public class RpcClient : IDisposable, IAsyncDisposable
     {
         var seq = GetNextSeq();
         var header = new RequestHeader { Command = RpcCommands.Tags, Seq = seq };
-        var request = new Requests.TagsRequest 
-        { 
-            Tags = tags ?? new Dictionary<string, string>(),
-            DeleteTags = deleteTags ?? Array.Empty<string>()
+        var request = new Requests.TagsRequest
+        {
+            Tags = tags ?? [],
+            DeleteTags = deleteTags ?? []
         };
-        
+
         await SendRequestAsync(header, request, cancellationToken);
         var response = await ReceiveResponseAsync<object>(seq, cancellationToken);
-        
+
         if (!string.IsNullOrEmpty(response.Error))
             throw new RpcException($"UpdateTags command failed: {response.Error}");
     }
@@ -458,14 +452,14 @@ public class RpcClient : IDisposable, IAsyncDisposable
     {
         var seq = GetNextSeq();
         var header = new RequestHeader { Command = RpcCommands.Stats, Seq = seq };
-        
+
         await SendRequestAsync(header, (object?)null, cancellationToken);
         var response = await ReceiveResponseAsync<Responses.StatsResponse>(seq, cancellationToken);
-        
+
         if (!string.IsNullOrEmpty(response.Error))
             throw new RpcException($"Stats command failed: {response.Error}");
-            
-        return response.Body?.Stats ?? new Dictionary<string, Dictionary<string, string>>();
+
+        return response.Body?.Stats ?? [];
     }
 
     public async Task<Responses.Coordinate?> GetCoordinateAsync(string node, CancellationToken cancellationToken = default)
@@ -473,13 +467,13 @@ public class RpcClient : IDisposable, IAsyncDisposable
         var seq = GetNextSeq();
         var header = new RequestHeader { Command = RpcCommands.GetCoordinate, Seq = seq };
         var request = new Requests.CoordinateRequest { Node = node };
-        
+
         await SendRequestAsync(header, request, cancellationToken);
         var response = await ReceiveResponseAsync<Responses.CoordinateResponse>(seq, cancellationToken);
-        
+
         if (!string.IsNullOrEmpty(response.Error))
             throw new RpcException($"GetCoordinate command failed: {response.Error}");
-            
+
         return response.Body?.Coord;
     }
 
@@ -492,32 +486,32 @@ public class RpcClient : IDisposable, IAsyncDisposable
         var seq = GetNextSeq();
         var header = new RequestHeader { Command = RpcCommands.Monitor, Seq = seq };
         var request = new Requests.MonitorRequest { LogLevel = logLevel };
-        
+
         await SendRequestAsync(header, request, cancellationToken);
         var response = await ReceiveResponseAsync<object>(seq, cancellationToken);
-        
+
         if (!string.IsNullOrEmpty(response.Error))
             throw new RpcException($"Monitor command failed: {response.Error}");
 
         while (!cancellationToken.IsCancellationRequested)
         {
-            Responses.LogEntry? logEntry = null;
+            Responses.LogEntry? logEntry;
             try
             {
                 var logBytes = await _reader!.ReadAsync(cancellationToken);
                 if (!logBytes.HasValue)
                     break;
-                
+
                 logEntry = MessagePackSerializer.Deserialize<Responses.LogEntry>(
-                    logBytes.Value, 
-                    MsgPackOptions, 
+                    logBytes.Value,
+                    MsgPackOptions,
                     cancellationToken);
             }
             catch (OperationCanceledException)
             {
                 break;
             }
-            
+
             if (logEntry != null)
                 yield return logEntry.Log;
         }
@@ -530,32 +524,32 @@ public class RpcClient : IDisposable, IAsyncDisposable
         var seq = GetNextSeq();
         var header = new RequestHeader { Command = RpcCommands.Stream, Seq = seq };
         var request = new Requests.StreamRequest { Type = type };
-        
+
         await SendRequestAsync(header, request, cancellationToken);
         var response = await ReceiveResponseAsync<object>(seq, cancellationToken);
-        
+
         if (!string.IsNullOrEmpty(response.Error))
             throw new RpcException($"Stream command failed: {response.Error}");
 
         while (!cancellationToken.IsCancellationRequested)
         {
-            Responses.StreamEvent? streamEvent = null;
+            Responses.StreamEvent? streamEvent;
             try
             {
                 var eventBytes = await _reader!.ReadAsync(cancellationToken);
                 if (!eventBytes.HasValue)
                     break;
-                
+
                 streamEvent = MessagePackSerializer.Deserialize<Responses.StreamEvent>(
-                    eventBytes.Value, 
-                    MsgPackOptions, 
+                    eventBytes.Value,
+                    MsgPackOptions,
                     cancellationToken);
             }
             catch (OperationCanceledException)
             {
                 break;
             }
-            
+
             if (streamEvent != null)
                 yield return streamEvent;
         }
@@ -566,36 +560,57 @@ public class RpcClient : IDisposable, IAsyncDisposable
         var seq = GetNextSeq();
         var header = new RequestHeader { Command = RpcCommands.Stop, Seq = seq };
         var request = new Requests.StopRequest { Stop = stopSeq };
-        
+
         await SendRequestAsync(header, request, cancellationToken);
         var response = await ReceiveResponseAsync<object>(seq, cancellationToken);
-        
+
         if (!string.IsNullOrEmpty(response.Error))
             throw new RpcException($"Stop command failed: {response.Error}");
     }
 
     public void Dispose()
     {
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+
+    protected virtual void Dispose(bool disposing)
+    {
         if (_disposed) return;
+
+        if (disposing)
+        {
+            // Dispose managed resources
+            _reader?.Dispose();
+            _stream?.Dispose();
+            _tcpClient?.Dispose();
+            _writeLock.Dispose();
+        }
+
         _disposed = true;
+    }
+
+    protected virtual async ValueTask DisposeAsyncCore()
+    {
+        if (_disposed) return;
 
         _reader?.Dispose();
-        _stream?.Dispose();
+        if (_stream != null)
+        {
+            await _stream.DisposeAsync();
+        }
         _tcpClient?.Dispose();
         _writeLock.Dispose();
+
+        _disposed = true;
     }
 
     public async ValueTask DisposeAsync()
     {
-        if (_disposed) return;
-        _disposed = true;
-
-        _reader?.Dispose();
-        if (_stream != null)
-            await _stream.DisposeAsync();
-        
-        _tcpClient?.Dispose();
-        _writeLock.Dispose();
+        await DisposeAsyncCore();
+        // Ensure synchronous cleanup path is also marked as disposed
+        Dispose(false);
+        GC.SuppressFinalize(this);
     }
 }
 

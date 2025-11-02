@@ -103,14 +103,14 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
         int numSuccess = 0;
         var errors = new List<Exception>();
 
-        foreach (var exist in existing)
+        foreach (var (Name, Addr) in existing)
         {
             try
             {
                 var address = new Address
                 {
-                    Addr = exist.Addr,
-                    Name = exist.Name
+                    Addr = Addr,
+                    Name = Name
                 };
 
                 try
@@ -129,7 +129,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
             catch (Exception ex)
             {
                 errors.Add(ex);
-                _logger?.LogWarning(ex, "Failed to join {Address}", $"{exist.Name}@{exist.Addr}");
+                _logger?.LogWarning(ex, "Failed to join {Address}", $"{Name}@{Addr}");
             }
         }
 
@@ -147,7 +147,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
     /// This will not connect to any other node yet, but will start all the listeners
     /// to allow other nodes to join this memberlist.
     /// </summary>
-    public static Memberlist Create(MemberlistConfig config, CancellationToken cancellationToken = default)
+    public static Memberlist Create(MemberlistConfig config)
     {
         // Validate protocol version
         if (config.ProtocolVersion < ProtocolVersion.Min)
@@ -315,12 +315,12 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
         _logger?.LogInformation("Memberlist: Shutting down");
 
         // Signal shutdown
-        _shutdownCts.Cancel();
+        await _shutdownCts.CancelAsync();
 
         // Wait for background tasks to complete
         try
         {
-            await Task.WhenAll(tasks: [.. _backgroundTasks]);
+            await Task.WhenAll(_backgroundTasks);
         }
         catch (Exception ex)
         {
@@ -546,7 +546,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
             {
                 return;
             }
-            
+
             // Pick a random node
             var index = Random.Shared.Next(_nodes.Count);
             nodeState = _nodes[index];
@@ -914,7 +914,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
         // CRITICAL: Get broadcasts ONCE per gossip interval, not per node!
         // The same messages are sent to all K random nodes in this interval
         var msgs = GetBroadcasts(Messages.MessageConstants.CompoundOverhead, bytesAvail);
-        
+
         if (msgs.Count == 0)
         {
             _logger?.LogDebug("[GOSSIP] No broadcasts available, skipping gossip round");
@@ -1044,14 +1044,14 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
                 }
                 totalRead += bytesRead;
             }
-            
+
             if (BitConverter.IsLittleEndian)
             {
                 Array.Reverse(lengthBytes);
             }
             var messageLength = BitConverter.ToInt32(lengthBytes, 0);
             _logger?.LogDebug("Reading {Length} bytes of message data", messageLength);
-            
+
             // Read exact message payload based on length prefix
             var messageData = new byte[messageLength];
             totalRead = 0;
@@ -1064,12 +1064,12 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
                 }
                 totalRead += bytesRead;
             }
-            
+
             // Check if encryption is enabled - decrypt if needed
             if (_config.EncryptionEnabled())
             {
                 _logger?.LogDebug("Decrypting incoming message (encryption enabled in config)");
-                
+
                 try
                 {
                     var authData = System.Text.Encoding.UTF8.GetBytes(streamLabel);
@@ -1088,7 +1088,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
                     }
                 }
             }
-            
+
             // Now process the message (decrypted if needed)
             if (messageData.Length > 0)
             {
@@ -1099,18 +1099,18 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
                 if (msgType == MessageType.Compress)
                 {
                     _logger?.LogDebug("Decompressing message");
-                    
+
                     try
                     {
                         // Decompress the payload (skip message type byte)
                         var compressedData = messageData[1..];
                         var decompressedPayload = Common.CompressionUtils.DecompressPayload(compressedData);
-                        
+
                         if (decompressedPayload.Length > 0)
                         {
                             msgType = (MessageType)decompressedPayload[0];
                             _logger?.LogDebug("Decompressed message type: {MessageType}", msgType);
-                            
+
                             // Create a memory stream from decompressed payload (skip message type byte)
                             using var decompressedStream = new MemoryStream(decompressedPayload, 1, decompressedPayload.Length - 1);
                             await ProcessInnerMessageAsync(msgType, decompressedStream, stream);
@@ -1268,7 +1268,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
     {
         // Get label for both header and auth data
         string label = _config.Label ?? "";
-        
+
         // Encrypt UDP packet if enabled (before adding label header)
         // This matches the TCP encryption behavior in RawSendMsgStreamAsync
         if (_config.EncryptionEnabled() && _config.GossipVerifyOutgoing)
@@ -1290,7 +1290,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
                 throw;
             }
         }
-        
+
         // Add label header if configured (after encryption, so label is not encrypted)
         if (!string.IsNullOrEmpty(label))
         {
@@ -1422,7 +1422,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
         }
         await framedMs.WriteAsync(lengthBytes, cancellationToken);
         await framedMs.WriteAsync(buf, cancellationToken);
-        
+
         var framedMessage = framedMs.ToArray();
         await conn.WriteAsync(framedMessage, cancellationToken);
         await conn.FlushAsync(cancellationToken);
@@ -1503,7 +1503,10 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
         }
         finally
         {
-            conn?.Dispose();
+            if (conn is not null)
+            {
+                await conn.DisposeAsync();
+            }
         }
     }
 
@@ -1762,14 +1765,14 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
                 // Parse address format: "NodeName/IP:Port" or "IP:Port"
                 string nodeName = "";
                 string addr = exist;
-                
+
                 if (exist.Contains('/'))
                 {
                     var parts = exist.Split('/', 2);
                     nodeName = parts[0];
                     addr = parts[1];
                 }
-                
+
                 var address = new Address
                 {
                     Addr = addr,
@@ -1884,14 +1887,14 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
                 }
                 totalRead += read;
             }
-            
+
             if (BitConverter.IsLittleEndian)
             {
                 Array.Reverse(lengthBytes);
             }
             var messageLength = BitConverter.ToInt32(lengthBytes, 0);
             _logger?.LogDebug("Reading {Length} bytes of response data", messageLength);
-            
+
             // Read exact message payload
             var messageData = new byte[messageLength];
             totalRead = 0;
@@ -1904,7 +1907,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
                 }
                 totalRead += read;
             }
-            
+
             // Decrypt if encryption is enabled
             if (_config.EncryptionEnabled())
             {
@@ -1912,11 +1915,11 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
                 var authData = System.Text.Encoding.UTF8.GetBytes(_config.Label);
                 messageData = Security.DecryptPayload(_config.Keyring!.GetKeys().ToArray(), messageData, authData);
             }
-            
+
             // Get message type and create stream
             var msgType = (MessageType)messageData[0];
             _logger?.LogDebug("Response message type: {MessageType}", msgType);
-            
+
             // Handle compression if present
             if (msgType == MessageType.Compress)
             {
@@ -1925,7 +1928,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
                 {
                     var compressedData = messageData[1..];
                     var decompressedPayload = Common.CompressionUtils.DecompressPayload(compressedData);
-                    
+
                     if (decompressedPayload.Length > 0)
                     {
                         msgType = (MessageType)decompressedPayload[0];
@@ -1939,7 +1942,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
                     throw;
                 }
             }
-            
+
             Stream responseStream = new MemoryStream(messageData, 1, messageData.Length - 1);
 
             if (msgType == MessageType.Err)
@@ -1978,7 +1981,10 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
         }
         finally
         {
-            conn?.Dispose();
+            if (conn is not null)
+            {
+                await conn.DisposeAsync();
+            }
         }
     }
 
@@ -2060,7 +2066,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
         await finalMs.WriteAsync(payloadBytes, cancellationToken);
 
         var buffer = finalMs.ToArray();
-        
+
         // RawSendMsgStreamAsync adds TCP framing and handles compression/encryption
         await RawSendMsgStreamAsync(conn, buffer, streamLabel ?? "", cancellationToken);
     }
@@ -2076,7 +2082,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
         // Read header first
         var header = await MessagePack.MessagePackSerializer.DeserializeAsync<Messages.PushPullHeader>(
             conn, cancellationToken: cancellationToken);
-        
+
         // Read nodes
         var remoteNodes = new List<Messages.PushNodeState>(header.Nodes);
         for (int i = 0; i < header.Nodes; i++)

@@ -7,13 +7,14 @@ namespace NSerf.Memberlist;
 /// <summary>
 /// Manages periodic scheduled tasks for memberlist.
 /// </summary>
-public class SchedulerManager
+public class SchedulerManager : IDisposable
 {
-    private readonly List<Timer> _timers = new();
+    private readonly List<Timer> _timers = [];
     private readonly CancellationTokenSource _stopTokenSource = new();
     private readonly object _lock = new();
     private bool _isScheduled;
-    
+    private bool _disposed;
+
     /// <summary>
     /// Schedules a periodic action.
     /// </summary>
@@ -25,7 +26,7 @@ public class SchedulerManager
             {
                 return;
             }
-            
+
             var delay = initialDelay ?? TimeSpan.Zero;
             var timer = new Timer(_ =>
             {
@@ -34,12 +35,12 @@ public class SchedulerManager
                     action();
                 }
             }, null, delay, interval);
-            
+
             _timers.Add(timer);
             _isScheduled = true;
         }
     }
-    
+
     /// <summary>
     /// Stops all scheduled tasks.
     /// </summary>
@@ -51,19 +52,19 @@ public class SchedulerManager
             {
                 return;
             }
-            
+
             _stopTokenSource.Cancel();
-            
+
             foreach (var timer in _timers)
             {
                 timer.Dispose();
             }
-            
+
             _timers.Clear();
             _isScheduled = false;
         }
     }
-    
+
     /// <summary>
     /// Gets whether tasks are currently scheduled.
     /// </summary>
@@ -76,5 +77,27 @@ public class SchedulerManager
                 return _isScheduled;
             }
         }
+    }
+
+    protected virtual void Dispose(bool disposing)
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        if (disposing)
+        {
+            Deschedule();
+            _stopTokenSource.Dispose();
+        }
+
+        _disposed = true;
+    }
+
+    public void Dispose()
+    {
+        Dispose(true);
+        GC.SuppressFinalize(this);
     }
 }
