@@ -9,8 +9,8 @@ namespace NSerf.Agent;
 /// </summary>
 public class EventScript
 {
-    public EventFilter Filter { get; set; } = null!;
-    public string Script { get; set; } = string.Empty;
+    public EventFilter Filter { get; } = null!;
+    public string Script { get; } = string.Empty;
 
     public EventScript()
     {
@@ -40,7 +40,7 @@ public class EventScript
             // No filter, matches all events: "script.sh"
             return
             [
-                new EventScript(new EventFilter("*", ""), parts[0].Trim())
+                new EventScript(new EventFilter(), parts[0].Trim())
             ];
         }
 
@@ -50,13 +50,7 @@ public class EventScript
         // Split comma-separated events: "member-leave,member-failed"
         var events = eventsPart.Split(',', StringSplitOptions.RemoveEmptyEntries);
 
-        var results = new List<EventScript>();
-        foreach (var eventSpec in events)
-        {
-            var filter = EventFilter.Parse(eventSpec.Trim());
-            results.Add(new EventScript(filter, script));
-        }
-
-        return results;
+        return events.Select(eventSpec => EventFilter.Parse(eventSpec.Trim()))
+            .Select(filter => new EventScript(filter, script)).ToList();
     }
 }

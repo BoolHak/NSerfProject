@@ -22,10 +22,7 @@ public class EventFilter(string eventType = "*", string name = "")
 
         // Match by event type
         var eventTypeName = GetEventTypeName(evt);
-        if (Event == eventTypeName)
-            return MatchesName(evt);
-
-        return false;
+        return Event == eventTypeName && MatchesName(evt);
     }
 
     private bool MatchesName(IEvent evt)
@@ -34,26 +31,25 @@ public class EventFilter(string eventType = "*", string name = "")
         if (string.IsNullOrEmpty(Name))
             return true;
 
-        // User event name matching
-        if (evt is UserEvent userEvt)
-            return userEvt.Name == Name;
-
-        // Query name matching
-        if (evt is Query query)
-            return query.Name == Name;
-
-        return true;
+        return evt switch
+        {
+            // User event name matching
+            UserEvent userEvt => userEvt.Name == Name,
+            // Query name matching
+            Query query => query.Name == Name,
+            _ => true
+        };
     }
 
     private static string GetEventTypeName(IEvent evt)
     {
         return evt switch
         {
-            MemberEvent me when me.Type == EventType.MemberJoin => "member-join",
-            MemberEvent me when me.Type == EventType.MemberLeave => "member-leave",
-            MemberEvent me when me.Type == EventType.MemberFailed => "member-failed",
-            MemberEvent me when me.Type == EventType.MemberUpdate => "member-update",
-            MemberEvent me when me.Type == EventType.MemberReap => "member-reap",
+            MemberEvent { Type: EventType.MemberJoin } => "member-join",
+            MemberEvent { Type: EventType.MemberLeave } => "member-leave",
+            MemberEvent { Type: EventType.MemberFailed } => "member-failed",
+            MemberEvent { Type: EventType.MemberUpdate } => "member-update",
+            MemberEvent { Type: EventType.MemberReap } => "member-reap",
             UserEvent => "user",
             Query => "query",
             _ => "unknown"

@@ -13,7 +13,7 @@ public class CircularLogWriter(int bufferSize = 512) : IDisposable
     private int _index;
     private readonly List<ILogHandler> _handlers = [];
     private readonly object _lock = new();
-    private bool _disposed = false;
+    private bool _disposed;
 
     /// <summary>
     /// Register a handler and send it the backlog.
@@ -62,7 +62,7 @@ public class CircularLogWriter(int bufferSize = 512) : IDisposable
             if (_disposed)
                 return;
 
-            // Store in circular buffer
+            // Store in a circular buffer
             _logs[_index] = log;
             _index = (_index + 1) % _logs.Length;
 
@@ -102,7 +102,7 @@ public class CircularLogWriter(int bufferSize = 512) : IDisposable
         GC.SuppressFinalize(this);
     }
 
-    protected virtual void Dispose(bool disposing)
+    private void Dispose(bool disposing)
     {
         lock (_lock)
         {
@@ -111,7 +111,7 @@ public class CircularLogWriter(int bufferSize = 512) : IDisposable
 
             if (disposing)
             {
-                // Dispose managed resources
+                // Dispose of managed resources
                 _handlers.Clear();
             }
 

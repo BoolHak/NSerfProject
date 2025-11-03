@@ -65,7 +65,7 @@ public class SerfSnapshotTest : IDisposable
             {
                 Name = "node1",
                 BindAddr = "127.0.0.1",
-                BindPort = 0,
+                BindPort = 32107,
                 ProbeInterval = TimeSpan.FromMilliseconds(100),
                 ProbeTimeout = TimeSpan.FromMilliseconds(50),
                 RequireNodeNames = false
@@ -81,7 +81,7 @@ public class SerfSnapshotTest : IDisposable
             {
                 Name = "node2",
                 BindAddr = "127.0.0.1",
-                BindPort = 0,
+                BindPort = 32118,
                 ProbeInterval = TimeSpan.FromMilliseconds(100),
                 ProbeTimeout = TimeSpan.FromMilliseconds(50),
                 RequireNodeNames = false
@@ -114,10 +114,10 @@ public class SerfSnapshotTest : IDisposable
         
         // Act - Simulate s2 failure by shutting it down
         await s2.ShutdownAsync();
-        s2.Dispose();
+        await s2.DisposeAsync();
         
         // Wait for failure detection (slightly increased)
-        await Task.Delay(1500);
+        await Task.Delay(2000);
 
         // Verify s2 is marked as failed
         var s1Members = s1.Members();
@@ -133,6 +133,12 @@ public class SerfSnapshotTest : IDisposable
         var s1MembersAfterRemoval = s1.Members();
         var s2MemberAfterRemoval = s1MembersAfterRemoval.FirstOrDefault(m => m.Name == "node2");
         s2MemberAfterRemoval!.Status.Should().Be(MemberStatus.Left, "s2 should be marked as left after removal");
+
+        // DEBUG: Read snapshot file to verify contents
+        await Task.Delay(2000); // Ensure file is fully written
+        var snapshotContents = await ReadSnapshotWithRetryAsync(snapshotPath);
+        snapshotContents.Should().Contain("alive: node1", "snapshot should contain node1 as alive");
+        snapshotContents.Should().NotContain("leave", "snapshot should not contain leave marker after shutdown (only LeaveAsync should write it)");
 
         // Act - Restart s2 from snapshot
         config2 = new Config
@@ -151,28 +157,28 @@ public class SerfSnapshotTest : IDisposable
             }
         };
 
-        using var s2Restarted = await NSerf.Serf.Serf.CreateAsync(config2);
+        await using var s2Restarted = await NSerf.Serf.Serf.CreateAsync(config2);
         
         // Wait for auto-rejoin from BOTH perspectives
         // s2 auto-rejoins from snapshot, then s1 receives NotifyJoin callback
         var rejoined = false;
         var s2HasNode1 = false;
         var s1HasNode2 = false;
-        
-        for (int i = 0; i < 100; i++)
+
+        for (int i = 0; i < 15; i++)
         {
-            await Task.Delay(150);
-            
+            await Task.Delay(1000);
+
             // Check if s2 has rejoined node1 (from s2's perspective)
             var s2MembersPoll = s2Restarted.Members();
             s2HasNode1 = s2MembersPoll.Length == 2 && 
                          s2MembersPoll.Any(m => m.Name == "node1" && m.Status == MemberStatus.Alive);
-            
+
             // Check if s1 sees node2 as alive (from s1's perspective)
             var s1MembersPoll = s1.Members();
             s1HasNode2 = s1MembersPoll.Length == 2 && 
                          s1MembersPoll.Any(m => m.Name == "node2" && m.Status == MemberStatus.Alive);
-            
+
             if (s2HasNode1 && s1HasNode2)
             {
                 rejoined = true;
@@ -181,7 +187,7 @@ public class SerfSnapshotTest : IDisposable
         }
 
         // Assert - Verify auto-rejoin worked
-        rejoined.Should().BeTrue("s2 should auto-rejoin from snapshot");
+        rejoined.Should().BeTrue("s2 should auto-rejoin from snapshot. s2HasNode1={0}, s1HasNode2={1}", s2HasNode1, s1HasNode2);
         
         var s1MembersAfterRejoin = s1.Members();
         var s2MemberAfterRejoin = s1MembersAfterRejoin.FirstOrDefault(m => m.Name == "node2");

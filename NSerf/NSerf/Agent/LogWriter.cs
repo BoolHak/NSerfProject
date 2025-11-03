@@ -20,8 +20,15 @@ public class LogWriter(TextWriter writer, LogLevel minLevel) : TextWriter
         RegexOptions.Compiled,
         TimeSpan.FromMilliseconds(100));
 
-    public override Encoding Encoding => _writer.Encoding;
+    public override Encoding Encoding => GetWriterEncoding();
 
+    private Encoding GetWriterEncoding()
+    {
+        lock (_lock)
+        {
+            return _writer.Encoding;
+        }
+    }
     public override void Write(char value)
     {
         lock (_lock)
@@ -98,7 +105,10 @@ public class LogWriter(TextWriter writer, LogLevel minLevel) : TextWriter
     {
         if (disposing)
         {
-            _writer.Flush();
+            lock (_lock)
+            {
+                _writer.Flush();
+            }
         }
         base.Dispose(disposing);
     }

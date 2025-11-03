@@ -4,20 +4,20 @@
 namespace NSerf.Agent;
 
 /// <summary>
-/// Circular buffer with fixed size that tracks total written bytes.
-/// Oldest data is overwritten when buffer is full.
+/// Circular buffer with a fixed size that tracks total written bytes.
+/// The oldest data is overwritten when the buffer is full.
 /// Maps to: Go's circbuf.Buffer from armon/circbuf
 /// </summary>
 public class CircularBuffer
 {
     private readonly byte[] _buffer;
     private int _writePos;
-    private long _totalWritten;
     private bool _isFull;
 
     public int Size => _buffer.Length;
-    public long TotalWritten => _totalWritten;
-    public bool WasTruncated => _totalWritten > _buffer.Length;
+    public long TotalWritten { get; private set; }
+
+    public bool WasTruncated => TotalWritten > _buffer.Length;
 
     public CircularBuffer(int size)
     {
@@ -27,12 +27,12 @@ public class CircularBuffer
         _buffer = new byte[size];
     }
 
-    public void Write(byte[] data)
+    public void Write(byte[]? data)
     {
         if (data == null || data.Length == 0)
             return;
 
-        _totalWritten += data.Length;
+        TotalWritten += data.Length;
 
         foreach (var b in data)
         {
@@ -55,7 +55,7 @@ public class CircularBuffer
         }
         else
         {
-            // Wrapped, need to reconstruct in correct order
+            // Wrapped, need to reconstruct in the correct order
             var result = new byte[_buffer.Length];
             var firstChunkLen = _buffer.Length - _writePos;
             Array.Copy(_buffer, _writePos, result, 0, firstChunkLen);
@@ -69,7 +69,7 @@ public class CircularBuffer
     public void Reset()
     {
         _writePos = 0;
-        _totalWritten = 0;
+        TotalWritten = 0;
         _isFull = false;
         Array.Clear(_buffer, 0, _buffer.Length);
     }

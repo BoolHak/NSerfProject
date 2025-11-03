@@ -3,7 +3,6 @@
 
 using System.Net.Sockets;
 using MessagePack;
-using NSerf.Client;
 using static NSerf.Agent.CircularLogWriter;
 
 namespace NSerf.Agent.RPC;
@@ -11,11 +10,8 @@ namespace NSerf.Agent.RPC;
 /// <summary>
 /// RPC log handler for monitor command streaming.
 /// </summary>
-public class RpcLogHandler(NetworkStream stream, SemaphoreSlim writeLock, CancellationToken cancellationToken) : ILogHandler, IDisposable
+public sealed class RpcLogHandler(NetworkStream stream, SemaphoreSlim writeLock, CancellationToken cancellationToken) : ILogHandler, IDisposable
 {
-    private readonly NetworkStream _stream = stream;
-    private readonly SemaphoreSlim _writeLock = writeLock;
-    private readonly CancellationToken _cancellationToken = cancellationToken;
     private bool _disposed;
 
     private static readonly MessagePackSerializerOptions MsgPackOptions =
@@ -24,21 +20,21 @@ public class RpcLogHandler(NetworkStream stream, SemaphoreSlim writeLock, Cancel
 
     public void HandleLog(string log)
     {
-        if (_disposed || _cancellationToken.IsCancellationRequested)
+        if (_disposed || cancellationToken.IsCancellationRequested)
             return;
 
         try
         {
-            _writeLock.Wait(_cancellationToken);
+            writeLock.Wait(cancellationToken);
             try
             {
-                var logBytes = MessagePackSerializer.Serialize(log, MsgPackOptions, _cancellationToken);
-                _stream.Write(logBytes);
-                _stream.Flush();
+                var logBytes = MessagePackSerializer.Serialize(log, MsgPackOptions, cancellationToken);
+                stream.Write(logBytes);
+                stream.Flush();
             }
             finally
             {
-                _writeLock.Release();
+                writeLock.Release();
             }
         }
         catch
@@ -50,10 +46,9 @@ public class RpcLogHandler(NetworkStream stream, SemaphoreSlim writeLock, Cancel
     public void Dispose()
     {
         Dispose(true);
-        GC.SuppressFinalize(this);
     }
 
-    protected virtual void Dispose(bool disposing)
+    private void Dispose(bool disposing)
     {
         if (_disposed)
         {
@@ -62,7 +57,7 @@ public class RpcLogHandler(NetworkStream stream, SemaphoreSlim writeLock, Cancel
 
         if (disposing)
         {
-            // Nothing to dispose; resources are external.
+            // Nothing to dispose of; resources are external.
         }
 
         _disposed = true;

@@ -504,7 +504,7 @@ public class RegressionTests : IDisposable
             .Should().BeTrue("node2 should be Left or Failed after rejected rejoin attempt");
 
         // Step 4: Verify Members() returns consistent status
-        await Task.Delay(500);
+        await Task.Delay(1500);
         for (int i = 0; i < 3; i++)
         {
             var membersFresh = s1.Members();

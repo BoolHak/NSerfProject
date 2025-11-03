@@ -16,7 +16,7 @@ public class AgentIntegrationTests
         {
             NodeName = "test-node-1",
             BindAddr = "127.0.0.1:0",
-            RPCAddr = "127.0.0.1:17373"
+            RpcAddr = "127.0.0.1:17373"
         };
 
         await using var agent = new SerfAgent(config);
@@ -34,7 +34,7 @@ public class AgentIntegrationTests
         {
             NodeName = "test-node-2",
             BindAddr = "127.0.0.1:0",
-            RPCAddr = "127.0.0.1:17374"
+            RpcAddr = "127.0.0.1:17374"
         };
 
         await using var agent = new SerfAgent(config);
@@ -65,14 +65,14 @@ public class AgentIntegrationTests
         {
             NodeName = "node1",
             BindAddr = "127.0.0.1:17946",
-            RPCAddr = "127.0.0.1:17375"
+            RpcAddr = "127.0.0.1:17375"
         };
 
         var config2 = new AgentConfig
         {
             NodeName = "node2",
             BindAddr = "127.0.0.1:17947",
-            RPCAddr = "127.0.0.1:17376"
+            RpcAddr = "127.0.0.1:17376"
         };
 
         await using var agent1 = new SerfAgent(config1);
@@ -109,7 +109,7 @@ public class AgentIntegrationTests
         {
             NodeName = "test-leave",
             BindAddr = "127.0.0.1:0",
-            RPCAddr = "127.0.0.1:17377"
+            RpcAddr = "127.0.0.1:17377"
         };
 
         await using var agent = new SerfAgent(config);
@@ -138,7 +138,7 @@ public class AgentIntegrationTests
         {
             NodeName = "event-node",
             BindAddr = "127.0.0.1:0",
-            RPCAddr = "127.0.0.1:17378"
+            RpcAddr = "127.0.0.1:17378"
         };
 
         await using var agent = new SerfAgent(config);
@@ -166,7 +166,7 @@ public class AgentIntegrationTests
         {
             NodeName = "stats-node",
             BindAddr = "127.0.0.1:0",
-            RPCAddr = "127.0.0.1:17379"
+            RpcAddr = "127.0.0.1:17379"
         };
 
         await using var agent = new SerfAgent(config);

@@ -23,7 +23,7 @@ public class RpcServerVerificationTests
         {
             NodeName = "test-handshake-first",
             BindAddr = "127.0.0.1:0",
-            RPCAddr = "127.0.0.1:0"
+            RpcAddr = "127.0.0.1:0"
         };
 
         var agent = new SerfAgent(config);
@@ -64,7 +64,7 @@ public class RpcServerVerificationTests
         {
             NodeName = "test-duplicate",
             BindAddr = "127.0.0.1:0",
-            RPCAddr = "127.0.0.1:0"
+            RpcAddr = "127.0.0.1:0"
         };
 
         var agent = new SerfAgent(config);
@@ -114,8 +114,8 @@ public class RpcServerVerificationTests
         {
             NodeName = "test-auth-required",
             BindAddr = "127.0.0.1:0",
-            RPCAddr = "127.0.0.1:0",
-            RPCAuthKey = "secret-key"
+            RpcAddr = "127.0.0.1:0",
+            RpcAuthKey = "secret-key"
         };
 
         var agent = new SerfAgent(config);
@@ -156,8 +156,8 @@ public class RpcServerVerificationTests
         {
             NodeName = "test-auth-works",
             BindAddr = "127.0.0.1:0",
-            RPCAddr = "127.0.0.1:0",
-            RPCAuthKey = "secret-key"
+            RpcAddr = "127.0.0.1:0",
+            RpcAuthKey = "secret-key"
         };
 
         var agent = new SerfAgent(config);
@@ -196,7 +196,7 @@ public class RpcServerVerificationTests
         {
             NodeName = "test-no-auth",
             BindAddr = "127.0.0.1:0",
-            RPCAddr = "127.0.0.1:0"
+            RpcAddr = "127.0.0.1:0"
             // No RPCAuthKey
         };
 
@@ -234,8 +234,8 @@ public class RpcServerVerificationTests
         {
             NodeName = "test-invalid-auth",
             BindAddr = "127.0.0.1:0",
-            RPCAddr = "127.0.0.1:0",
-            RPCAuthKey = "correct-key"
+            RpcAddr = "127.0.0.1:0",
+            RpcAuthKey = "correct-key"
         };
 
         var agent = new SerfAgent(config);
@@ -310,7 +310,7 @@ public class RpcServerVerificationTests
         {
             NodeName = "test-regex",
             BindAddr = "127.0.0.1:0",
-            RPCAddr = "127.0.0.1:0",
+            RpcAddr = "127.0.0.1:0",
             Tags = new Dictionary<string, string> { ["role"] = "web" }
         };
 
@@ -358,7 +358,7 @@ public class RpcServerVerificationTests
         {
             NodeName = "test-invalid-regex",
             BindAddr = "127.0.0.1:0",
-            RPCAddr = "127.0.0.1:0"
+            RpcAddr = "127.0.0.1:0"
         };
 
         var agent = new SerfAgent(config);
@@ -395,7 +395,7 @@ public class RpcServerVerificationTests
         {
             NodeName = "test-shutdown-race",
             BindAddr = "127.0.0.1:0",
-            RPCAddr = "127.0.0.1:0"
+            RpcAddr = "127.0.0.1:0"
         };
 
         var agent = new SerfAgent(config);

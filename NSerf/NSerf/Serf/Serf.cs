@@ -378,7 +378,8 @@ public partial class Serf : IDisposable, IAsyncDisposable
             // This ensures refutation happens during CreateAsync, making tests deterministic
             try
             {
-                await Task.Delay(300);
+                // Increased delay to allow memberlist to fully initialize
+                await Task.Delay(1000);
                 var addrs = previousNodes.Select(n => n.Addr).ToArray();
                 var joinedNow = await serf.JoinAsync(addrs, ignoreOld: true);
                 serf.Logger?.LogInformation("[Serf/AutoRejoin] Synchronous attempt joined {Joined}/{Total}", joinedNow, addrs.Length);
@@ -397,7 +398,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
                     serf.Logger?.LogInformation("[Serf/AutoRejoin] Will attempt to join {Count} addresses: [{Addrs}]",
                         addrs.Length, string.Join(", ", addrs));
 
-                    var attempts = 10;
+                    var attempts = 15;
                     for (int i = 1; i <= attempts; i++)
                     {
                         try

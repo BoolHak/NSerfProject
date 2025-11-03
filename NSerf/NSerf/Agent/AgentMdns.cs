@@ -11,7 +11,7 @@ namespace NSerf.Agent;
 /// mDNS discovery for automatic cluster joining.
 /// Maps to: Go's discover.go
 /// </summary>
-public class AgentMdns(string service, string domain = "local", int port = 5353, ILogger? logger = null) : IDisposable
+public sealed class AgentMdns(string service, string domain = "local", int port = 5353, ILogger? logger = null) : IDisposable
 {
     private readonly CancellationTokenSource _cts = new();
     private UdpClient? _client;
@@ -53,7 +53,7 @@ public class AgentMdns(string service, string domain = "local", int port = 5353,
         {
             _client = new UdpClient(port);
 
-            // Only join multicast group if using a real port (not 0)
+            // Only join a multicast group if using a real port (not 0)
             if (port != 0)
             {
                 _client.JoinMulticastGroup(IPAddress.Parse(MdnsAddress));
@@ -132,8 +132,9 @@ public class AgentMdns(string service, string domain = "local", int port = 5353,
     {
         try
         {
+            //TODO: Implement this using a proper DNS library
             // Basic mDNS response parsing
-            // In production, would use full DNS parser
+            // In production would use full DNS parser
             logger?.LogTrace("[mDNS] Received {Bytes} bytes", data.Length);
         }
         catch (Exception ex)
@@ -146,7 +147,7 @@ public class AgentMdns(string service, string domain = "local", int port = 5353,
     {
         // Basic mDNS query packet
         // Format: [Header][Question]
-        // In production, would use proper DNS library
+        // In production, would use a proper DNS library
 
         var query = new List<byte>();
 
@@ -192,17 +193,16 @@ public class AgentMdns(string service, string domain = "local", int port = 5353,
     public void Dispose()
     {
         Dispose(true);
-        GC.SuppressFinalize(this);
     }
 
-    protected virtual void Dispose(bool disposing)
+    private void Dispose(bool disposing)
     {
         if (_disposed)
             return;
 
         if (disposing)
         {
-            // Dispose managed resources
+            // Dispose of managed resources
             _cts.Cancel();
 
             try

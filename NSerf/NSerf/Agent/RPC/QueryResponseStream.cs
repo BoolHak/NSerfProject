@@ -17,10 +17,6 @@ internal class QueryResponseStream(
     ulong seq,
     Serf.QueryResponse queryResponse)
 {
-    private readonly SemaphoreSlim _writeLock = writeLock;
-    private readonly Stream _stream = stream;
-    private readonly ulong _seq = seq;
-    private readonly Serf.QueryResponse _queryResponse = queryResponse;
     private static readonly MessagePackSerializerOptions MsgPackOptions =
         MessagePackSerializerOptions.Standard.WithCompression(MessagePackCompression.None);
 
@@ -33,7 +29,7 @@ internal class QueryResponseStream(
         try
         {
             // Setup timer for query deadline
-            var remaining = _queryResponse.Deadline - DateTime.UtcNow;
+            var remaining = queryResponse.Deadline - DateTime.UtcNow;
             if (remaining <= TimeSpan.Zero)
             {
                 await SendDoneAsync(cancellationToken);
@@ -43,24 +39,24 @@ internal class QueryResponseStream(
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeoutCts.CancelAfter(remaining);
 
-            var ackCh = _queryResponse.AckCh;
-            var respCh = _queryResponse.ResponseCh;
+            var ackCh = queryResponse.AckCh;
+            var respCh = queryResponse.ResponseCh;
 
             try
             {
                 while (!timeoutCts.Token.IsCancellationRequested)
                 {
-                    // Try to read from ack channel
+                    // Try to read from an ack channel
                     if (ackCh != null && ackCh.TryRead(out var ack))
                     {
-                        await SendAckAsync(ack, cancellationToken);
+                        await SendAckAsync(ack, timeoutCts.Token);
                         continue;
                     }
 
-                    // Try to read from response channel
+                    // Try to read from a response channel
                     if (respCh.TryRead(out var resp))
                     {
-                        await SendResponseAsync(resp.From, resp.Payload, cancellationToken);
+                        await SendResponseAsync(resp.From, resp.Payload, timeoutCts.Token);
                         continue;
                     }
 
@@ -74,7 +70,7 @@ internal class QueryResponseStream(
             }
 
             // Send done marker
-            await SendDoneAsync(cancellationToken);
+            await SendDoneAsync(timeoutCts.Token);
         }
         catch (Exception)
         {
@@ -120,20 +116,20 @@ internal class QueryResponseStream(
 
     private async Task SendRecordAsync(QueryRecord record, CancellationToken cancellationToken)
     {
-        await _writeLock.WaitAsync(cancellationToken);
+        await writeLock.WaitAsync(cancellationToken);
         try
         {
-            var header = new ResponseHeader { Seq = _seq, Error = string.Empty };
+            var header = new ResponseHeader { Seq = seq, Error = string.Empty };
             var headerBytes = MessagePackSerializer.Serialize(header, MsgPackOptions, cancellationToken);
-            await _stream.WriteAsync(headerBytes, cancellationToken);
+            await stream.WriteAsync(headerBytes, cancellationToken);
 
             var recordBytes = MessagePackSerializer.Serialize(record, MsgPackOptions, cancellationToken);
-            await _stream.WriteAsync(recordBytes, cancellationToken);
-            await _stream.FlushAsync(cancellationToken);
+            await stream.WriteAsync(recordBytes, cancellationToken);
+            await stream.FlushAsync(cancellationToken);
         }
         finally
         {
-            _writeLock.Release();
+            writeLock.Release();
         }
     }
 }

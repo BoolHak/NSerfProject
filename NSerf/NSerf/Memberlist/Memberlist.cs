@@ -7,7 +7,6 @@ using System.Net;
 using System.Net.Sockets;
 using Microsoft.Extensions.Logging;
 using NSerf.Memberlist.Configuration;
-using NSerf.Memberlist.Delegates;
 using NSerf.Memberlist.Exceptions;
 using NSerf.Memberlist.Messages;
 using NSerf.Memberlist.State;

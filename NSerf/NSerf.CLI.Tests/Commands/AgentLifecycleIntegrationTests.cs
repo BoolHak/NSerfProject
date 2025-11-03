@@ -19,7 +19,7 @@ public class AgentLifecycleIntegrationTests
         {
             NodeName = TestHelper.GetRandomNodeName(),
             BindAddr = TestHelper.GetRandomBindAddr(),
-            RPCAddr = ""
+            RpcAddr = ""
         };
 
         await using var agent = new SerfAgent(config);
@@ -51,7 +51,7 @@ public class AgentLifecycleIntegrationTests
         {
             NodeName = TestHelper.GetRandomNodeName(),
             BindAddr = TestHelper.GetRandomBindAddr(),
-            RPCAddr = "",
+            RpcAddr = "",
             StartJoin = new[] { joinAddr }
         };
 
@@ -70,7 +70,7 @@ public class AgentLifecycleIntegrationTests
         {
             NodeName = TestHelper.GetRandomNodeName(),
             BindAddr = TestHelper.GetRandomBindAddr(),
-            RPCAddr = "",
+            RpcAddr = "",
             StartJoin = new[] { "127.0.0.1:9999" }
         };
 
@@ -86,7 +86,7 @@ public class AgentLifecycleIntegrationTests
         {
             NodeName = TestHelper.GetRandomNodeName(),
             BindAddr = $"{TestHelper.GetRandomBindAddr()}:0",  // Add port
-            RPCAddr = "127.0.0.1:0",
+            RpcAddr = "127.0.0.1:0",
             AdvertiseAddr = advertiseAddr
         };
 
@@ -114,7 +114,7 @@ public class AgentLifecycleIntegrationTests
         {
             NodeName = TestHelper.GetRandomNodeName(),
             BindAddr = TestHelper.GetRandomBindAddr(),
-            RPCAddr = ""
+            RpcAddr = ""
         };
 
         await using var agent1 = new SerfAgent(config1);
@@ -126,7 +126,7 @@ public class AgentLifecycleIntegrationTests
         {
             NodeName = TestHelper.GetRandomNodeName(),
             BindAddr = TestHelper.GetRandomBindAddr(),
-            RPCAddr = "",
+            RpcAddr = "",
             RetryJoin = new[] { joinAddr },
             RetryInterval = TimeSpan.FromSeconds(1),
             RetryMaxAttempts = 5
@@ -151,7 +151,7 @@ public class AgentLifecycleIntegrationTests
         {
             NodeName = TestHelper.GetRandomNodeName(),
             BindAddr = TestHelper.GetRandomBindAddr(),
-            RPCAddr = "",
+            RpcAddr = "",
             RetryJoin = new[] { "127.0.0.1:9998" },
             RetryInterval = TimeSpan.FromMilliseconds(500),
             RetryMaxAttempts = 3
@@ -172,7 +172,7 @@ public class AgentLifecycleIntegrationTests
         {
             NodeName = TestHelper.GetRandomNodeName(),
             BindAddr = TestHelper.GetRandomBindAddr(),
-            RPCAddr = ""
+            RpcAddr = ""
         };
 
         await using var agent = new SerfAgent(config);

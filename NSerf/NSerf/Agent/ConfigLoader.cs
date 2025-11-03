@@ -109,11 +109,11 @@ public static class ConfigLoader
                     break;
 
                 case "-rpc-addr" or "--rpc-addr":
-                    config.RPCAddr = ConsumeNextArg(args, ref i, arg);
+                    config.RpcAddr = ConsumeNextArg(args, ref i, arg);
                     break;
 
                 case "-rpc-auth" or "--rpc-auth":
-                    config.RPCAuthKey = ConsumeNextArg(args, ref i, arg);
+                    config.RpcAuthKey = ConsumeNextArg(args, ref i, arg);
                     break;
 
                 case "-join" or "--join":
@@ -147,11 +147,7 @@ public static class ConfigLoader
 
     private static string ConsumeNextArg(string[] args, ref int index, string argName)
     {
-        if (index >= args.Length)
-        {
-            throw new ArgumentException($"Missing value for argument '{argName}'");
-        }
-        return args[index++];
+        return index >= args.Length ? throw new ArgumentException($"Missing value for argument '{argName}'") : args[index++];
     }
 
     private static List<string> ConsumeMultipleArgs(string[] args, ref int index)
@@ -181,8 +177,8 @@ public static class ConfigLoader
         if (string.IsNullOrEmpty(config.BindAddr))
             config.BindAddr = "0.0.0.0:7946";
 
-        if (string.IsNullOrEmpty(config.RPCAddr))
-            config.RPCAddr = "127.0.0.1:7373";
+        if (string.IsNullOrEmpty(config.RpcAddr))
+            config.RpcAddr = "127.0.0.1:7373";
 
         if (string.IsNullOrEmpty(config.LogLevel))
             config.LogLevel = "INFO";

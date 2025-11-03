@@ -152,8 +152,8 @@ public static class AgentCommand
             AdvertiseAddr = advertiseAddr,
             EncryptKey = encryptKey,
             Tags = ParseTags(tags),
-            RPCAddr = rpcAddr,
-            RPCAuthKey = rpcAuth,
+            RpcAddr = rpcAddr,
+            RpcAuthKey = rpcAuth,
             EventHandlers = handlerSpecs?.ToList() ?? []
         };
 

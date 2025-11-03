@@ -1,7 +1,6 @@
 // Copyright (c) BoolHak, Inc.
 // SPDX-License-Identifier: MPL-2.0
 
-using System.Runtime.InteropServices;
 
 namespace NSerf.Agent;
 
@@ -19,7 +18,7 @@ public delegate void SignalCallback(Signal signal);
 /// Windows: Console.CancelKeyPress for SIGINT, custom events for others
 /// Unix: POSIX signals
 /// </summary>
-public class SignalHandler : IDisposable
+public sealed class SignalHandler : IDisposable
 {
     private readonly List<SignalCallback> _callbacks = [];
     private readonly object _lock = new();
@@ -78,9 +77,12 @@ public class SignalHandler : IDisposable
         TriggerSignal(Signal.SIGTERM);
     }
 
-    protected virtual void Dispose(bool disposing)
+    private void Dispose(bool disposing)
     {
-        if (_disposed) return;
+        lock (_lock)
+        {
+            if (_disposed) return;
+        }
         
         if (disposing)
         {
@@ -89,12 +91,14 @@ public class SignalHandler : IDisposable
             AppDomain.CurrentDomain.ProcessExit -= OnProcessExit;
         }
         
-        _disposed = true;
+        lock (_lock)
+        {
+            _disposed = true;
+        }
     }
     
     public void Dispose()
     {
         Dispose(true);
-        GC.SuppressFinalize(this);
     }
 }

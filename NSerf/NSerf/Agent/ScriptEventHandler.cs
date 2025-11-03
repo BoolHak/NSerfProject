@@ -12,10 +12,9 @@ namespace NSerf.Agent;
 /// Supports hot-reload of scripts without restarting.
 /// Maps to: Go's ScriptEventHandler in event_handler.go
 /// </summary>
-public class ScriptEventHandler(Func<Member> selfFunc, EventScript[] scripts, ILogger? logger = null) : IEventHandler
+public class ScriptEventHandler(Func<Member> selfFunc, EventScript[]? scripts, ILogger? logger = null) : IEventHandler
 {
     private readonly Func<Member> _selfFunc = selfFunc ?? throw new ArgumentNullException(nameof(selfFunc));
-    private readonly ILogger? _logger = logger;
     private readonly object _scriptLock = new();
     private EventScript[] _scripts = scripts ?? [];
     private EventScript[]? _newScripts;  // Staged for atomic swap
@@ -29,7 +28,7 @@ public class ScriptEventHandler(Func<Member> selfFunc, EventScript[] scripts, IL
             {
                 _scripts = _newScripts;
                 _newScripts = null;
-                _logger?.LogInformation("[Agent/Scripts] Hot-reloaded {Count} event scripts", _scripts.Length);
+                logger?.LogInformation("[Agent/Scripts] Hot-reloaded {Count} event scripts", _scripts.Length);
             }
         }
 
@@ -40,7 +39,7 @@ public class ScriptEventHandler(Func<Member> selfFunc, EventScript[] scripts, IL
             if (!script.Filter.Matches(@event))
                 continue;
 
-            // Execute script asynchronously (don't block event loop)
+            // Execute a script asynchronously (don't block event loop)
             _ = Task.Run(async () =>
             {
                 try
@@ -49,7 +48,7 @@ public class ScriptEventHandler(Func<Member> selfFunc, EventScript[] scripts, IL
                 }
                 catch (Exception ex)
                 {
-                    _logger?.LogError(ex, "[Agent/Scripts] Error invoking script '{Script}': {Message}",
+                    logger?.LogError(ex, "[Agent/Scripts] Error invoking script '{Script}': {Message}",
                         script.Script, ex.Message);
                 }
             });
@@ -57,7 +56,7 @@ public class ScriptEventHandler(Func<Member> selfFunc, EventScript[] scripts, IL
     }
 
     /// <summary>
-    /// Updates scripts for hot-reload. Changes take effect on next event.
+    /// Updates scripts for hot-reload. Changes take effect on the next event.
     /// Maps to: Go's UpdateScripts() in event_handler.go
     /// </summary>
     public void UpdateScripts(EventScript[] scripts)
@@ -77,13 +76,13 @@ public class ScriptEventHandler(Func<Member> selfFunc, EventScript[] scripts, IL
             script.Script,
             envVars,
             stdin,
-            _logger,
+            logger,
             timeout: TimeSpan.FromSeconds(30),
             evt: @event);
 
         if (result.ExitCode != 0)
         {
-            _logger?.LogWarning("[Agent/Scripts] Script '{Script}' exited with code {ExitCode}",
+            logger?.LogWarning("[Agent/Scripts] Script '{Script}' exited with code {ExitCode}",
                 script.Script, result.ExitCode);
         }
     }

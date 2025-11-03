@@ -14,12 +14,11 @@ public class SerfAgent : IAsyncDisposable
 {
     private readonly AgentConfig _config;
     private readonly ILogger? _logger;
-    private readonly HashSet<IEventHandler> _eventHandlers = new();
+    private readonly HashSet<IEventHandler> _eventHandlers = [];
     private readonly object _eventHandlersLock = new();
     private IEventHandler[] _eventHandlerList = [];
     private readonly Channel<IEvent> _eventChannel;
     private readonly CancellationTokenSource _cts = new();
-    private Serf.Serf? _serf;
     private RpcServer? _rpcServer;
     private ScriptEventHandler? _scriptEventHandler;
     private Task? _eventLoopTask;
@@ -27,7 +26,7 @@ public class SerfAgent : IAsyncDisposable
     private bool _disposed;
     private bool _started;
     private readonly SemaphoreSlim _shutdownLock = new(1, 1);
-    private NSerf.Memberlist.Keyring? _loadedKeyring;
+    private Memberlist.Keyring? _loadedKeyring;
 
     /// <summary>
     /// Circular log writer for monitor command.
@@ -39,11 +38,7 @@ public class SerfAgent : IAsyncDisposable
     /// </summary>
     public string NodeName => _config.NodeName;
 
-    /// <summary>
-    /// Gets the agent configuration.
-    /// </summary>
-    public AgentConfig Config => _config;
-    private static readonly JsonSerializerOptions _jsonSerializerOptions = new()
+    private static readonly JsonSerializerOptions JsonSerializerOptions = new()
     {
         WriteIndented = true
     };
@@ -64,14 +59,14 @@ public class SerfAgent : IAsyncDisposable
             throw new ConfigException("Encryption key not allowed while using a keyring");
         }
 
-        // Create event channel (size=64 as per Go implementation)
+        // Create an event channel (size=64 as per Go implementation)
         _eventChannel = Channel.CreateBounded<IEvent>(new BoundedChannelOptions(64)
         {
             FullMode = BoundedChannelFullMode.Wait
         });
 
-        // Create circular log writer (buffer size=512 as per Go implementation)
-        LogWriter = new CircularLogWriter(512);
+        // Create a circular log writer (buffer default size=512)
+        LogWriter = new CircularLogWriter();
     }
 
     public async Task StartAsync(CancellationToken cancellationToken = default)
@@ -85,13 +80,13 @@ public class SerfAgent : IAsyncDisposable
         _started = true;
         _logger?.LogInformation("[Agent] Starting...");
 
-        // Load tags from file if specified
+        // Load tags from a file if specified
         if (!string.IsNullOrEmpty(_config.TagsFile))
         {
             await LoadTagsFileAsync();
         }
 
-        // Load keyring from file if specified
+        // Load keyring from a file if specified
         if (!string.IsNullOrEmpty(_config.KeyringFile))
         {
             await LoadKeyringFileAsync();
@@ -100,10 +95,10 @@ public class SerfAgent : IAsyncDisposable
         var serfConfig = BuildSerfConfig();
         serfConfig.EventCh = _eventChannel.Writer;
 
-        _serf = await NSerf.Serf.Serf.CreateAsync(serfConfig);
+        Serf = await NSerf.Serf.Serf.CreateAsync(serfConfig);
 
         // Setup script event handler if configured
-        if (_config.EventHandlers != null && _config.EventHandlers.Count > 0)
+        if (_config.EventHandlers.Count > 0)
         {
             var scripts = new List<EventScript>();
             foreach (var handlerSpec in _config.EventHandlers)
@@ -112,20 +107,20 @@ public class SerfAgent : IAsyncDisposable
             }
 
             _scriptEventHandler = new ScriptEventHandler(
-                () => _serf.LocalMember(),
+                () => Serf.LocalMember(),
                 [.. scripts],
                 _logger);
 
             RegisterEventHandler(_scriptEventHandler);
         }
 
-        // Start event loop
-        _eventLoopTask = Task.Run(() => EventLoopAsync(), _cts.Token);
+        // Start an event loop
+        _eventLoopTask = Task.Run(EventLoopAsync, _cts.Token);
 
         if (_config.StartJoin.Length > 0)
         {
-            var ignoreOld = true;  // Default: don't replay old events
-            var joined = await _serf.JoinAsync(_config.StartJoin, ignoreOld);
+            const bool ignoreOld = true;  // Default: don't replay old events
+            var joined = await Serf.JoinAsync(_config.StartJoin, ignoreOld);
             if (joined == 0)
             {
                 _logger?.LogWarning("[Agent] Failed to join any nodes");
@@ -136,16 +131,16 @@ public class SerfAgent : IAsyncDisposable
             }
         }
 
-        // Start retry join in background if configured
-        if (_config.RetryJoin != null && _config.RetryJoin.Length > 0)
+        // Start retry join in the background if configured
+        if (_config.RetryJoin.Length > 0)
         {
             _retryJoinTask = Task.Run(() => RetryJoinAsync(_cts.Token), _cts.Token);
         }
 
-        // Start RPC server if RPCAddr is configured
-        if (!string.IsNullOrEmpty(_config.RPCAddr))
+        // Start the RPC server if RPCAddr is configured
+        if (!string.IsNullOrEmpty(_config.RpcAddr))
         {
-            _rpcServer = new RpcServer(this, _config.RPCAddr, _config.RPCAuthKey);
+            _rpcServer = new RpcServer(this, _config.RpcAddr, _config.RpcAuthKey);
             await _rpcServer.StartAsync(cancellationToken);
         }
 
@@ -154,7 +149,7 @@ public class SerfAgent : IAsyncDisposable
 
     private Config BuildSerfConfig()
     {
-        Config config = BuildConfig();
+        var config = BuildConfig();
 
         SetNodeName(config);
         SetBind(config);
@@ -166,63 +161,60 @@ public class SerfAgent : IAsyncDisposable
 
     private void SetKeys(Config config)
     {
-        // Set keyring if loaded from file
+        // Set the keyring if loaded from the file
         if (_loadedKeyring != null && config.MemberlistConfig != null)
         {
             config.MemberlistConfig.Keyring = _loadedKeyring;
             config.KeyringFile = _config.KeyringFile;  // So Serf can write updates
             _logger?.LogDebug("[Agent] Configured keyring from file");
         }
-        // Or set encryption key if provided directly
+        // Or set an encryption key if provided directly
         else if (!string.IsNullOrEmpty(_config.EncryptKey) && config.MemberlistConfig != null)
         {
             var keyBytes = _config.EncryptBytes();
-            if (keyBytes != null)
-            {
-                config.MemberlistConfig.Keyring = NSerf.Memberlist.Keyring.Create(null, keyBytes);
-                _logger?.LogDebug("[Agent] Configured keyring from EncryptKey");
-            }
+            if (keyBytes == null) return;
+            
+            config.MemberlistConfig.Keyring = Memberlist.Keyring.Create(null, keyBytes);
+            _logger?.LogDebug("[Agent] Configured keyring from EncryptKey");
         }
     }
 
     private void SetAdvertise(Config config)
     {
-        // Set advertise address if specified (for NAT/specific network configs)
-        if (!string.IsNullOrEmpty(_config.AdvertiseAddr) && config.MemberlistConfig != null)
+        // Set an advertisement address if specified (for NAT/specific network configs)
+        if (string.IsNullOrEmpty(_config.AdvertiseAddr) || config.MemberlistConfig == null) return;
+        
+        var parts = _config.AdvertiseAddr.Split(':');
+        if (parts.Length == 2)
         {
-            var parts = _config.AdvertiseAddr.Split(':');
-            if (parts.Length == 2)
+            config.MemberlistConfig.AdvertiseAddr = parts[0];
+            if (int.TryParse(parts[1], out var port))
             {
-                config.MemberlistConfig.AdvertiseAddr = parts[0];
-                if (int.TryParse(parts[1], out var port))
-                {
-                    config.MemberlistConfig.AdvertisePort = port;
-                }
+                config.MemberlistConfig.AdvertisePort = port;
             }
-            else
-            {
-                config.MemberlistConfig.AdvertiseAddr = _config.AdvertiseAddr;
-            }
+        }
+        else
+        {
+            config.MemberlistConfig.AdvertiseAddr = _config.AdvertiseAddr;
         }
     }
 
     private void SetBind(Config config)
     {
-        if (!string.IsNullOrEmpty(_config.BindAddr) && config.MemberlistConfig != null)
+        if (string.IsNullOrEmpty(_config.BindAddr) || config.MemberlistConfig == null) return;
+        
+        // Parse "IP:Port" format
+        var parts = _config.BindAddr.Split(':');
+        if (parts.Length != 2)
         {
-            // Parse "IP:Port" format
-            var parts = _config.BindAddr.Split(':');
-            if (parts.Length == 2)
+            config.MemberlistConfig.BindAddr = _config.BindAddr;
+        }
+        else
+        {
+            config.MemberlistConfig.BindAddr = parts[0];
+            if (int.TryParse(parts[1], out var port))
             {
-                config.MemberlistConfig.BindAddr = parts[0];
-                if (int.TryParse(parts[1], out var port))
-                {
-                    config.MemberlistConfig.BindPort = port;
-                }
-            }
-            else
-            {
-                config.MemberlistConfig.BindAddr = _config.BindAddr;
+                config.MemberlistConfig.BindPort = port;
             }
         }
     }
@@ -231,29 +223,28 @@ public class SerfAgent : IAsyncDisposable
     {
         var config = new Config
         {
-            MemberlistConfig = NSerf.Memberlist.Configuration.MemberlistConfig.DefaultLANConfig(),
+            MemberlistConfig = Memberlist.Configuration.MemberlistConfig.DefaultLANConfig(),
             Tags = new Dictionary<string, string>(_config.Tags),  // Copy tags from config
             ProtocolVersion = (byte)_config.Protocol,
             DisableCoordinates = _config.DisableCoordinates,
-            SnapshotPath = _config.SnapshotPath,  // CRITICAL: Pass snapshot path to Serf
-            RejoinAfterLeave = _config.RejoinAfterLeave  // CRITICAL: Pass rejoin flag to Serf
+            SnapshotPath = _config.SnapshotPath,  // CRITICAL: Pass the snapshot path to Serf
+            RejoinAfterLeave = _config.RejoinAfterLeave  // CRITICAL: Pass the rejoin flag to Serf
         };
         return config;
     }
 
     private void SetNodeName(Config config)
     {
-        if (!string.IsNullOrEmpty(_config.NodeName))
+        if (string.IsNullOrEmpty(_config.NodeName)) return;
+        
+        config.NodeName = _config.NodeName;
+        if (config.MemberlistConfig != null)
         {
-            config.NodeName = _config.NodeName;
-            if (config.MemberlistConfig != null)
-            {
-                config.MemberlistConfig.Name = _config.NodeName;
-            }
+            config.MemberlistConfig.Name = _config.NodeName;
         }
     }
 
-    public NSerf.Serf.Serf? Serf => _serf;
+    public NSerf.Serf.Serf? Serf { get; private set; }
 
     /// <summary>
     /// Registers an event handler. Uses handler list rebuild pattern to prevent deadlocks.
@@ -357,7 +348,7 @@ public class SerfAgent : IAsyncDisposable
     /// </summary>
     public async Task SetTagsAsync(Dictionary<string, string> tags)
     {
-        if (_serf == null)
+        if (Serf == null)
             throw new InvalidOperationException("Agent not started");
 
         // Persist to file BEFORE gossiping (critical ordering from Go implementation)
@@ -367,7 +358,7 @@ public class SerfAgent : IAsyncDisposable
         }
 
         // Now gossip the tags
-        await _serf.SetTagsAsync(tags);
+        await Serf.SetTagsAsync(tags);
     }
 
     private async Task LoadTagsFileAsync()
@@ -390,7 +381,7 @@ public class SerfAgent : IAsyncDisposable
 
         var tags = JsonSerializer.Deserialize<Dictionary<string, string>>(json);
 
-        if (tags != null && tags.Count > 0)
+        if (tags is { Count: > 0 })
         {
             // Merge into config tags
             foreach (var kvp in tags)
@@ -405,7 +396,7 @@ public class SerfAgent : IAsyncDisposable
 
     private async Task WriteTagsFileAsync(Dictionary<string, string> tags)
     {
-        var json = JsonSerializer.Serialize(tags, _jsonSerializerOptions);
+        var json = JsonSerializer.Serialize(tags, JsonSerializerOptions);
 
         await File.WriteAllTextAsync(_config.TagsFile!, json);
 
@@ -453,12 +444,12 @@ public class SerfAgent : IAsyncDisposable
             }
         }
 
-        // Create keyring with first key as primary
+        // Create a keyring with the first key as primary
         if (keys.Count > 0)
         {
-            // First key is primary, rest are secondary
+            // The first key is primary, rest are secondary
             var secondaryKeys = keys.Count > 1 ? keys.Skip(1).ToArray() : null;
-            var keyring = NSerf.Memberlist.Keyring.Create(secondaryKeys, keys[0]);
+            var keyring = Memberlist.Keyring.Create(secondaryKeys, keys[0]);
 
             // Store keyring to be used when building Serf config
             _loadedKeyring = keyring;
@@ -503,11 +494,11 @@ public class SerfAgent : IAsyncDisposable
             if (scripts.Count == 0)
                 return;
 
-            if (_serf == null)
+            if (Serf == null)
                 throw new InvalidOperationException("Agent not started");
 
             _scriptEventHandler = new ScriptEventHandler(
-                () => _serf.LocalMember(),
+                () => Serf.LocalMember(),
                 [.. scripts],
                 _logger);
             RegisterEventHandler(_scriptEventHandler);
@@ -520,11 +511,11 @@ public class SerfAgent : IAsyncDisposable
 
     /// <summary>
     /// RetryJoinAsync attempts to join configured addresses with retries.
-    /// Runs in background until successful or max attempts reached.
+    /// Runs in the background until successful or max attempts are reached.
     /// </summary>
     private async Task RetryJoinAsync(CancellationToken cancellationToken)
     {
-        if (_serf == null || _config.RetryJoin == null || _config.RetryJoin.Length == 0)
+        if (Serf == null || _config.RetryJoin.Length == 0)
             return;
 
         var attempt = 0;
@@ -533,7 +524,7 @@ public class SerfAgent : IAsyncDisposable
         while (!cancellationToken.IsCancellationRequested)
         {
             attempt++;
-            bool flowControl = await TryJoin(attempt);
+            var flowControl = await TryJoin(attempt);
             if (!flowControl)
             {
                 return;
@@ -562,9 +553,9 @@ public class SerfAgent : IAsyncDisposable
     {
         try
         {
-            if (_serf != null && _config.RetryJoin != null)
+            if (Serf != null)
             {
-                var joined = await _serf.JoinAsync(_config.RetryJoin, !_config.ReplayOnJoin);
+                var joined = await Serf.JoinAsync(_config.RetryJoin, !_config.ReplayOnJoin);
                 if (joined > 0)
                 {
                     _logger?.LogInformation("[Agent] Retry join succeeded, joined {Count} nodes", joined);
@@ -592,7 +583,7 @@ public class SerfAgent : IAsyncDisposable
         try
         {
             if (_disposed)
-                return;  // Double-check after acquiring lock
+                return;  // Double-check after acquiring the lock
 
             _logger?.LogInformation("[Agent] Shutting down...");
             _disposed = true;
@@ -604,14 +595,14 @@ public class SerfAgent : IAsyncDisposable
                 _rpcServer = null;
             }
 
-            // Gracefully leave cluster before shutdown (broadcasts leave event)
-            if (_serf != null)
+            // Gracefully leave the cluster before shutdown (broadcasts leave event)
+            if (Serf != null)
             {
                 try
                 {
                     // Attempt graceful leave with timeout to avoid hanging on shutdown
                     // Timeout = BroadcastTimeout (5s) + LeavePropagateDelay (1s) + buffer (4s) = 10s
-                    var leaveTask = _serf.LeaveAsync();
+                    var leaveTask = Serf.LeaveAsync();
                     var timeoutTask = Task.Delay(TimeSpan.FromSeconds(10));
                     var completedTask = await Task.WhenAny(leaveTask, timeoutTask);
 
@@ -629,15 +620,15 @@ public class SerfAgent : IAsyncDisposable
                     _logger?.LogWarning(ex, "[Agent] Error during leave, forcing shutdown");
                 }
 
-                // Shutdown Serf (triggers event channel close)
-                await _serf.ShutdownAsync();
-                _serf = null;
+                // Shutdown Serf (triggers an event channel close)
+                await Serf.ShutdownAsync();
+                Serf = null;
             }
 
             // Cancel event loop and retry join
             await _cts.CancelAsync();
 
-            // Wait for event loop to finish
+            // Wait for the event loop to finish
             if (_eventLoopTask != null)
             {
                 try
@@ -675,9 +666,8 @@ public class SerfAgent : IAsyncDisposable
     {
         await ShutdownAsync();
 
-        // Dispose resources after shutdown completes
-        _cts?.Dispose();
-        _shutdownLock?.Dispose();
+        _cts.Dispose();
+        _shutdownLock.Dispose();
         GC.SuppressFinalize(this);
     }
 }

@@ -1,7 +1,6 @@
 // Copyright (c) BoolHak, Inc.
 // SPDX-License-Identifier: MPL-2.0
 
-using System.Buffers;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using MessagePack;
@@ -41,7 +40,7 @@ public class RpcSession : IAsyncDisposable
         {
             while (!cancellationToken.IsCancellationRequested && !_disposed && _reader != null)
             {
-                RequestHeader? header = null;
+                RequestHeader? header;
                 try
                 {
                     var headerBytes = await _reader.ReadAsync(cancellationToken);
@@ -52,7 +51,7 @@ public class RpcSession : IAsyncDisposable
 
                     header = MessagePackSerializer.Deserialize<RequestHeader>(headerBytes.Value, MsgPackOptions, cancellationToken);
                 }
-                catch (System.IO.IOException ex)
+                catch (IOException ex)
                 {
                     // Windows throws WSA errors on EOF - don't log as errors
                     if (!IsWindowsSocketClosed(ex))
@@ -61,7 +60,7 @@ public class RpcSession : IAsyncDisposable
                     }
                     break;
                 }
-                catch (System.Net.Sockets.SocketException)
+                catch (SocketException)
                 {
                     // Normal disconnect
                     break;
@@ -76,10 +75,7 @@ public class RpcSession : IAsyncDisposable
                     break;
                 }
 
-                if (header != null)
-                {
-                    await HandleCommandAsync(header, cancellationToken);
-                }
+                await HandleCommandAsync(header, cancellationToken);
             }
         }
         catch (OperationCanceledException)
@@ -96,14 +92,14 @@ public class RpcSession : IAsyncDisposable
     {
         try
         {
-            // Ensure handshake is performed before other commands
+            // Ensure a handshake is performed before other commands
             if (header.Command != RpcCommands.Handshake && _clientVersion == 0)
             {
                 await SendErrorAsync(header.Seq, "Handshake required", cancellationToken);
                 return;
             }
 
-            // Ensure client has authenticated after handshake if necessary
+            // Ensure a client has authenticated after handshake if necessary
             if (!string.IsNullOrEmpty(_authKey) && !_authenticated &&
                 header.Command != RpcCommands.Auth && header.Command != RpcCommands.Handshake)
             {
@@ -261,7 +257,6 @@ public class RpcSession : IAsyncDisposable
         }
 
         var members = _agent.Serf?.Members() ?? [];
-        members ??= [];
 
         var rpcMembers = members.Select(m => new Client.Responses.Member
         {
@@ -368,7 +363,7 @@ public class RpcSession : IAsyncDisposable
 
         var allMembers = _agent.Serf?.Members() ?? [];
 
-        // Pre-compile regex patterns with anchors (^$) for exact match
+        // Pre-compile regex patterns with anchors (^$) for an exact match
         System.Text.RegularExpressions.Regex? nameRegex = null;
         System.Text.RegularExpressions.Regex? statusRegex = null;
         Dictionary<string, System.Text.RegularExpressions.Regex>? tagRegexes = null;
@@ -381,7 +376,7 @@ public class RpcSession : IAsyncDisposable
             if (!string.IsNullOrEmpty(request.Status))
                 statusRegex = new System.Text.RegularExpressions.Regex($"^{request.Status}$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
-            if (request.Tags != null && request.Tags.Count > 0)
+            if (request.Tags.Count > 0)
             {
                 tagRegexes = [];
                 foreach (var tag in request.Tags)
@@ -404,13 +399,12 @@ public class RpcSession : IAsyncDisposable
             if (nameRegex != null && !nameRegex.IsMatch(m.Name))
                 return false;
 
-            if (tagRegexes != null)
+            if (tagRegexes == null) return true;
+            
+            foreach (var tagRegex in tagRegexes)
             {
-                foreach (var tagRegex in tagRegexes)
-                {
-                    if (!m.Tags.TryGetValue(tagRegex.Key, out var value) || !tagRegex.Value.IsMatch(value))
-                        return false;
-                }
+                if (!m.Tags.TryGetValue(tagRegex.Key, out var value) || !tagRegex.Value.IsMatch(value))
+                    return false;
             }
             return true;
         }).ToArray();
@@ -524,13 +518,11 @@ public class RpcSession : IAsyncDisposable
 
         // Start with existing tags
         var currentTags = _agent.Serf?.Config.Tags ?? [];
-        foreach (var tag in currentTags)
+        
+        foreach (var tag in currentTags
+                     .Where(tag => !request.DeleteTags.Contains(tag.Key)))
         {
-            // Only include if not in delete list
-            if (!request.DeleteTags.Contains(tag.Key))
-            {
-                mergedTags[tag.Key] = tag.Value;
-            }
+            mergedTags[tag.Key] = tag.Value;
         }
 
         // Add/update with new tags
@@ -583,7 +575,7 @@ public class RpcSession : IAsyncDisposable
             }
         }
 
-        var queryParam = new Serf.QueryParam
+        var queryParam = new QueryParam
         {
             FilterNodes = string.IsNullOrEmpty(request.FilterNodes) ? null : [request.FilterNodes],
             FilterTags = filterTags,
@@ -592,7 +584,7 @@ public class RpcSession : IAsyncDisposable
         };
 
         // Start the query
-        Serf.QueryResponse? queryResp = null;
+        QueryResponse? queryResp = null;
         string? errorMsg = null;
         try
         {
@@ -611,7 +603,7 @@ public class RpcSession : IAsyncDisposable
             var responseBytes = MessagePackSerializer.Serialize(response, MsgPackOptions, cancellationToken);
             await _stream!.WriteAsync(responseBytes, cancellationToken);
 
-            // Send query ID in response body (Go returns nil on error)
+            // Send query ID in the response body (Go returns nil on error)
             if (queryResp != null)
             {
                 var queryResponse = new Client.Responses.QueryResponse { Id = queryResp.Id };
@@ -649,17 +641,17 @@ public class RpcSession : IAsyncDisposable
 
         var stats = new Dictionary<string, Dictionary<string, string>>
         {
-            ["agent"] = new Dictionary<string, string>
+            ["agent"] = new()
             {
                 ["name"] = _agent.Serf?.Config.NodeName ?? "unknown"
             },
-            ["serf"] = new Dictionary<string, string>
+            ["serf"] = new()
             {
                 ["members"] = _agent.Serf?.NumMembers().ToString() ?? "0",
                 ["event_time"] = _agent.Serf?.EventClock.Time().ToString() ?? "0",
                 ["query_time"] = _agent.Serf?.QueryClock.Time().ToString() ?? "0"
             },
-            ["runtime"] = new Dictionary<string, string>
+            ["runtime"] = new()
             {
                 ["os"] = Environment.OSVersion.Platform.ToString(),
                 ["arch"] = RuntimeInformation.ProcessArchitecture.ToString()
@@ -786,7 +778,7 @@ public class RpcSession : IAsyncDisposable
 
         try
         {
-            // Keep streaming until client disconnects or cancellation
+            // Keep streaming until the client disconnects or cancellation
             await Task.Delay(-1, cancellationToken);
         }
         catch (OperationCanceledException)
@@ -838,7 +830,7 @@ public class RpcSession : IAsyncDisposable
 
         try
         {
-            // Keep streaming until client disconnects or cancellation
+            // Keep streaming until the client disconnects or cancellation
             await Task.Delay(-1, cancellationToken);
         }
         catch (OperationCanceledException)
@@ -874,12 +866,11 @@ public class RpcSession : IAsyncDisposable
 
     /// <summary>
     /// Checks if an IOException is a Windows socket closed error (WSARECV).
-    /// Windows throws "WSARECV" errors on EOF which are normal disconnects.
+    /// Windows throws "WSARECV" errors on EOF, which are normal disconnects.
     /// </summary>
-    private static bool IsWindowsSocketClosed(System.IO.IOException ex)
+    private static bool IsWindowsSocketClosed(IOException ex)
     {
-        return System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(
-            System.Runtime.InteropServices.OSPlatform.Windows) &&
+        return RuntimeInformation.IsOSPlatform(OSPlatform.Windows) &&
             ex.Message.Contains("WSA", StringComparison.OrdinalIgnoreCase);
     }
 
@@ -890,8 +881,8 @@ public class RpcSession : IAsyncDisposable
 
         _reader?.Dispose();
         _stream?.Dispose();
-        _client?.Dispose();
-        _writeLock?.Dispose();
+        _client.Dispose();
+        _writeLock.Dispose();
 
         GC.SuppressFinalize(this);
         return ValueTask.CompletedTask;

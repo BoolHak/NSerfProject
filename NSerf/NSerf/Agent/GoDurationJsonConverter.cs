@@ -8,7 +8,7 @@ using System.Text.RegularExpressions;
 namespace NSerf.Agent;
 
 /// <summary>
-/// JSON converter for Go duration format (e.g., "15s", "48h", "30m")
+/// JSON converter for Go duration format (e.g., "15 s", "48 h", "30 m")
 /// Maps to Go's time.ParseDuration
 /// </summary>
 public partial class GoDurationJsonConverter : JsonConverter<TimeSpan>
@@ -22,10 +22,7 @@ public partial class GoDurationJsonConverter : JsonConverter<TimeSpan>
         }
 
         var value = reader.GetString();
-        if (string.IsNullOrEmpty(value))
-            return TimeSpan.Zero;
-
-        return ParseGoDuration(value);
+        return string.IsNullOrEmpty(value) ? TimeSpan.Zero : ParseGoDuration(value);
     }
 
     public override void Write(Utf8JsonWriter writer, TimeSpan value, JsonSerializerOptions options)
@@ -36,7 +33,7 @@ public partial class GoDurationJsonConverter : JsonConverter<TimeSpan>
     [GeneratedRegex(@"^(\d+(?:\.\d+)?)(ns|us|µs|ms|s|m|h)$", RegexOptions.CultureInvariant)]
     private static partial Regex DurationRegex();
 
-    public static TimeSpan ParseGoDuration(string input)
+    private static TimeSpan ParseGoDuration(string input)
     {
         // Support Go duration format: h (hour), m (minute), s (second), ms (millisecond), us (microsecond), ns (nanosecond)
         var match = DurationRegex().Match(input);

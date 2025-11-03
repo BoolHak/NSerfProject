@@ -7,7 +7,7 @@ namespace NSerf.Agent;
 
 /// <summary>
 /// A writer that can be flushed to an underlying writer.
-/// Buffers writes until Flush() is called.
+/// Buffers write until Flush() is called.
 /// Maps to: Go's gatedwriter pattern
 /// </summary>
 public class GatedWriter(TextWriter writer) : TextWriter
@@ -70,15 +70,12 @@ public class GatedWriter(TextWriter writer) : TextWriter
     {
         lock (_lock)
         {
-            if (!_flushed)
-            {
-                _flushed = true;
-                if (_buffer.Length > 0)
-                {
-                    _writer.Write(_buffer.ToString());
-                    _writer.Flush();
-                }
-            }
+            if (_flushed) return;
+            _flushed = true;
+            
+            if (_buffer.Length <= 0) return;
+            _writer.Write(_buffer.ToString());
+            _writer.Flush();
         }
     }
 
@@ -93,10 +90,7 @@ public class GatedWriter(TextWriter writer) : TextWriter
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing)
-        {
-            Flush();
-        }
+        if (disposing) Flush();
         base.Dispose(disposing);
     }
 }

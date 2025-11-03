@@ -67,7 +67,7 @@ public class EventScriptRunner
         {
             ["SERF_EVENT"] = eventType,
             ["SERF_SELF_NAME"] = member.Name,
-            ["SERF_SELF_ROLE"] = member.Tags.TryGetValue("role", out var role) ? role : "",
+            ["SERF_SELF_ROLE"] = member.Tags.GetValueOrDefault("role", ""),
             ["SERF_MEMBER_NAME"] = member.Name,
             ["SERF_MEMBER_ADDR"] = member.Addr.ToString(),
             ["SERF_MEMBER_PORT"] = member.Port.ToString(),

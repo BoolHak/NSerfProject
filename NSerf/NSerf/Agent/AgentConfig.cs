@@ -5,8 +5,9 @@ using System.Text.Json.Serialization;
 
 namespace NSerf.Agent;
 
-public class AgentConfig
+public class AgentConfig(bool replayOnJoin = false)
 {
+
     // Basic Configuration
     public string NodeName { get; set; } = string.Empty;
     public string? Role { get; set; }  // Deprecated - use Tags["role"]
@@ -16,8 +17,10 @@ public class AgentConfig
     public string? EncryptKey { get; set; }  // Base64-encoded 32-byte key
     public string? KeyringFile { get; set; }
     public string LogLevel { get; set; } = "INFO";
-    public string? RPCAddr { get; set; }  // Changed to empty default
-    public string? RPCAuthKey { get; set; }
+    [JsonPropertyName("RPCAddr")]
+    public string? RpcAddr { get; set; }
+    [JsonPropertyName("RPCAuthKey")]// Changed to empty default
+    public string? RpcAuthKey { get; set; }
     public Dictionary<string, string> Tags { get; set; } = [];
     public string? TagsFile { get; set; }
     public string Profile { get; set; } = "lan";  // lan, wan, or local
@@ -26,7 +29,7 @@ public class AgentConfig
 
     // Rejoin/Retry Configuration
     public bool RejoinAfterLeave { get; set; }
-    public bool ReplayOnJoin { get; set; } = false;
+    public bool ReplayOnJoin { get; init; } = replayOnJoin;
     public string[] StartJoin { get; set; } = [];
     public string[] StartJoinWan { get; set; } = [];
     public string[] RetryJoin { get; set; } = [];
@@ -70,10 +73,7 @@ public class AgentConfig
     // Default port constant
     public const int DefaultBindPort = 7946;
 
-    public static AgentConfig Default()
-    {
-        return new AgentConfig();
-    }
+    public static AgentConfig Default() => new();
 
     public static AgentConfig Merge(AgentConfig a, AgentConfig b)
     {
@@ -85,7 +85,7 @@ public class AgentConfig
         MergeBooleans(a, b, result);
         MergeArrays(a, b, result);
 
-        // Tags - MERGE (later value wins for same key)
+        // Tags - MERGE (later value wins for the same key)
         result.Tags = new Dictionary<string, string>(a.Tags);
         foreach (var kvp in b.Tags)
         {
@@ -147,8 +147,8 @@ public class AgentConfig
         result.EncryptKey = GetValueOrDefault(a, b, c => c.EncryptKey);
         result.KeyringFile = GetValueOrDefault(a, b, c => c.KeyringFile);
         result.LogLevel = GetValueOrDefault(a, b, c => c.LogLevel);
-        result.RPCAddr = GetValueOrDefault(a, b, c => c.RPCAddr);
-        result.RPCAuthKey = GetValueOrDefault(a, b, c => c.RPCAuthKey);
+        result.RpcAddr = GetValueOrDefault(a, b, c => c.RpcAddr);
+        result.RpcAuthKey = GetValueOrDefault(a, b, c => c.RpcAuthKey);
         result.TagsFile = GetValueOrDefault(a, b, c => c.TagsFile);
         result.Profile = GetValueOrDefault(a, b, c => c.Profile);
         result.SnapshotPath = GetValueOrDefault(a, b, c => c.SnapshotPath);
@@ -195,10 +195,7 @@ public class AgentConfig
 
         var bytes = Convert.FromBase64String(EncryptKey);
 
-        if (bytes.Length != 32)
-            throw new ConfigException("Encrypt key must be exactly 32 bytes");
-
-        return bytes;
+        return bytes.Length != 32 ? throw new ConfigException("Encrypt key must be exactly 32 bytes") : bytes;
     }
 }
 

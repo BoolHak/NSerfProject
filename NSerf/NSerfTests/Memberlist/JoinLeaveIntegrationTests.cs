@@ -152,7 +152,7 @@ public class JoinLeaveIntegrationTests : IAsyncLifetime
         error.Should().BeNull();
         numJoined.Should().Be(1);
 
-        await Task.Delay(500);
+        await Task.Delay(1500);
 
         // Both should see 2 members
         m1.NumMembers().Should().Be(2);

@@ -104,7 +104,7 @@ public class AgentLifecycleTests
         {
             NodeName = "test-shutdown",
             BindAddr = "127.0.0.1:0",
-            RPCAddr = "127.0.0.1:0"  // Use dynamic port
+            RpcAddr = "127.0.0.1:0"  // Use dynamic port
         };
 
         var agent = new SerfAgent(config);

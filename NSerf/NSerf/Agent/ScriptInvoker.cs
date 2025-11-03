@@ -16,7 +16,7 @@ namespace NSerf.Agent;
 /// Executes event handler scripts with proper environment and I/O handling.
 /// Maps to: Go's invoke.go in serf/cmd/serf/command/agent/
 /// </summary>
-public class ScriptInvoker
+public static class ScriptInvoker
 {
     private const int MaxBufferSize = 8 * 1024;  // 8KB output limit
     private static readonly TimeSpan SlowScriptWarnTime = TimeSpan.FromSeconds(1);
@@ -32,7 +32,7 @@ public class ScriptInvoker
         public long TotalWritten { get; set; }
         public bool WasTruncated { get; set; }
         public int ExitCode { get; set; }
-        public List<string> Warnings { get; } = new();
+        public List<string> Warnings { get; } = [];
     }
 
     public static async Task<ScriptResult> ExecuteAsync(
@@ -48,7 +48,7 @@ public class ScriptInvoker
         var result = new ScriptResult();
 
         using var process = CreateProcess(script, envVars);
-        using var slowWarningTimer = CreateSlowScriptTimer(script, logger, result.Warnings);
+        await using var slowWarningTimer = CreateSlowScriptTimer(script, logger, result.Warnings);
 
         AttachOutputHandlers(process, output);
 
@@ -91,7 +91,7 @@ public class ScriptInvoker
     {
         foreach (DictionaryEntry entry in Environment.GetEnvironmentVariables())
         {
-            if (entry.Key is string key && entry.Value is string value)
+            if (entry is { Key: string key, Value: string value })
             {
                 psi.Environment[key] = value;
             }
@@ -120,6 +120,10 @@ public class ScriptInvoker
 
     private static void AttachOutputHandlers(Process process, CircularBuffer output)
     {
+        process.OutputDataReceived += WriteOutput;
+        process.ErrorDataReceived += WriteOutput;
+        return;
+
         void WriteOutput(object _, DataReceivedEventArgs e)
         {
             if (e.Data is not null)
@@ -127,9 +131,6 @@ public class ScriptInvoker
                 output.Write(Encoding.UTF8.GetBytes(e.Data + "\n"));
             }
         }
-
-        process.OutputDataReceived += WriteOutput;
-        process.ErrorDataReceived += WriteOutput;
     }
 
     private static async Task WriteStdinAsync(Process process, string? stdin)
@@ -258,18 +259,18 @@ public class ScriptInvoker
             envVars[$"SERF_TAG_{sanitizedName}"] = tag.Value;
         }
 
-        // User event specific
-        if (evt is UserEvent userEvt)
+        switch (evt)
         {
-            envVars["SERF_USER_EVENT"] = userEvt.Name;
-            envVars["SERF_USER_LTIME"] = userEvt.LTime.ToString();
-        }
-
-        // Query specific
-        if (evt is Query query)
-        {
-            envVars["SERF_QUERY_NAME"] = query.Name;
-            envVars["SERF_QUERY_LTIME"] = query.LTime.ToString();
+            // User event specific
+            case UserEvent userEvt:
+                envVars["SERF_USER_EVENT"] = userEvt.Name;
+                envVars["SERF_USER_LTIME"] = userEvt.LTime.ToString();
+                break;
+            // Query specific
+            case Query query:
+                envVars["SERF_QUERY_NAME"] = query.Name;
+                envVars["SERF_QUERY_LTIME"] = query.LTime.ToString();
+                break;
         }
 
         return envVars;
@@ -277,16 +278,13 @@ public class ScriptInvoker
 
     public static string? BuildStdin(IEvent evt)
     {
-        if (evt is MemberEvent memberEvt)
-            return BuildMemberEventStdin(memberEvt);
-
-        if (evt is UserEvent userEvt)
-            return PreparePayload(userEvt.Payload);
-
-        if (evt is Query query)
-            return PreparePayload(query.Payload);
-
-        return null;
+        return evt switch
+        {
+            MemberEvent memberEvt => BuildMemberEventStdin(memberEvt),
+            UserEvent userEvt => PreparePayload(userEvt.Payload),
+            Query query => PreparePayload(query.Payload),
+            _ => null
+        };
     }
 
     public static string BuildMemberEventStdin(MemberEvent evt)
@@ -298,11 +296,7 @@ public class ScriptInvoker
             var role = member.Tags.GetValueOrDefault("role", "");
             var tags = string.Join(",", member.Tags.Select(kvp => $"{kvp.Key}={kvp.Value}"));
 
-            sb.AppendFormat("{0}\t{1}\t{2}\t{3}\n",
-                EventClean(member.Name),
-                member.Addr,
-                EventClean(role),
-                EventClean(tags));
+            sb.Append($"{EventClean(member.Name)}\t{member.Addr}\t{EventClean(role)}\t{EventClean(tags)}\n");
         }
 
         return sb.ToString();
@@ -315,7 +309,7 @@ public class ScriptInvoker
 
         var str = Encoding.UTF8.GetString(payload);
 
-        // Append newline if missing (scripts expect newline-terminated input)
+        // Append a new line if missing (scripts expect newline-terminated input)
         if (!str.EndsWith('\n'))
             str += '\n';
 
@@ -324,13 +318,13 @@ public class ScriptInvoker
 
     public static string EventClean(string value)
     {
-        // Escape tabs and newlines to prevent breaking tab-separated format
+        // Escape tabs and newlines to prevent a breaking tab-separated format
         return value
             .Replace("\t", "\\t")
             .Replace("\n", "\\n");
     }
 
-    public static string SanitizeTagName(string name)
+    private static string SanitizeTagName(string name)
     {
         // Convert to uppercase and replace non-alphanumeric with underscore
         return SanitizeTagRegex.Replace(name.ToUpper(), "_");
@@ -338,21 +332,18 @@ public class ScriptInvoker
 
     private static (string shell, string flag) GetShellCommand()
     {
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-            return ("cmd", "/C");
-        else
-            return ("/bin/sh", "-c");
+        return RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? ("cmd", "/C") : ("/bin/sh", "-c");
     }
 
     private static string GetEventTypeName(IEvent evt)
     {
         return evt switch
         {
-            MemberEvent me when me.Type == EventType.MemberJoin => "member-join",
-            MemberEvent me when me.Type == EventType.MemberLeave => "member-leave",
-            MemberEvent me when me.Type == EventType.MemberFailed => "member-failed",
-            MemberEvent me when me.Type == EventType.MemberUpdate => "member-update",
-            MemberEvent me when me.Type == EventType.MemberReap => "member-reap",
+            MemberEvent { Type: EventType.MemberJoin } => "member-join",
+            MemberEvent { Type: EventType.MemberLeave } => "member-leave",
+            MemberEvent { Type: EventType.MemberFailed } => "member-failed",
+            MemberEvent { Type: EventType.MemberUpdate } => "member-update",
+            MemberEvent { Type: EventType.MemberReap } => "member-reap",
             UserEvent => "user",
             Query => "query",
             _ => "unknown"

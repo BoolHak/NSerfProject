@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: MPL-2.0
 
 using Microsoft.Extensions.Logging;
-using System.Diagnostics;
 
 namespace NSerf.Agent;
 
@@ -47,25 +46,25 @@ public class AgentCommand : IAsyncDisposable
             _gatedWriter = new GatedWriter(consoleOutput);
             _logWriter = new LogWriter(_gatedWriter, LogLevelExtensions.FromString(_config.LogLevel ?? "INFO"));
 
-            // Redirect console output through log writer
+            // Redirect console output through a log writer
             Console.SetOut(_logWriter);
 
             _logger?.LogInformation("[Agent] Starting Serf agent Node name: {NodeName} Bind addr: {BindAddr}", _config.NodeName, _config.BindAddr);
 
 
-            // Create and start agent
+            // Create and start an agent
             _agent = new SerfAgent(_config, _logger);
             await _agent.StartAsync(cancellationToken);
 
             // Release buffered logs now that startup succeeded
             await _gatedWriter.FlushAsync(cancellationToken);
 
-            // Start RPC server if configured
-            if (!string.IsNullOrEmpty(_config.RPCAddr))
+            // Start an RPC server if configured
+            if (!string.IsNullOrEmpty(_config.RpcAddr))
             {
-                _rpcServer = new RPC.RpcServer(_agent, _config.RPCAddr, _config.RPCAuthKey);
+                _rpcServer = new RPC.RpcServer(_agent, _config.RpcAddr, _config.RpcAuthKey);
                 await _rpcServer.StartAsync(cancellationToken);
-                _logger?.LogInformation("[Agent] RPC server listening on {RPCAddr}", _config.RPCAddr);
+                _logger?.LogInformation("[Agent] RPC server listening on {RPCAddr}", _config.RpcAddr);
             }
 
             // Start join if configured
@@ -82,15 +81,15 @@ public class AgentCommand : IAsyncDisposable
                 }
             }
 
-            // Start retry join in background if configured
-            if (_config.RetryJoin != null && _config.RetryJoin.Length > 0)
+            // Start retry join in the background if configured
+            if (_config.RetryJoin.Length > 0)
             {
                 _retryJoinTask = Task.Run(() => RetryJoinAsync(_shutdownCts.Token), _shutdownCts.Token);
             }
 
             _logger?.LogInformation("[Agent] Serf agent running!");
 
-            // Wait for shutdown signal or agent shutdown
+            // Wait for a shutdown signal or agent shutdown
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _shutdownCts.Token);
 
             try
@@ -123,7 +122,7 @@ public class AgentCommand : IAsyncDisposable
             if (signal == Signal.SIGHUP)
             {
                 _logger?.LogInformation("[Agent] Reloading configuration...");
-                _ = Task.Run(() => ReloadConfigAsync());
+                _ = Task.Run(ReloadConfigAsync);
                 return;
             }
 
@@ -135,7 +134,7 @@ public class AgentCommand : IAsyncDisposable
                 if (shouldGraceful)
                 {
                     _logger?.LogInformation("[Agent] Gracefully shutting down agent...");
-                    _ = Task.Run(() => GracefulShutdownAsync());
+                    _ = Task.Run(GracefulShutdownAsync);
                 }
                 else
                 {
@@ -231,8 +230,7 @@ public class AgentCommand : IAsyncDisposable
     }
 
     private bool IsAbleToRetry() =>
-        _agent != null && _agent.Serf != null &&
-        _config.RetryJoin != null && _config.RetryJoin.Length > 0;
+        _agent is { Serf: not null } && _config.RetryJoin.Length > 0;
 
     private TimeSpan GetRetryInterval() =>
         _config.RetryInterval > MinInterval ? _config.RetryInterval : MinInterval;
@@ -244,7 +242,7 @@ public class AgentCommand : IAsyncDisposable
             _logger?.LogInformation("[Agent] Config reload triggered");
 
             // For now, only log level and event scripts can be reloaded
-            // Full implementation would reload from config file
+            // Full implementation would reload from a config file
 
             // Update log level
             if (!string.IsNullOrEmpty(_config.LogLevel) && _logWriter != null)
@@ -272,7 +270,7 @@ public class AgentCommand : IAsyncDisposable
     {
         await _shutdownCts.CancelAsync();
 
-        // Wait for retry join task to complete after cancellation
+        // Wait for the retry join task to complete after cancellation
         if (_retryJoinTask != null)
         {
             try
@@ -295,8 +293,8 @@ public class AgentCommand : IAsyncDisposable
             await _agent.DisposeAsync();
         }
 
-        _signalHandler?.Dispose();
-        _shutdownCts?.Dispose();
+        _signalHandler.Dispose();
+        _shutdownCts.Dispose();
 
         // Restore console output
         if (_gatedWriter != null)

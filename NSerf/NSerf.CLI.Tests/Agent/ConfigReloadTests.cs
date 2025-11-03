@@ -31,7 +31,7 @@ public class ConfigReloadTests
         Assert.NotNull(config);
         Assert.Equal("test-node", config.NodeName);
         Assert.Equal("127.0.0.1:7946", config.BindAddr);
-        Assert.Equal("127.0.0.1:7373", config.RPCAddr);
+        Assert.Equal("127.0.0.1:7373", config.RpcAddr);
         Assert.Equal("DEBUG", config.LogLevel);
         Assert.Equal(2, config.Tags.Count);
         Assert.Equal("web", config.Tags["role"]);

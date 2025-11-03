@@ -110,7 +110,7 @@ public class CoordinateIntegrationTests : IAsyncLifetime
         {
             NodeName = TestHelper.GetRandomNodeName(),
             BindAddr = TestHelper.GetRandomBindAddr(),
-            RPCAddr = "",
+            RpcAddr = "",
             DisableCoordinates = true
         };
 

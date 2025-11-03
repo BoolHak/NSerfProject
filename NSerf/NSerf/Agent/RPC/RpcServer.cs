@@ -3,8 +3,6 @@
 
 using System.Net;
 using System.Net.Sockets;
-using MessagePack;
-using NSerf.Client;
 
 namespace NSerf.Agent.RPC;
 
@@ -12,7 +10,6 @@ public class RpcServer(SerfAgent agent, string bindAddr, string? authKey = null)
 {
     private readonly SerfAgent _agent = agent ?? throw new ArgumentNullException(nameof(agent));
     private readonly string _bindAddr = bindAddr ?? throw new ArgumentNullException(nameof(bindAddr));
-    private readonly string? _authKey = authKey;
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
     private Task? _acceptTask;
@@ -60,10 +57,10 @@ public class RpcServer(SerfAgent agent, string bindAddr, string? authKey = null)
                         return;
                     }
 
-                    var session = new RpcSession(_agent, client, _authKey);
+                    var session = new RpcSession(_agent, client, authKey);
                     _sessions.Add(session);
 
-                    _ = Task.Run(async () =>
+                    _ = Task.Factory.StartNew(async () =>
                     {
                         try
                         {
@@ -71,7 +68,7 @@ public class RpcServer(SerfAgent agent, string bindAddr, string? authKey = null)
                         }
                         finally
                         {
-                            // Cleanup: dispose session first, then remove from list
+                            // Cleanup: dispose session first, then remove from a list
                             await session.DisposeAsync();
 
                             lock (_sessionsLock)
@@ -79,7 +76,7 @@ public class RpcServer(SerfAgent agent, string bindAddr, string? authKey = null)
                                 _sessions.Remove(session);
                             }
                         }
-                    }, cancellationToken);
+                    }, cancellationToken, TaskCreationOptions.LongRunning, TaskScheduler.Default).Unwrap();
                 }
             }
             catch (OperationCanceledException)
@@ -101,7 +98,7 @@ public class RpcServer(SerfAgent agent, string bindAddr, string? authKey = null)
         }
         _disposed = true;
 
-        // Set stop flag FIRST (under lock)
+        // Set the stop flag FIRST (under lock)
         lock (_sessionsLock)
         {
             _stopped = true;
@@ -111,7 +108,7 @@ public class RpcServer(SerfAgent agent, string bindAddr, string? authKey = null)
         _listener?.Stop();
 
         // Safely capture and clear CTS, then cancel to break loops
-        var cts = System.Threading.Interlocked.Exchange(ref _cts, null);
+        var cts = Interlocked.Exchange(ref _cts, null);
         try
         {
             if (cts != null)
@@ -121,10 +118,10 @@ public class RpcServer(SerfAgent agent, string bindAddr, string? authKey = null)
         }
         catch (ObjectDisposedException)
         {
-            // Ignore if CTS was already disposed elsewhere
+            // Ignore if CTS was already disposed of elsewhere
         }
 
-        // Wait for accept loop to end before disposing CTS
+        // Wait for the acceptance loop to end before disposing CTS
         var acceptTask = _acceptTask;
         if (acceptTask != null)
         {
@@ -137,17 +134,14 @@ public class RpcServer(SerfAgent agent, string bindAddr, string? authKey = null)
             }
         }
 
-        // Now it's safe to dispose the CTS
+        // Now it's safe to dispose of the CTS
         cts?.Dispose();
 
         // Close all existing sessions
         var disposeTasks = new List<Task>();
         lock (_sessionsLock)
         {
-            foreach (var session in _sessions)
-            {
-                disposeTasks.Add(session.DisposeAsync().AsTask());
-            }
+            disposeTasks.AddRange(_sessions.Select(session => session.DisposeAsync().AsTask()));
             _sessions.Clear();
         }
 

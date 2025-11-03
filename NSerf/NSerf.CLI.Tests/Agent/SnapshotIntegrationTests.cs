@@ -49,7 +49,7 @@ public class SnapshotIntegrationTests : IAsyncLifetime
         {
             NodeName = TestHelper.GetRandomNodeName(),
             BindAddr = TestHelper.GetRandomBindAddr(),
-            RPCAddr = "",
+            RpcAddr = "",
             SnapshotPath = snapshotPath
         };
 
@@ -78,7 +78,7 @@ public class SnapshotIntegrationTests : IAsyncLifetime
         {
             NodeName = nodeName,
             BindAddr = bindAddr,
-            RPCAddr = "",
+            RpcAddr = "",
             SnapshotPath = snapshotPath
         };
 
@@ -97,7 +97,7 @@ public class SnapshotIntegrationTests : IAsyncLifetime
         {
             NodeName = nodeName,
             BindAddr = bindAddr,
-            RPCAddr = "",
+            RpcAddr = "",
             SnapshotPath = snapshotPath,
             RejoinAfterLeave = true
         };
@@ -122,7 +122,7 @@ public class SnapshotIntegrationTests : IAsyncLifetime
         {
             NodeName = TestHelper.GetRandomNodeName(),
             BindAddr = TestHelper.GetRandomBindAddr(),
-            RPCAddr = "",
+            RpcAddr = "",
             SnapshotPath = snapshotPath
         };
 
@@ -154,7 +154,7 @@ public class SnapshotIntegrationTests : IAsyncLifetime
         {
             NodeName = TestHelper.GetRandomNodeName(),
             BindAddr = TestHelper.GetRandomBindAddr(),
-            RPCAddr = ""
+            RpcAddr = ""
             // No SnapshotPath specified
         };
 
@@ -182,7 +182,7 @@ public class SnapshotIntegrationTests : IAsyncLifetime
         {
             NodeName = TestHelper.GetRandomNodeName(),
             BindAddr = TestHelper.GetRandomBindAddr(),
-            RPCAddr = "",
+            RpcAddr = "",
             SnapshotPath = snapshotPath
         };
 

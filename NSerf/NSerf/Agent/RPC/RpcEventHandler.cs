@@ -3,8 +3,6 @@
 
 using System.Net.Sockets;
 using MessagePack;
-using NSerf.Client;
-using NSerf.Serf;
 using NSerf.Serf.Events;
 
 namespace NSerf.Agent.RPC;
@@ -12,12 +10,8 @@ namespace NSerf.Agent.RPC;
 /// <summary>
 /// RPC event handler for stream command.
 /// </summary>
-public class RpcEventHandler(NetworkStream stream, SemaphoreSlim writeLock, string? eventFilter, CancellationToken cancellationToken) : IEventHandler, IDisposable
+public sealed class RpcEventHandler(NetworkStream stream, SemaphoreSlim writeLock, string? eventFilter, CancellationToken cancellationToken) : IEventHandler, IDisposable
 {
-    private readonly NetworkStream _stream = stream;
-    private readonly SemaphoreSlim _writeLock = writeLock;
-    private readonly CancellationToken _cancellationToken = cancellationToken;
-    private readonly string? _eventFilter = eventFilter;
     private bool _disposed;
 
     private static readonly MessagePackSerializerOptions MsgPackOptions =
@@ -26,27 +20,27 @@ public class RpcEventHandler(NetworkStream stream, SemaphoreSlim writeLock, stri
 
     public void HandleEvent(IEvent @event)
     {
-        if (_disposed || _cancellationToken.IsCancellationRequested)
+        if (_disposed || cancellationToken.IsCancellationRequested)
             return;
 
         // Filter by event type if specified
         var eventType = @event.EventType();
-        if (!string.IsNullOrEmpty(_eventFilter) && eventType.String() != _eventFilter)
+        if (!string.IsNullOrEmpty(eventFilter) && eventType.String() != eventFilter)
             return;
 
         try
         {
-            _writeLock.Wait(_cancellationToken);
+            writeLock.Wait(cancellationToken);
             try
             {
                 var streamEvent = ConvertToStreamEvent(@event);
-                var eventBytes = MessagePackSerializer.Serialize(streamEvent, MsgPackOptions, _cancellationToken);
-                _stream.Write(eventBytes);
-                _stream.Flush();
+                var eventBytes = MessagePackSerializer.Serialize(streamEvent, MsgPackOptions, cancellationToken);
+                stream.Write(eventBytes);
+                stream.Flush();
             }
             finally
             {
-                _writeLock.Release();
+                writeLock.Release();
             }
         }
         catch
@@ -102,10 +96,9 @@ public class RpcEventHandler(NetworkStream stream, SemaphoreSlim writeLock, stri
     public void Dispose()
     {
         Dispose(true);
-        GC.SuppressFinalize(this);
     }
 
-    protected virtual void Dispose(bool disposing)
+    private void Dispose(bool disposing)
     {
         if (_disposed)
         {
@@ -114,7 +107,7 @@ public class RpcEventHandler(NetworkStream stream, SemaphoreSlim writeLock, stri
 
         if (disposing)
         {
-            // Nothing to dispose; resources are external.
+            // Nothing to dispose of; resources are external.
         }
 
         _disposed = true;
