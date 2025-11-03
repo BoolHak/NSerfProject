@@ -9,24 +9,17 @@ namespace NSerf.Memberlist;
 /// <summary>
 /// Schedules periodic probe operations.
 /// </summary>
-public class ProbeScheduler
+public class ProbeScheduler(
+    TimeSpan interval,
+    SwimProtocol swimProtocol,
+    ILogger? logger = null)
 {
-    private readonly TimeSpan _interval;
-    private readonly SwimProtocol _swimProtocol;
-    private readonly ILogger? _logger;
+    private readonly TimeSpan _interval = interval;
+    private readonly SwimProtocol _swimProtocol = swimProtocol;
+    private readonly ILogger? _logger = logger;
     private Timer? _timer;
     private bool _isRunning;
-    
-    public ProbeScheduler(
-        TimeSpan interval,
-        SwimProtocol swimProtocol,
-        ILogger? logger = null)
-    {
-        _interval = interval;
-        _swimProtocol = swimProtocol;
-        _logger = logger;
-    }
-    
+
     /// <summary>
     /// Starts the probe scheduler.
     /// </summary>
@@ -36,7 +29,7 @@ public class ProbeScheduler
         {
             return;
         }
-        
+
         _isRunning = true;
         _timer = new Timer(async _ =>
         {
@@ -45,10 +38,10 @@ public class ProbeScheduler
                 await probeAction();
             }
         }, null, _interval, _interval);
-        
+
         _logger?.LogInformation("Probe scheduler started with interval {Interval}", _interval);
     }
-    
+
     /// <summary>
     /// Stops the probe scheduler.
     /// </summary>
@@ -58,14 +51,14 @@ public class ProbeScheduler
         {
             return;
         }
-        
+
         _isRunning = false;
         _timer?.Dispose();
         _timer = null;
-        
+
         _logger?.LogInformation("Probe scheduler stopped");
     }
-    
+
     /// <summary>
     /// Gets whether the scheduler is running.
     /// </summary>

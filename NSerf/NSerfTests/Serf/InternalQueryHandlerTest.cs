@@ -105,7 +105,7 @@ public class InternalQueryHandlerTest
         };
 
         using var serf = await NSerf.Serf.Serf.CreateAsync(config);
-        var outCh = Channel.CreateUnbounded<Event>();
+        var outCh = Channel.CreateUnbounded<IEvent>();
         var cts = new CancellationTokenSource();
 
         // Act - Create handler
@@ -123,7 +123,7 @@ public class InternalQueryHandlerTest
         // Assert - All 3 should get passed through
         var receivedCount = 0;
         using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-        
+
         while (receivedCount < 3)
         {
             var evt = await outCh.Reader.ReadAsync(timeoutCts.Token);
@@ -158,7 +158,7 @@ public class InternalQueryHandlerTest
         };
 
         using var serf = await NSerf.Serf.Serf.CreateAsync(config);
-        var outCh = Channel.CreateUnbounded<Event>();
+        var outCh = Channel.CreateUnbounded<IEvent>();
         var cts = new CancellationTokenSource();
 
         // Act - Create handler
@@ -169,7 +169,7 @@ public class InternalQueryHandlerTest
 
         // Assert - Should NOT get passed through
         using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
-        
+
         var passedThrough = false;
         try
         {
@@ -213,7 +213,7 @@ public class InternalQueryHandlerTest
         };
 
         using var serf = await NSerf.Serf.Serf.CreateAsync(config);
-        var outCh = Channel.CreateUnbounded<Event>();
+        var outCh = Channel.CreateUnbounded<IEvent>();
         var cts = new CancellationTokenSource();
 
         // Act - Create handler
@@ -224,7 +224,7 @@ public class InternalQueryHandlerTest
 
         // Assert - Should NOT get passed through
         using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
-        
+
         var passedThrough = false;
         try
         {
@@ -296,7 +296,7 @@ public class InternalQueryHandlerTest
 
         // Act - Serialize
         var serialized = MessagePack.MessagePackSerializer.Serialize(response);
-        
+
         // Assert - Should not be empty
         serialized.Should().NotBeEmpty();
 
@@ -346,7 +346,7 @@ public class InternalQueryHandlerTest
         };
 
         using var serf = await NSerf.Serf.Serf.CreateAsync(config);
-        var outCh = Channel.CreateUnbounded<Event>();
+        var outCh = Channel.CreateUnbounded<IEvent>();
         var cts = new CancellationTokenSource();
 
         // Act - Create handler
@@ -354,10 +354,10 @@ public class InternalQueryHandlerTest
 
         // Send some events
         await inCh.WriteAsync(new Query { Name = "test" });
-        
+
         // Shutdown
         cts.Cancel();
-        
+
         // Wait a bit for graceful shutdown
         await Task.Delay(100);
 
@@ -385,26 +385,26 @@ public class InternalQueryHandlerTest
         };
 
         using var serf = await NSerf.Serf.Serf.CreateAsync(config);
-        var outCh = Channel.CreateUnbounded<Event>();
+        var outCh = Channel.CreateUnbounded<IEvent>();
         var cts = new CancellationTokenSource();
 
         // Act - Create handler
         var (inCh, handler) = SerfQueries.Create(serf, outCh.Writer, cts.Token);
 
         // Query for our own name
-        var query = new Query 
-        { 
-            Name = "_serf_conflict", 
+        var query = new Query
+        {
+            Name = "_serf_conflict",
             Payload = System.Text.Encoding.UTF8.GetBytes("foo"),
             SerfInstance = serf,
             Deadline = DateTime.UtcNow.AddSeconds(10)
         };
-        
+
         await inCh.WriteAsync(query);
 
         // Assert - Should not passthrough OR respond
         using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
-        
+
         var passedThrough = false;
         try
         {
@@ -442,7 +442,7 @@ public class InternalQueryHandlerTest
         };
 
         using var serf = await NSerf.Serf.Serf.CreateAsync(config);
-        var outCh = Channel.CreateUnbounded<Event>();
+        var outCh = Channel.CreateUnbounded<IEvent>();
         var cts = new CancellationTokenSource();
 
         // Act - Create handler
@@ -450,11 +450,11 @@ public class InternalQueryHandlerTest
 
         // Track response
         bool responseSent = false;
-        
+
         // Query for a node that doesn't exist
-        var query = new Query 
-        { 
-            Name = "_serf_conflict", 
+        var query = new Query
+        {
+            Name = "_serf_conflict",
             Payload = System.Text.Encoding.UTF8.GetBytes("unknown-node"),
             SerfInstance = serf,
             Deadline = DateTime.UtcNow.AddSeconds(10),
@@ -521,16 +521,16 @@ public class InternalQueryHandlerTest
         var members = serf1.Members();
         members.Should().Contain(m => m.Name == "node2", "node2 should be in node1's member list");
 
-        var outCh = Channel.CreateUnbounded<Event>();
+        var outCh = Channel.CreateUnbounded<IEvent>();
         var cts = new CancellationTokenSource();
 
         // Create handler on node1
         var (inCh, handler) = SerfQueries.Create(serf1, outCh.Writer, cts.Token);
 
         // Query for node2 from node1
-        var query = new Query 
-        { 
-            Name = "_serf_conflict", 
+        var query = new Query
+        {
+            Name = "_serf_conflict",
             Payload = System.Text.Encoding.UTF8.GetBytes("node2"),
             SerfInstance = serf1,
             Deadline = DateTime.UtcNow.AddSeconds(10),

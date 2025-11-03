@@ -7,16 +7,11 @@ namespace NSerf.Memberlist;
 /// <summary>
 /// Estimates round-trip time for network operations.
 /// </summary>
-public class RttEstimator
+public class RttEstimator(int maxEntries = 1000)
 {
     private readonly Dictionary<string, TimeSpan> _rttCache = [];
     private readonly object _lock = new();
-    private readonly int _maxEntries;
-
-    public RttEstimator(int maxEntries = 1000)
-    {
-        _maxEntries = maxEntries;
-    }
+    private readonly int _maxEntries = maxEntries;
 
     /// <summary>
     /// Records an RTT measurement for a node.

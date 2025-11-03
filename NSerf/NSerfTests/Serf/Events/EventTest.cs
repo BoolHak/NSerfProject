@@ -22,7 +22,7 @@ public class EventTest
             Type = EventType.MemberJoin,
             Members = new List<Member>()
         };
-        
+
         me.EventType().Should().Be(EventType.MemberJoin, "EventType() should return MemberJoin");
         me.ToString().Should().Be("member-join", "ToString() should return 'member-join'");
 
@@ -123,7 +123,7 @@ public class EventTest
         // Act & Assert
         for (int idx = 0; idx < events.Length; idx++)
         {
-            events[idx].String().Should().Be(expected[idx], 
+            events[idx].String().Should().Be(expected[idx],
                 $"EventType {events[idx]} should have string representation '{expected[idx]}'");
         }
     }
@@ -270,14 +270,14 @@ public class EventTest
     public void Event_Interface_AllEventTypes_ShouldImplementInterface()
     {
         // Arrange & Act
-        Event memberEvent = new MemberEvent { Type = EventType.MemberJoin };
-        Event userEvent = new UserEvent { Name = "test" };
-        Event queryEvent = new Query { Name = "test-query" };
+        IEvent memberEvent = new MemberEvent { Type = EventType.MemberJoin };
+        IEvent userEvent = new UserEvent { Name = "test" };
+        IEvent queryEvent = new Query { Name = "test-query" };
 
         // Assert - All should implement Event interface
-        memberEvent.Should().BeAssignableTo<Event>();
-        userEvent.Should().BeAssignableTo<Event>();
-        queryEvent.Should().BeAssignableTo<Event>();
+        memberEvent.Should().BeAssignableTo<IEvent>();
+        userEvent.Should().BeAssignableTo<IEvent>();
+        queryEvent.Should().BeAssignableTo<IEvent>();
 
         // All should have EventType() method
         memberEvent.EventType().Should().Be(EventType.MemberJoin);
@@ -307,7 +307,7 @@ public class EventTest
             me.Type = eventType;
 
             // Assert
-            me.ToString().Should().Be(expectedString, 
+            me.ToString().Should().Be(expectedString,
                 $"Type {eventType} should produce string '{expectedString}'");
         }
     }

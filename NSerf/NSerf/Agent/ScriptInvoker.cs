@@ -41,7 +41,7 @@ public class ScriptInvoker
         string? stdin,
         ILogger? logger = null,
         TimeSpan? timeout = null,
-        Event? evt = null)
+        IEvent? evt = null)
     {
         var output = new CircularBuffer(MaxBufferSize);
         var actualTimeout = timeout ?? DefaultTimeout;
@@ -218,7 +218,7 @@ public class ScriptInvoker
     }
 
     private static async Task HandleQueryResponseAsync(
-        Event? evt,
+        IEvent? evt,
         ScriptResult result,
         ILogger? logger)
     {
@@ -242,7 +242,7 @@ public class ScriptInvoker
 
 
 
-    public static Dictionary<string, string> BuildEnvironmentVariables(Member self, Event evt)
+    public static Dictionary<string, string> BuildEnvironmentVariables(Member self, IEvent evt)
     {
         var envVars = new Dictionary<string, string>
         {
@@ -275,7 +275,7 @@ public class ScriptInvoker
         return envVars;
     }
 
-    public static string? BuildStdin(Event evt)
+    public static string? BuildStdin(IEvent evt)
     {
         if (evt is MemberEvent memberEvt)
             return BuildMemberEventStdin(memberEvt);
@@ -344,7 +344,7 @@ public class ScriptInvoker
             return ("/bin/sh", "-c");
     }
 
-    private static string GetEventTypeName(Event evt)
+    private static string GetEventTypeName(IEvent evt)
     {
         return evt switch
         {

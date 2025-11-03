@@ -14,8 +14,8 @@ public sealed class InMemoryMetrics : IMetrics
 {
     private readonly ConcurrentDictionary<string, float> _counters = new();
     private readonly ConcurrentDictionary<string, float> _gauges = new();
-    private readonly ConcurrentBag<Sample> _samples = new();
-    private readonly ConcurrentBag<Duration> _durations = new();
+    private readonly ConcurrentBag<Sample> _samples = [];
+    private readonly ConcurrentBag<Duration> _durations = [];
 
     public record Sample(string Key, float Value, MetricLabel[] Labels, DateTimeOffset Timestamp);
     public record Duration(string Key, TimeSpan Elapsed, MetricLabel[] Labels, DateTimeOffset Timestamp);
@@ -57,13 +57,13 @@ public sealed class InMemoryMetrics : IMetrics
     public void AddSample(string[] key, float value, MetricLabel[]? labels = null)
     {
         var keyStr = string.Join(".", key);
-        _samples.Add(new Sample(keyStr, value, labels ?? Array.Empty<MetricLabel>(), DateTimeOffset.UtcNow));
+        _samples.Add(new Sample(keyStr, value, labels ?? [], DateTimeOffset.UtcNow));
     }
 
     public IDisposable MeasureSince(string[] key, MetricLabel[]? labels = null)
     {
         var keyStr = string.Join(".", key);
-        return new Timer(keyStr, labels ?? Array.Empty<MetricLabel>(), _durations);
+        return new Timer(keyStr, labels ?? [], _durations);
     }
 
     /// <summary>

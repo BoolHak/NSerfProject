@@ -21,10 +21,10 @@ internal class CoalesceEvent
 /// </summary>
 internal class MemberEventCoalescer : ICoalescer
 {
-    private readonly Dictionary<string, EventType> _lastEvents = new();
-    private readonly Dictionary<string, CoalesceEvent> _latestEvents = new();
+    private readonly Dictionary<string, EventType> _lastEvents = [];
+    private readonly Dictionary<string, CoalesceEvent> _latestEvents = [];
 
-    public bool Handle(Event e)
+    public bool Handle(IEvent e)
     {
         return e.EventType() switch
         {
@@ -37,7 +37,7 @@ internal class MemberEventCoalescer : ICoalescer
         };
     }
 
-    public void Coalesce(Event rawEvent)
+    public void Coalesce(IEvent rawEvent)
     {
         var e = (MemberEvent)rawEvent;
         foreach (var m in e.Members)
@@ -50,7 +50,7 @@ internal class MemberEventCoalescer : ICoalescer
         }
     }
 
-    public void Flush(ChannelWriter<Event> outChan)
+    public void Flush(ChannelWriter<IEvent> outChan)
     {
         // Coalesce the various events we got into a single set of events.
         var events = new Dictionary<EventType, MemberEvent>();

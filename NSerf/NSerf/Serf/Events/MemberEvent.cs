@@ -8,7 +8,7 @@ namespace NSerf.Serf.Events;
 /// MemberEvent is the struct used for member related events.
 /// Because Serf coalesces events, an event may contain multiple members.
 /// </summary>
-public class MemberEvent : Event
+public class MemberEvent : IEvent
 {
     /// <summary>
     /// Type of member event.

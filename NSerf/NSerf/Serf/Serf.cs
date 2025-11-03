@@ -37,7 +37,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
     private SerfMetricsRecorder? _metricsRecorder;
     private SerfQueryHelper? _queryHelper; internal bool EventJoinIgnore { get; set; }
     internal LamportTime QueryMinTime { get; set; }
-    private readonly Dictionary<LamportTime, QueryResponse> _queryResponses = new();
+    private readonly Dictionary<LamportTime, QueryResponse> _queryResponses = [];
     private readonly Random _queryRandom = new();
     internal Memberlist.Memberlist? Memberlist { get; private set; }
     private Memberlist.Delegates.IEventDelegate? _eventDelegate;
@@ -45,18 +45,18 @@ public partial class Serf : IDisposable, IAsyncDisposable
     private Coordinate.CoordinateClient? _coordClient;
     private readonly ReaderWriterLockSlim _queryLock = new();
     private readonly ReaderWriterLockSlim _coordCacheLock = new();
-    private readonly Dictionary<string, Coordinate.Coordinate> _coordCache = new();
+    private readonly Dictionary<string, Coordinate.Coordinate> _coordCache = [];
     private readonly SemaphoreSlim _joinLock = new(1, 1);
 
     // Phase 16: Internal event channel for IPC streaming (separate from user's EventCh)
-    private readonly Channel<Event> _ipcEventChannel;
-    private readonly ChannelWriter<Event> _ipcEventWriter;
+    private readonly Channel<IEvent> _ipcEventChannel;
+    private readonly ChannelWriter<IEvent> _ipcEventWriter;
 
     /// <summary>
     /// Gets the channel reader for IPC event streaming.
     /// Used by AgentIpc to stream events to connected clients.
     /// </summary>
-    public ChannelReader<Event> IpcEventReader { get; }
+    public ChannelReader<IEvent> IpcEventReader { get; }
 
     /// <summary>
     /// Internal constructor for testing - use CreateAsync() factory method for production.
@@ -92,7 +92,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
         EventJoinIgnore = false;
         QueryMinTime = 0;
 
-        _ipcEventChannel = Channel.CreateBounded<Event>(new BoundedChannelOptions(64)
+        _ipcEventChannel = Channel.CreateBounded<IEvent>(new BoundedChannelOptions(64)
         {
             FullMode = BoundedChannelFullMode.DropWrite,
             SingleReader = false, // Multiple IPC clients may read
@@ -189,7 +189,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
     /// The snapshotter (if enabled) sits in the middle and persists events before forwarding.
     /// Phase 16: Also sends to IPC channel for streaming to RPC clients.
     /// </summary>
-    private void EmitEvent(Event evt)
+    private void EmitEvent(IEvent evt)
     {
         // Send to IPC channel first (drop-on-full, won't block)
         _ipcEventWriter.TryWrite(evt);
@@ -223,8 +223,8 @@ public partial class Serf : IDisposable, IAsyncDisposable
         // Serf → EventManager → [Snapshotter] → [QueryHandler] → config.EventCh
         // The snapshotter sits in the middle, tee-ing events to snapshot file and forwarding to outCh
 
-        ChannelWriter<Event>? eventDestination = config.EventCh;
-        ChannelWriter<Event>? internalQueryInput = null;
+        ChannelWriter<IEvent>? eventDestination = config.EventCh;
+        ChannelWriter<IEvent>? internalQueryInput = null;
         List<PreviousNode>? previousNodes = null;
 
         // Step 1: Create snapshotter FIRST if enabled (Go pattern: conf.EventCh = snapshotter's inCh)
@@ -346,7 +346,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
                     Name = localNode.Name,
                     Addr = localNode.Addr,
                     Port = localNode.Port,
-                    Tags = serf.DecodeTags(localNode.Meta),
+                    Tags = DecodeTags(localNode.Meta),
                     Status = MemberStatus.Alive,
                     ProtocolMin = localNode.PMin,
                     ProtocolMax = localNode.PMax,
@@ -780,7 +780,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
     /// <returns>True if node was removed, false if not found</returns>
     public async Task<bool> RemoveFailedNodeAsync(string? nodeName, bool prune = false)
     {
-        ArgumentNullException.ThrowIfNullOrEmpty(nodeName);
+        ArgumentException.ThrowIfNullOrEmpty(nodeName);
 
         if (nodeName == Config.NodeName)
             throw new InvalidOperationException("Cannot remove local node");
@@ -809,7 +809,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
     internal byte[] EncodeTags(Dictionary<string, string> tags)
         => SerfMessageEncoder.EncodeTags(tags, Config.ProtocolVersion);
 
-    internal Dictionary<string, string> DecodeTags(byte[] buffer) => SerfMessageEncoder.DecodeTags(buffer);
+    internal static Dictionary<string, string> DecodeTags(byte[] buffer) => SerfMessageEncoder.DecodeTags(buffer);
 
     internal void RecordMessageReceived(int size) => _metricsRecorder?.RecordMessageReceived(size);
 
@@ -817,7 +817,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
 
     internal bool HandleNodeLeaveIntent(MessageLeave leave)
     {
-        var tempEvents = new List<Events.Event>();
+        var tempEvents = new List<Events.IEvent>();
 
         var handler = new Handlers.IntentHandler(
             _memberManager,
@@ -860,8 +860,8 @@ public partial class Serf : IDisposable, IAsyncDisposable
         var shouldRebroadcast = _eventManager.HandleUserEvent(userEvent);
         if (shouldRebroadcast)
         {
-            Config.Metrics.IncrCounter(new[] { "serf", "events" }, 1, Config.MetricLabels);
-            Config.Metrics.IncrCounter(new[] { "serf", "events", userEvent.Name }, 1, Config.MetricLabels);
+            Config.Metrics.IncrCounter(["serf", "events"], 1, Config.MetricLabels);
+            Config.Metrics.IncrCounter(["serf", "events", userEvent.Name], 1, Config.MetricLabels);
         }
 
         return shouldRebroadcast;
@@ -869,7 +869,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
 
     internal void HandleNodeJoin(Memberlist.State.Node? node)
     {
-        var tempEvents = new List<Events.Event>();
+        var tempEvents = new List<Events.IEvent>();
         var handler = new Handlers.NodeEventHandler(
             _memberManager,
             tempEvents,
@@ -902,11 +902,11 @@ public partial class Serf : IDisposable, IAsyncDisposable
             var deadTime = DateTimeOffset.UtcNow - leaveTime.Value;
             if (deadTime < Config.FlapTimeout)
             {
-                Config.Metrics.IncrCounter(new[] { "serf", "member", "flap" }, 1, Config.MetricLabels);
+                Config.Metrics.IncrCounter(["serf", "member", "flap"], 1, Config.MetricLabels);
             }
         }
 
-        Config.Metrics.IncrCounter(new[] { "serf", "member", "join" }, 1, Config.MetricLabels);
+        Config.Metrics.IncrCounter(["serf", "member", "join"], 1, Config.MetricLabels);
 
         foreach (var evt in tempEvents) EmitEvent(evt);
 
@@ -916,7 +916,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
     {
         if (node == null || _clusterCoordinator.IsShutdown()) return;
 
-        var tempEvents = new List<Events.Event>();
+        var tempEvents = new List<Events.IEvent>();
 
         var handler = new Handlers.NodeEventHandler(
             _memberManager,
@@ -936,7 +936,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
             Logger?.LogInformation("[Serf] HandleNodeLeave: {Node} with memberlist state={MemberlistState} → Serf status={SerfStatus}",
                 node.Name, node.State, memberStatus);
 
-            Config.Metrics.IncrCounter(new[] { "serf", "member", memberStatus.ToStatusString() }, 1, Config.MetricLabels);
+            Config.Metrics.IncrCounter(["serf", "member", memberStatus.ToStatusString()], 1, Config.MetricLabels);
 
             foreach (var evt in tempEvents) EmitEvent(evt);
 
@@ -995,7 +995,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
 
         // Reference: Go serf.go:1091
         if (updatedMember != null)
-            Config.Metrics.IncrCounter(new[] { "serf", "member", "update" }, 1, Config.MetricLabels);
+            Config.Metrics.IncrCounter(["serf", "member", "update"], 1, Config.MetricLabels);
 
         if (updatedMember != null)
         {
@@ -1184,7 +1184,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
             var updated = _coordClient.Update(nodeName, coordinate, rtt);
 
             // Emit coordinate adjustment metric (Go ping_delegate.go:86-87)
-            Config.Metrics.AddSample(new[] { "serf", "coordinate", "adjustment-ms" }, (float)before.DistanceTo(updated).TotalMilliseconds, Config.MetricLabels);
+            Config.Metrics.AddSample(["serf", "coordinate", "adjustment-ms"], (float)before.DistanceTo(updated).TotalMilliseconds, Config.MetricLabels);
 
             _coordCacheLock.EnterWriteLock();
             try
@@ -1205,7 +1205,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
         catch (Exception ex)
         {
             // Emit coordinate rejection metric (Go ping_delegate.go:78)
-            Config.Metrics.IncrCounter(new[] { "serf", "coordinate", "rejected" }, 1, Config.MetricLabels);
+            Config.Metrics.IncrCounter(["serf", "coordinate", "rejected"], 1, Config.MetricLabels);
             Logger?.LogError(ex, "[Serf] Failed to update coordinate for {Node}", nodeName);
         }
     }
@@ -1238,34 +1238,34 @@ public partial class Serf : IDisposable, IAsyncDisposable
     /// Executes an action while holding a read lock. Ensures lock is released.
     /// Used by Query.cs for _queryLock.
     /// </summary>
-    private void WithReadLock(ReaderWriterLockSlim lockObj, Action action)
+    private static void WithReadLock(ReaderWriterLockSlim lockObj, Action action)
         => LockHelper.WithReadLock(lockObj, action);
 
     /// <summary>
     /// Executes an action while holding a write lock. Ensures lock is released.
     /// Used by Query.cs for _queryLock.
     /// </summary>
-    private void WithWriteLock(ReaderWriterLockSlim lockObj, Action action)
+    private static void WithWriteLock(ReaderWriterLockSlim lockObj, Action action)
         => LockHelper.WithWriteLock(lockObj, action);
 
     /// <summary>
     /// Executes a function while holding a write lock. Ensures lock is released.
     /// Used by Query.cs for _queryLock.
     /// </summary>
-    private T WithWriteLock<T>(ReaderWriterLockSlim lockObj, Func<T> func)
+    private static T WithWriteLock<T>(ReaderWriterLockSlim lockObj, Func<T> func)
         => LockHelper.WithWriteLock(lockObj, func);
 
     /// <summary>
     /// Executes an async action while holding a semaphore lock. Ensures lock is released.
     /// Used for _joinLock to protect eventJoinIgnore during Join operation.
     /// </summary>
-    private async Task WithLockAsync(SemaphoreSlim semaphore, Func<Task> action)
+    private static async Task WithLockAsync(SemaphoreSlim semaphore, Func<Task> action)
         => await LockHelper.WithLockAsync(semaphore, action);
 
     /// <summary>
     /// Executes an async function while holding a semaphore lock. Ensures lock is released.
     /// </summary>
-    private async Task<T> WithLockAsync<T>(SemaphoreSlim semaphore, Func<Task<T>> func)
+    private static async Task<T> WithLockAsync<T>(SemaphoreSlim semaphore, Func<Task<T>> func)
         => await LockHelper.WithLockAsync(semaphore, func);
 
     /// <summary>
@@ -1338,6 +1338,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
         _coordCacheLock?.Dispose();
         _joinLock?.Dispose();
         _shutdownCts?.Dispose();
+        System.GC.SuppressFinalize(this);
     }
 
     /// <summary>
@@ -1346,6 +1347,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
     public ValueTask DisposeAsync()
     {
         Dispose();
+        System.GC.SuppressFinalize(this);
         return ValueTask.CompletedTask;
     }
 }

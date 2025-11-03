@@ -13,7 +13,7 @@ namespace NSerf.Serf.Events;
 /// Query is the struct used by EventQuery type events.
 /// Represents a distributed query that can be sent to cluster members.
 /// </summary>
-public class Query : Event
+public class Query : IEvent
 {
     /// <summary>
     /// Lamport time when the query was created.
@@ -28,11 +28,11 @@ public class Query : Event
     /// <summary>
     /// Payload of the query.
     /// </summary>
-    public byte[] Payload { get; set; } = Array.Empty<byte>();
+    public byte[] Payload { get; set; } = [];
 
     // Internal fields (matching Go's unexported fields)
     internal uint Id { get; set; }
-    internal byte[] Addr { get; set; } = Array.Empty<byte>();
+    internal byte[] Addr { get; set; } = [];
     internal ushort Port { get; set; }
     internal string SourceNodeName { get; set; } = string.Empty;
     internal DateTime Deadline { get; set; }
@@ -114,7 +114,7 @@ public class Query : Event
         lock (_respLock)
         {
             // Check if we've already responded
-            if (Deadline == default(DateTime))
+            if (Deadline == default)
             {
                 throw new InvalidOperationException("Response already sent");
             }
@@ -173,7 +173,7 @@ public class Query : Event
                 if (candidates.Count > 0)
                 {
                     var selected = QueryHelpers.KRandomMembers(Math.Min((int)RelayFactor, candidates.Count), candidates);
-                    
+
                     foreach (var m in selected)
                     {
                         var relayAddr = new Address
@@ -197,7 +197,7 @@ public class Query : Event
         // Clear the deadline - responses sent
         lock (_respLock)
         {
-            Deadline = default(DateTime);
+            Deadline = default;
         }
     }
 }

@@ -59,7 +59,7 @@ public class ChatHub : Hub, IEventHandler
             };
 
             var payload = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(chatMessage));
-            
+
             try
             {
                 await _agent.Serf.UserEventAsync("chat-message", payload, coalesce: false);
@@ -75,7 +75,7 @@ public class ChatHub : Hub, IEventHandler
     /// <summary>
     /// Handles Serf events - receives chat messages from other nodes.
     /// </summary>
-    public void HandleEvent(Event @event)
+    public void HandleEvent(IEvent @event)
     {
         try
         {
@@ -107,11 +107,11 @@ public class ChatHub : Hub, IEventHandler
                 // Notify clients about cluster membership changes
                 var eventType = memberEvent.Type.ToString().ToLower();
                 var members = string.Join(", ", memberEvent.Members.Select(m => m.Name));
-                
+
                 _ = _hubContext.Clients.All.SendAsync(
                     "SystemMessage",
                     $"[Cluster {eventType}] {members}");
-                
+
                 _logger.LogInformation("[ChatHub] Member event: {Type} - {Members}", eventType, members);
             }
         }
@@ -124,15 +124,15 @@ public class ChatHub : Hub, IEventHandler
     public override Task OnConnectedAsync()
     {
         _logger.LogInformation("[ChatHub] Client connected: {ConnectionId}", Context.ConnectionId);
-        
+
         // Send cluster info to the new client
         if (_agent.Serf != null)
         {
             var memberCount = _agent.Serf.Members().Length;
-            _ = Clients.Caller.SendAsync("SystemMessage", 
+            _ = Clients.Caller.SendAsync("SystemMessage",
                 $"Connected to {_agent.NodeName} (cluster size: {memberCount})");
         }
-        
+
         return base.OnConnectedAsync();
     }
 

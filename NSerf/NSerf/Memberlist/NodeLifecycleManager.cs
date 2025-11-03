@@ -10,18 +10,13 @@ namespace NSerf.Memberlist;
 /// <summary>
 /// Manages the complete lifecycle of nodes in the cluster.
 /// </summary>
-public class NodeLifecycleManager
+public class NodeLifecycleManager(ILogger? logger = null)
 {
-    private readonly Dictionary<string, NodeState> _nodeMap = new();
-    private readonly List<NodeState> _nodes = new();
+    private readonly Dictionary<string, NodeState> _nodeMap = [];
+    private readonly List<NodeState> _nodes = [];
     private readonly object _lock = new();
-    private readonly ILogger? _logger;
-    
-    public NodeLifecycleManager(ILogger? logger = null)
-    {
-        _logger = logger;
-    }
-    
+    private readonly ILogger? _logger = logger;
+
     /// <summary>
     /// Adds or updates a node.
     /// </summary>
@@ -46,7 +41,7 @@ public class NodeLifecycleManager
             }
         }
     }
-    
+
     /// <summary>
     /// Gets a node by name.
     /// </summary>
@@ -57,7 +52,7 @@ public class NodeLifecycleManager
             return _nodeMap.TryGetValue(name, out var node) ? node : null;
         }
     }
-    
+
     /// <summary>
     /// Gets all nodes.
     /// </summary>
@@ -65,10 +60,10 @@ public class NodeLifecycleManager
     {
         lock (_lock)
         {
-            return new List<NodeState>(_nodes);
+            return [.. _nodes];
         }
     }
-    
+
     /// <summary>
     /// Gets alive nodes.
     /// </summary>
@@ -76,10 +71,10 @@ public class NodeLifecycleManager
     {
         lock (_lock)
         {
-            return _nodes.Where(n => n.State == NodeStateType.Alive).ToList();
+            return [.. _nodes.Where(n => n.State == NodeStateType.Alive)];
         }
     }
-    
+
     /// <summary>
     /// Removes a node.
     /// </summary>
@@ -96,7 +91,7 @@ public class NodeLifecycleManager
             return false;
         }
     }
-    
+
     /// <summary>
     /// Gets the count of nodes.
     /// </summary>

@@ -14,7 +14,7 @@ public class EventFilter(string eventType = "*", string name = "")
     public string Event { get; set; } = eventType;
     public string Name { get; set; } = name;
 
-    public bool Matches(Event evt)
+    public bool Matches(IEvent evt)
     {
         // Wildcard matches all
         if (Event == "*")
@@ -28,7 +28,7 @@ public class EventFilter(string eventType = "*", string name = "")
         return false;
     }
 
-    private bool MatchesName(Event evt)
+    private bool MatchesName(IEvent evt)
     {
         // No name filter = matches all
         if (string.IsNullOrEmpty(Name))
@@ -45,7 +45,7 @@ public class EventFilter(string eventType = "*", string name = "")
         return true;
     }
 
-    private static string GetEventTypeName(Event evt)
+    private static string GetEventTypeName(IEvent evt)
     {
         return evt switch
         {

@@ -11,19 +11,14 @@ namespace NSerf.Serf;
 /// MergeDelegate is the Serf internal implementation of Memberlist's IMergeDelegate.
 /// It converts memberlist Nodes to Serf Members and forwards to the user's merge delegate.
 /// </summary>
-internal class MergeDelegate : Memberlist.Delegates.IMergeDelegate
+/// <remarks>
+/// Creates a new MergeDelegate for the given Serf instance.
+/// </remarks>
+/// <param name="serf">The Serf instance</param>
+/// <exception cref="ArgumentNullException">Thrown if serf is null</exception>
+internal class MergeDelegate(Serf serf) : Memberlist.Delegates.IMergeDelegate
 {
-    private readonly Serf _serf;
-
-    /// <summary>
-    /// Creates a new MergeDelegate for the given Serf instance.
-    /// </summary>
-    /// <param name="serf">The Serf instance</param>
-    /// <exception cref="ArgumentNullException">Thrown if serf is null</exception>
-    public MergeDelegate(Serf serf)
-    {
-        _serf = serf ?? throw new ArgumentNullException(nameof(serf));
-    }
+    private readonly Serf _serf = serf ?? throw new ArgumentNullException(nameof(serf));
 
     /// <summary>
     /// Called by memberlist when a merge could take place.
@@ -35,7 +30,7 @@ internal class MergeDelegate : Memberlist.Delegates.IMergeDelegate
     {
         // Convert all nodes to members
         var members = new List<Member>(peers.Count);
-        
+
         foreach (var node in peers)
         {
             var (member, error) = NodeToMember(node);
@@ -84,7 +79,7 @@ internal class MergeDelegate : Memberlist.Delegates.IMergeDelegate
             Name = node.Name,
             Addr = node.Addr,
             Port = node.Port,
-            Tags = _serf.DecodeTags(node.Meta),
+            Tags = Serf.DecodeTags(node.Meta),
             Status = status,
             ProtocolMin = node.PMin,
             ProtocolMax = node.PMax,
@@ -133,7 +128,7 @@ internal class MergeDelegate : Memberlist.Delegates.IMergeDelegate
     /// </summary>
     /// <param name="ipBytes">The IP address bytes</param>
     /// <returns>Error message if invalid, null if valid</returns>
-    public string? ValidateIPLength(byte[] ipBytes)
+    public static string? ValidateIPLength(byte[] ipBytes)
     {
         if (ipBytes.Length != 4 && ipBytes.Length != 16)
         {

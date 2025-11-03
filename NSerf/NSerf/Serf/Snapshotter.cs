@@ -27,12 +27,12 @@ public class Snapshotter : IDisposable, IAsyncDisposable
     private const int SnapshotBytesPerNode = 128;
     private const int SnapshotCompactionThreshold = 2;
 
-    private readonly Dictionary<string, string> _aliveNodes = new();
+    private readonly Dictionary<string, string> _aliveNodes = [];
     private readonly LamportClock _clock;
     private FileStream? _fileHandle;
     private StreamWriter? _bufferedWriter;
-    private readonly ChannelReader<Event> _inCh;
-    private readonly Channel<Event> _streamCh;
+    private readonly ChannelReader<IEvent> _inCh;
+    private readonly Channel<IEvent> _streamCh;
     private DateTime _lastFlush = DateTime.UtcNow;
     private LamportTime _lastClock;
     private LamportTime _lastEventClock;
@@ -43,7 +43,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
     private readonly long _minCompactSize;
     private readonly string _path;
     private long _offset;
-    private readonly ChannelWriter<Event>? _outCh;
+    private readonly ChannelWriter<IEvent>? _outCh;
     private readonly bool _rejoinAfterLeave;
     private readonly CancellationToken _shutdownToken;
     private readonly TaskCompletionSource _waitTcs = new();
@@ -63,16 +63,16 @@ public class Snapshotter : IDisposable, IAsyncDisposable
     /// Setting rejoinAfterLeave makes leave not clear the state, and can be used
     /// if you intend to rejoin the same cluster after a leave.
     /// </summary>
-    public static async Task<(ChannelWriter<Event> InCh, Snapshotter Snap)> NewSnapshotterAsync(
+    public static async Task<(ChannelWriter<IEvent> InCh, Snapshotter Snap)> NewSnapshotterAsync(
         string path,
         int minCompactSize,
         bool rejoinAfterLeave,
         ILogger? logger,
         LamportClock clock,
-        ChannelWriter<Event>? outCh,
+        ChannelWriter<IEvent>? outCh,
         CancellationToken shutdownToken)
     {
-        var inCh = Channel.CreateBounded<Event>(new BoundedChannelOptions(EventChSize)
+        var inCh = Channel.CreateBounded<IEvent>(new BoundedChannelOptions(EventChSize)
         {
             SingleReader = true,
             SingleWriter = false,
@@ -106,7 +106,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
 
         // Create the snapshotter
         var snap = new Snapshotter(
-            aliveNodes: new Dictionary<string, string>(),
+            aliveNodes: [],
             clock: clock,
             fileHandle: fh,
             inCh: inCh.Reader,
@@ -144,7 +144,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
         Dictionary<string, string> aliveNodes,
         LamportClock clock,
         FileStream fileHandle,
-        ChannelReader<Event> inCh,
+        ChannelReader<IEvent> inCh,
         LamportTime lastClock,
         LamportTime lastEventClock,
         LamportTime lastQueryClock,
@@ -152,7 +152,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
         long minCompactSize,
         string path,
         long offset,
-        ChannelWriter<Event>? outCh,
+        ChannelWriter<IEvent>? outCh,
         bool rejoinAfterLeave,
         CancellationToken shutdownToken,
         IMetrics? metrics,
@@ -163,7 +163,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
         _fileHandle = fileHandle;
         _bufferedWriter = new StreamWriter(fileHandle, Encoding.UTF8, bufferSize: 4096, leaveOpen: true);
         _inCh = inCh;
-        _streamCh = Channel.CreateBounded<Event>(new BoundedChannelOptions(EventChSize)
+        _streamCh = Channel.CreateBounded<IEvent>(new BoundedChannelOptions(EventChSize)
         {
             SingleReader = true,
             SingleWriter = false,
@@ -458,10 +458,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
             }
 
             // Force fsync to ensure data reaches disk (critical for leave marker)
-            if (_fileHandle != null)
-            {
-                _fileHandle.Flush(true);
-            }
+            _fileHandle?.Flush(true);
 
             _logger?.LogInformation("[Snapshotter] Leave marker successfully written and flushed");
         }
@@ -473,7 +470,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
         return Task.CompletedTask;
     }
 
-    private async Task FlushEventAsync(Event e)
+    private async Task FlushEventAsync(IEvent e)
     {
         // Stop recording events after a leave is issued
         if (_leaving)
@@ -546,10 +543,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
             }
 
             // Force data to disk (outside lock)
-            if (_fileHandle != null)
-            {
-                _fileHandle.Flush(flushToDisk: true);
-            }
+            _fileHandle?.Flush(flushToDisk: true);
 
             _lastFlush = DateTime.UtcNow;
         }
@@ -654,7 +648,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
     {
         // Emit duration metric (Go snapshot.go:397)
         // Reference: defer metrics.MeasureSinceWithLabels([]string{"serf", "snapshot", "appendLine"}, time.Now(), s.metricLabels)
-        using (_metrics?.MeasureSince(new[] { "serf", "snapshot", "appendLine" }, _metricLabels))
+        using (_metrics?.MeasureSince(["serf", "snapshot", "appendLine"], _metricLabels))
         {
             var bytes = Encoding.UTF8.GetByteCount(line);
 
@@ -703,7 +697,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
     {
         // Emit duration metric (Go snapshot.go:436)
         // Reference: defer metrics.MeasureSinceWithLabels([]string{"serf", "snapshot", "compact"}, time.Now(), s.metricLabels)
-        using (_metrics?.MeasureSince(new[] { "serf", "snapshot", "compact" }, _metricLabels))
+        using (_metrics?.MeasureSince(["serf", "snapshot", "compact"], _metricLabels))
         {
             var newPath = _path + TmpExt;
 
@@ -922,6 +916,11 @@ public class Snapshotter : IDisposable, IAsyncDisposable
 
         // Dispose resources synchronously
         Dispose();
+
+        // Suppress finalization to align with recommended dispose pattern.
+        // This ensures that derived types with finalizers don't need to re-implement
+        // IDisposable/IAsyncDisposable solely to call SuppressFinalize.
+        GC.SuppressFinalize(this);
     }
 
     /// <summary>
@@ -946,6 +945,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
         {
             // Already disposed by StreamAsync
         }
+        GC.SuppressFinalize(this);
     }
 }
 

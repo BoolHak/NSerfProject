@@ -31,8 +31,8 @@ public class SerfTagsTest
     public async Task Serf_SetTags_ShouldUpdateLocalTags()
     {
         // Arrange - Create 2-node cluster with event tracking
-        var eventChannel = Channel.CreateUnbounded<Event>();
-        
+        var eventChannel = Channel.CreateUnbounded<IEvent>();
+
         var config1 = new Config
         {
             NodeName = "node1",
@@ -44,7 +44,7 @@ public class SerfTagsTest
                 BindPort = 0
             }
         };
-        
+
         var config2 = new Config
         {
             NodeName = "node2",
@@ -83,20 +83,20 @@ public class SerfTagsTest
         Member? s1Node2 = null;
         Member? s2Node1 = null;
         Member? s2Node2 = null;
-        
+
         // Retry for up to 5 seconds
         for (int i = 0; i < 50; i++)
         {
             await Task.Delay(100);
-            
+
             var s1Members = s1.Members();
             s1Node1 = s1Members.FirstOrDefault(m => m.Name == "node1");
             s1Node2 = s1Members.FirstOrDefault(m => m.Name == "node2");
-            
+
             var s2Members = s2.Members();
             s2Node1 = s2Members.FirstOrDefault(m => m.Name == "node1");
             s2Node2 = s2Members.FirstOrDefault(m => m.Name == "node2");
-            
+
             // Check if all tags have propagated
             if (s1Node1?.Tags.ContainsKey("port") == true &&
                 s1Node2?.Tags.ContainsKey("datacenter") == true &&
@@ -111,16 +111,16 @@ public class SerfTagsTest
         s1Node1.Should().NotBeNull();
         s1Node1!.Tags.Should().ContainKey("port");
         s1Node1.Tags["port"].Should().Be("8000", "node1 should see its own updated tags");
-        
+
         s2Node2.Should().NotBeNull();
         s2Node2!.Tags.Should().ContainKey("datacenter");
         s2Node2.Tags["datacenter"].Should().Be("east-aws", "node2 should see its own updated tags");
-        
+
         // Note: Cross-node tag propagation (s1 seeing s2's tags and vice versa) requires
         // the gossip background task to be actively running and processing the broadcast queue.
         // This is a known limitation of the current test setup and would require more complex
         // integration test infrastructure to verify properly.
-        
+
         // Note: MemberUpdate events are also dependent on the gossip loop and would require
         // more complex setup to verify. The core functionality (local tag updates) is verified above.
 
@@ -136,8 +136,8 @@ public class SerfTagsTest
     public async Task Serf_Update_ShouldDetectMemberUpdates()
     {
         // Arrange - Create 2 nodes with event tracking on s1
-        var eventChannel = Channel.CreateUnbounded<Event>();
-        
+        var eventChannel = Channel.CreateUnbounded<IEvent>();
+
         var config1 = new Config
         {
             NodeName = "node1",
@@ -149,7 +149,7 @@ public class SerfTagsTest
                 BindPort = 0
             }
         };
-        
+
         var config2 = new Config
         {
             NodeName = "node2",
@@ -219,22 +219,22 @@ public class SerfTagsTest
             await Task.Delay(500);
 
             // Assert - Check events for MemberJoin
-            var events = new List<Event>();
+            var events = new List<IEvent>();
             while (eventChannel.Reader.TryRead(out var evt))
             {
                 events.Add(evt);
             }
 
-            events.Should().Contain(e => e.EventType() == EventType.MemberJoin, 
+            events.Should().Contain(e => e.EventType() == EventType.MemberJoin,
                 "should receive join event");
-            
+
             // Verify the rejoined node has its new tags locally
             var s2NewMembers = s2New!.Members();
             var s2LocalMember = s2NewMembers.FirstOrDefault(m => m.Name == s2Name);
             s2LocalMember.Should().NotBeNull("s2 should see itself in members");
             s2LocalMember!.Tags.Should().ContainKey("foo");
             s2LocalMember.Tags["foo"].Should().Be("bar", "s2 should have new tags after rejoin");
-            
+
             // Note: Cross-node tag propagation (s1 seeing s2's new tags) requires
             // the gossip loop to be actively running and processing updates.
             // This is beyond the scope of this unit test and would require
@@ -242,7 +242,7 @@ public class SerfTagsTest
 
             await s2New.ShutdownAsync();
         }
-        
+
         await s1.ShutdownAsync();
     }
 
@@ -265,7 +265,7 @@ public class SerfTagsTest
                 BindPort = 0
             }
         };
-        
+
         var config2 = new Config
         {
             NodeName = "node2",
@@ -294,14 +294,14 @@ public class SerfTagsTest
         // Assert - Verify each node can see the other's role with retry logic
         Dictionary<string, string>? s1Roles = null;
         Dictionary<string, string>? s2Roles = null;
-        
+
         for (int i = 0; i < 50; i++)
         {
             await Task.Delay(100);
-            
+
             s1Roles = s1.Members().ToDictionary(m => m.Name, m => m.Tags.GetValueOrDefault("role", ""));
             s2Roles = s2.Members().ToDictionary(m => m.Name, m => m.Tags.GetValueOrDefault("role", ""));
-            
+
             // Check if both nodes see both roles
             if (s1Roles.GetValueOrDefault("node1") == "web" &&
                 s1Roles.GetValueOrDefault("node2") == "lb" &&
@@ -316,7 +316,7 @@ public class SerfTagsTest
         s1Roles.Should().NotBeNull();
         s1Roles!.Should().ContainKey("node1");
         s1Roles!["node1"].Should().Be("web", "s1 should see its own role");
-        
+
         // Note: Cross-node role visibility requires active gossip
         // For now, verify at least each node sees its own role correctly
         s2Roles.Should().NotBeNull();

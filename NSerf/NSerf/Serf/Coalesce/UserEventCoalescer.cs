@@ -13,7 +13,7 @@ namespace NSerf.Serf.Coalesce;
 internal class LatestUserEvents
 {
     public LamportTime LTime { get; set; }
-    public List<Event> Events { get; set; } = new();
+    public List<IEvent> Events { get; set; } = [];
 }
 
 /// <summary>
@@ -23,9 +23,9 @@ internal class LatestUserEvents
 internal class UserEventCoalescer : ICoalescer
 {
     // Maps an event name into the latest versions
-    private readonly Dictionary<string, LatestUserEvents> _events = new();
+    private readonly Dictionary<string, LatestUserEvents> _events = [];
 
-    public bool Handle(Event e)
+    public bool Handle(IEvent e)
     {
         // Only handle EventUser messages
         if (e.EventType() != EventType.User)
@@ -38,7 +38,7 @@ internal class UserEventCoalescer : ICoalescer
         return user.Coalesce;
     }
 
-    public void Coalesce(Event e)
+    public void Coalesce(IEvent e)
     {
         var user = (UserEvent)e;
 
@@ -49,7 +49,7 @@ internal class UserEventCoalescer : ICoalescer
             latest = new LatestUserEvents
             {
                 LTime = user.LTime,
-                Events = new List<Event> { e }
+                Events = [e]
             };
             _events[user.Name] = latest;
             return;
@@ -59,7 +59,7 @@ internal class UserEventCoalescer : ICoalescer
         if (user.LTime > latest.LTime)
         {
             latest.LTime = user.LTime;
-            latest.Events = new List<Event> { e };
+            latest.Events = [e];
             return;
         }
 
@@ -71,7 +71,7 @@ internal class UserEventCoalescer : ICoalescer
         // If older LTime, ignore it (implicit in Go code)
     }
 
-    public void Flush(ChannelWriter<Event> outChan)
+    public void Flush(ChannelWriter<IEvent> outChan)
     {
         foreach (var latest in _events.Values)
         {

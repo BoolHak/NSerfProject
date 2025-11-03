@@ -36,7 +36,7 @@ public class SerfConfig
     /// <summary>
     /// Optional labels to apply to all emitted metrics.
     /// </summary>
-    public MetricLabel[] MetricLabels { get; set; } = Array.Empty<MetricLabel>();
+    public MetricLabel[] MetricLabels { get; set; } = [];
 
     // Timing configurations (minimal for Phase 0)
     public TimeSpan ReapInterval { get; set; } = TimeSpan.FromSeconds(15);

@@ -84,7 +84,7 @@ public class RpcStreamingTests
         await Task.Delay(1000);
 
         // Register a test event handler AFTER startup
-        var receivedEvents = new List<NSerf.Serf.Events.Event>();
+        var receivedEvents = new List<NSerf.Serf.Events.IEvent>();
         var handler = new TestStreamEventHandler(receivedEvents);
         agent.RegisterEventHandler(handler);
 
@@ -99,14 +99,14 @@ public class RpcStreamingTests
 
 public class TestStreamEventHandler : IEventHandler
 {
-    private readonly List<NSerf.Serf.Events.Event> _events;
+    private readonly List<NSerf.Serf.Events.IEvent> _events;
 
-    public TestStreamEventHandler(List<NSerf.Serf.Events.Event> events)
+    public TestStreamEventHandler(List<NSerf.Serf.Events.IEvent> events)
     {
         _events = events;
     }
 
-    public void HandleEvent(NSerf.Serf.Events.Event @event)
+    public void HandleEvent(NSerf.Serf.Events.IEvent @event)
     {
         _events.Add(@event);
     }

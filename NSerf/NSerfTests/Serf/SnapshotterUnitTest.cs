@@ -34,7 +34,7 @@ public class SnapshotterUnitTest : IDisposable
                 {
                     File.Delete(file);
                 }
-                
+
                 // Also delete debug log
                 var debugLog = file + ".log";
                 if (File.Exists(debugLog))
@@ -69,44 +69,44 @@ public class SnapshotterUnitTest : IDisposable
         var path = GetTempSnapshotPath();
         var clock = new LamportClock();
         var shutdownCts = new CancellationTokenSource();
-        var eventCh = Channel.CreateUnbounded<Event>();
-        
+        var eventCh = Channel.CreateUnbounded<IEvent>();
+
         var (inCh, snap) = await Snapshotter.NewSnapshotterAsync(
             path, 1024, false, null, clock, eventCh.Writer, shutdownCts.Token);
 
         // Act - send 100 events and shutdown immediately
-        var member = new Member 
-        { 
-            Name = "test1", 
-            Addr = IPAddress.Parse("127.0.0.1"), 
-            Port = 7946 
+        var member = new Member
+        {
+            Name = "test1",
+            Addr = IPAddress.Parse("127.0.0.1"),
+            Port = 7946
         };
-        var joinEvent = new MemberEvent 
-        { 
-            Type = EventType.MemberJoin, 
-            Members = new List<Member> { member } 
+        var joinEvent = new MemberEvent
+        {
+            Type = EventType.MemberJoin,
+            Members = new List<Member> { member }
         };
-        
+
         for (int i = 0; i < 100; i++)
         {
             await inCh.WriteAsync(joinEvent);
         }
-        
+
         // Small delay to let some events process
         await Task.Delay(100);
-        
+
         // Trigger shutdown
         shutdownCts.Cancel();
         await snap.WaitAsync();
-        
+
         // Assert - all events should be written
         var content = await File.ReadAllTextAsync(path);
         var aliveCount = content.Split('\n').Count(line => line.StartsWith("alive:"));
-        
+
         // We expect 100 events, but due to deduplication (same node name), we get 1
         // Let's verify at least the event was written
         aliveCount.Should().BeGreaterThan(0, "at least one event should be written");
-        
+
         // Better test: verify the file contains our test node
         content.Should().Contain("test1", "the test node should be in snapshot");
     }
@@ -122,37 +122,37 @@ public class SnapshotterUnitTest : IDisposable
         var path = GetTempSnapshotPath();
         var clock = new LamportClock();
         var shutdownCts = new CancellationTokenSource();
-        
+
         var (inCh, snap) = await Snapshotter.NewSnapshotterAsync(
             path, 1024, false, null, clock, null, shutdownCts.Token);
 
         // Act - queue many events then shutdown
-        var member = new Member 
-        { 
-            Name = "test1", 
-            Addr = IPAddress.Parse("127.0.0.1"), 
-            Port = 7946 
+        var member = new Member
+        {
+            Name = "test1",
+            Addr = IPAddress.Parse("127.0.0.1"),
+            Port = 7946
         };
-        var joinEvent = new MemberEvent 
-        { 
-            Type = EventType.MemberJoin, 
-            Members = new List<Member> { member } 
+        var joinEvent = new MemberEvent
+        {
+            Type = EventType.MemberJoin,
+            Members = new List<Member> { member }
         };
-        
+
         // Try to fill the queue (will depend on bounded/unbounded)
         for (int i = 0; i < 5000; i++)
         {
             inCh.TryWrite(joinEvent);
         }
-        
+
         // Shutdown should complete within reasonable time
         shutdownCts.Cancel();
         var sw = Stopwatch.StartNew();
         await snap.WaitAsync();
         sw.Stop();
-        
+
         // Assert - completed within 2 seconds (generous timeout for safety)
-        sw.ElapsedMilliseconds.Should().BeLessThan(2000, 
+        sw.ElapsedMilliseconds.Should().BeLessThan(2000,
             "shutdown should complete quickly even with pending events");
     }
 
@@ -169,31 +169,31 @@ public class SnapshotterUnitTest : IDisposable
         var path = GetTempSnapshotPath();
         var clock = new LamportClock();
         var shutdownCts = new CancellationTokenSource();
-        
+
         var (inCh, snap) = await Snapshotter.NewSnapshotterAsync(
             path, 1024, false, null, clock, null, shutdownCts.Token);
 
         // Add some events to ensure tasks are working
-        var member = new Member 
-        { 
-            Name = "test", 
-            Addr = IPAddress.Parse("127.0.0.1"), 
-            Port = 7946 
+        var member = new Member
+        {
+            Name = "test",
+            Addr = IPAddress.Parse("127.0.0.1"),
+            Port = 7946
         };
-        var evt = new MemberEvent 
-        { 
-            Type = EventType.MemberJoin, 
-            Members = new List<Member> { member } 
+        var evt = new MemberEvent
+        {
+            Type = EventType.MemberJoin,
+            Members = new List<Member> { member }
         };
         await inCh.WriteAsync(evt);
         await Task.Delay(100);
 
         // Act - cancel and dispose
         shutdownCts.Cancel();
-        
+
         // DisposeAsync should wait for tasks
         await snap.DisposeAsync();
-        
+
         // Assert - tasks should be completed
         // Note: This will fail until we implement IAsyncDisposable
         Assert.True(true, "DisposeAsync should complete without hanging");
@@ -210,14 +210,14 @@ public class SnapshotterUnitTest : IDisposable
         var path = GetTempSnapshotPath();
         var clock = new LamportClock();
         var shutdownCts = new CancellationTokenSource();
-        
+
         var (inCh, snap) = await Snapshotter.NewSnapshotterAsync(
             path, 1024, false, null, clock, null, shutdownCts.Token);
 
         // Act - sync dispose should not hang
         shutdownCts.Cancel();
         snap.Dispose();
-        
+
         // Assert - completes immediately
         Assert.True(true, "Dispose completed without hanging");
     }
@@ -235,23 +235,23 @@ public class SnapshotterUnitTest : IDisposable
         var path = GetTempSnapshotPath();
         var clock = new LamportClock();
         var shutdownCts = new CancellationTokenSource();
-        
+
         var (inCh, snap) = await Snapshotter.NewSnapshotterAsync(
             path, 1024, false, null, clock, null, shutdownCts.Token);
 
         // Act - flood channel beyond capacity
-        var member = new Member 
-        { 
-            Name = "test", 
-            Addr = IPAddress.Parse("127.0.0.1"), 
-            Port = 7946 
+        var member = new Member
+        {
+            Name = "test",
+            Addr = IPAddress.Parse("127.0.0.1"),
+            Port = 7946
         };
-        var evt = new MemberEvent 
-        { 
-            Type = EventType.MemberJoin, 
-            Members = new List<Member> { member } 
+        var evt = new MemberEvent
+        {
+            Type = EventType.MemberJoin,
+            Members = new List<Member> { member }
         };
-        
+
         var writeTask = Task.Run(async () =>
         {
             for (int i = 0; i < 10000; i++)
@@ -262,14 +262,14 @@ public class SnapshotterUnitTest : IDisposable
 
         // Let it run for a very short time - backpressure should prevent all writes
         await Task.Delay(50);
-        
+
         // Assert - task should still be running if backpressure is applied
         // With 10000 events and 2048 buffer, writes should block quickly
         writeTask.IsCompleted.Should().BeFalse("backpressure should slow down writes");
-        
+
         // Cleanup
         shutdownCts.Cancel();
-        
+
         // Give time for graceful shutdown
         try
         {
@@ -292,7 +292,7 @@ public class SnapshotterUnitTest : IDisposable
         var path = GetTempSnapshotPath();
         var clock = new LamportClock();
         var shutdownCts = new CancellationTokenSource();
-        
+
         var (inCh, snap) = await Snapshotter.NewSnapshotterAsync(
             path, 1024, false, null, clock, null, shutdownCts.Token);
 
@@ -303,36 +303,36 @@ public class SnapshotterUnitTest : IDisposable
         var initialMemory = GC.GetTotalMemory(false);
 
         // Act - sustained load
-        var member = new Member 
-        { 
-            Name = "test", 
-            Addr = IPAddress.Parse("127.0.0.1"), 
-            Port = 7946 
+        var member = new Member
+        {
+            Name = "test",
+            Addr = IPAddress.Parse("127.0.0.1"),
+            Port = 7946
         };
-        var evt = new MemberEvent 
-        { 
-            Type = EventType.MemberJoin, 
-            Members = new List<Member> { member } 
+        var evt = new MemberEvent
+        {
+            Type = EventType.MemberJoin,
+            Members = new List<Member> { member }
         };
-        
+
         for (int i = 0; i < 1000; i++)
         {
             await inCh.WriteAsync(evt);
             if (i % 100 == 0) await Task.Delay(10);
         }
-        
+
         // Wait for processing
         await Task.Delay(1000);
-        
+
         // Assert - memory growth should be reasonable
         GC.Collect();
         GC.WaitForPendingFinalizers();
         GC.Collect();
         var finalMemory = GC.GetTotalMemory(false);
         var growthMB = (finalMemory - initialMemory) / 1024.0 / 1024.0;
-        
+
         growthMB.Should().BeLessThan(50, $"memory growth should be reasonable, but was {growthMB:F2}MB");
-        
+
         // Cleanup
         shutdownCts.Cancel();
         await snap.WaitAsync();

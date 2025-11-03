@@ -11,19 +11,14 @@ namespace NSerf.Serf;
 /// EventDelegate is the Serf implementation of IEventDelegate from Memberlist.
 /// It bridges Memberlist node events (join, leave, update) to Serf's internal handlers.
 /// </summary>
-internal class EventDelegate : IEventDelegate
+/// <remarks>
+/// Creates a new EventDelegate for the given Serf instance.
+/// </remarks>
+/// <param name="serf">The Serf instance to forward events to</param>
+/// <exception cref="ArgumentNullException">Thrown if serf is null</exception>
+internal class EventDelegate(Serf serf) : IEventDelegate
 {
-    private readonly Serf _serf;
-
-    /// <summary>
-    /// Creates a new EventDelegate for the given Serf instance.
-    /// </summary>
-    /// <param name="serf">The Serf instance to forward events to</param>
-    /// <exception cref="ArgumentNullException">Thrown if serf is null</exception>
-    public EventDelegate(Serf serf)
-    {
-        _serf = serf ?? throw new ArgumentNullException(nameof(serf));
-    }
+    private readonly Serf _serf = serf ?? throw new ArgumentNullException(nameof(serf));
 
     /// <summary>
     /// Invoked when a node is detected to have joined the cluster.

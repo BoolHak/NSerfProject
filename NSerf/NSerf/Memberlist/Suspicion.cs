@@ -20,7 +20,7 @@ public class Suspicion : IDisposable
     private readonly Action<int> _timeoutFn;
     private readonly HashSet<string> _confirmations;
     private bool _disposed;
-    
+
     /// <summary>
     /// Creates a new suspicion timer started with the max time, that will drive
     /// to the min time after seeing k or more confirmations. The from node will be
@@ -41,20 +41,20 @@ public class Suspicion : IDisposable
         _timeoutFn = timeoutFn;
         _confirmations = new HashSet<string>();
         _n = 0;
-        
+
         // Exclude the from node from any confirmations
         _confirmations.Add(from);
-        
+
         // If there aren't any confirmations to be made then take the min time from the start
         var timeout = k < 1 ? min : max;
-        
+
         // Capture start time before starting timer
         _start = DateTimeOffset.UtcNow;
-        
+
         // Create timer (will call timeout function when it fires)
         _timer = new Timer(_ => _timeoutFn(Volatile.Read(ref _n)), null, timeout, Timeout.InfiniteTimeSpan);
     }
-    
+
     /// <summary>
     /// Registers that a possibly new peer has also determined the given node is suspect.
     /// Returns true if this was new information, and false if it was a duplicate confirmation,
@@ -71,21 +71,21 @@ public class Suspicion : IDisposable
             {
                 return false;
             }
-            
+
             // Only allow one confirmation from each possible peer
             if (_confirmations.Contains(from))
             {
                 return false;
             }
             _confirmations.Add(from);
-            
+
             // Increment confirmation count atomically
             var n = Interlocked.Increment(ref _n);
-            
+
             // Compute the new timeout given the current number of confirmations
             var elapsed = DateTimeOffset.UtcNow - _start;
             var remaining = CalculateRemainingSuspicionTime(n, _k, elapsed, _min, _max);
-            
+
             // Adjust the timer
             if (remaining > TimeSpan.Zero)
             {
@@ -96,11 +96,11 @@ public class Suspicion : IDisposable
                 // Fire immediately on a background thread
                 Task.Run(() => _timeoutFn(n));
             }
-            
+
             return true;
         }
     }
-    
+
     /// <summary>
     /// Calculates the remaining time to wait before considering a node dead.
     /// The return value can be negative, indicating the timer should fire immediately.
@@ -119,22 +119,23 @@ public class Suspicion : IDisposable
         var frac = Math.Log(n + 1.0) / Math.Log(k + 1.0);
         var raw = max.TotalSeconds - frac * (max.TotalSeconds - min.TotalSeconds);
         var timeout = TimeSpan.FromMilliseconds(Math.Floor(1000.0 * raw));
-        
+
         if (timeout < min)
         {
             timeout = min;
         }
-        
+
         // Take into account the time that has passed so far
         return timeout - elapsed;
     }
-    
+
     public void Dispose()
     {
         if (!_disposed)
         {
             _disposed = true;
             _timer?.Dispose();
+            GC.SuppressFinalize(this);
         }
     }
 }

@@ -24,7 +24,7 @@ public class Ping
 public class IndirectPingReq
 {
     public uint SeqNo { get; set; }
-    public byte[] Target { get; set; } = Array.Empty<byte>();
+    public byte[] Target { get; set; } = [];
     public ushort Port { get; set; }
     public string Node { get; set; } = string.Empty;
     public bool Nack { get; set; }
@@ -75,7 +75,7 @@ public class Alive
 {
     public uint Incarnation { get; set; }
     public string Node { get; set; } = string.Empty;
-    public byte[] Addr { get; set; } = Array.Empty<byte>();
+    public byte[] Addr { get; set; } = [];
     public ushort Port { get; set; }
     public byte[]? Meta { get; set; }
     public byte[]? Vsn { get; set; } // pmin, pmax, pcur, dmin, dmax, dcur
@@ -98,7 +98,7 @@ public class Dead
 internal class MsgHandoff
 {
     public MessageType MsgType { get; set; }
-    public byte[] Buf { get; set; } = Array.Empty<byte>();
+    public byte[] Buf { get; set; } = [];
     public System.Net.EndPoint? From { get; set; }
 }
 

@@ -10,30 +10,23 @@ namespace NSerf.Memberlist.Configuration;
 /// <summary>
 /// Represents an IP network (CIDR notation).
 /// </summary>
-public class IPNetwork
+public class IPNetwork(IPAddress baseAddress, int prefixLength)
 {
     /// <summary>
     /// Base address of the network.
     /// </summary>
-    public IPAddress BaseAddress { get; }
-    
+    public IPAddress BaseAddress { get; } = baseAddress;
+
     /// <summary>
     /// Prefix length (number of bits in network mask).
     /// </summary>
-    public int PrefixLength { get; }
-    
+    public int PrefixLength { get; } = prefixLength;
+
     /// <summary>
     /// Network mask.
     /// </summary>
-    public IPAddress Mask { get; }
-    
-    public IPNetwork(IPAddress baseAddress, int prefixLength)
-    {
-        BaseAddress = baseAddress;
-        PrefixLength = prefixLength;
-        Mask = CreateMask(prefixLength, baseAddress.AddressFamily);
-    }
-    
+    public IPAddress Mask { get; } = CreateMask(prefixLength, baseAddress.AddressFamily);
+
     /// <summary>
     /// Parses a CIDR notation string into an IPNetwork.
     /// </summary>
@@ -44,13 +37,13 @@ public class IPNetwork
         {
             throw new FormatException($"Invalid CIDR format: {cidr}");
         }
-        
+
         var address = IPAddress.Parse(parts[0]);
         var prefixLength = int.Parse(parts[1]);
-        
+
         return new IPNetwork(address, prefixLength);
     }
-    
+
     /// <summary>
     /// Determines if the given IP address is contained within this network.
     /// </summary>
@@ -60,11 +53,11 @@ public class IPNetwork
         {
             return false;
         }
-        
+
         var baseBytes = BaseAddress.GetAddressBytes();
         var addrBytes = address.GetAddressBytes();
         var maskBytes = Mask.GetAddressBytes();
-        
+
         for (int i = 0; i < baseBytes.Length; i++)
         {
             if ((baseBytes[i] & maskBytes[i]) != (addrBytes[i] & maskBytes[i]))
@@ -72,23 +65,23 @@ public class IPNetwork
                 return false;
             }
         }
-        
+
         return true;
     }
-    
+
     private static IPAddress CreateMask(int prefixLength, AddressFamily family)
     {
         int totalBits = family == AddressFamily.InterNetwork ? 32 : 128;
         int byteCount = totalBits / 8;
-        
+
         if (prefixLength < 0 || prefixLength > totalBits)
         {
             throw new ArgumentOutOfRangeException(nameof(prefixLength));
         }
-        
+
         var maskBytes = new byte[byteCount];
         int remainingBits = prefixLength;
-        
+
         for (int i = 0; i < byteCount; i++)
         {
             if (remainingBits >= 8)
@@ -106,10 +99,10 @@ public class IPNetwork
                 maskBytes[i] = 0x00;
             }
         }
-        
+
         return new IPAddress(maskBytes);
     }
-    
+
     public override string ToString()
     {
         return $"{BaseAddress}/{PrefixLength}";

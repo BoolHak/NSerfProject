@@ -9,18 +9,13 @@ namespace NSerf.Memberlist;
 /// <summary>
 /// Runs periodic maintenance tasks.
 /// </summary>
-public class PeriodicTaskRunner : IDisposable
+public class PeriodicTaskRunner(ILogger? logger = null) : IDisposable
 {
-    private readonly List<(Timer Timer, string Name)> _timers = new();
+    private readonly List<(Timer Timer, string Name)> _timers = [];
     private readonly object _lock = new();
-    private readonly ILogger? _logger;
+    private readonly ILogger? _logger = logger;
     private bool _disposed;
-    
-    public PeriodicTaskRunner(ILogger? logger = null)
-    {
-        _logger = logger;
-    }
-    
+
     /// <summary>
     /// Schedules a periodic task.
     /// </summary>
@@ -32,7 +27,7 @@ public class PeriodicTaskRunner : IDisposable
             {
                 throw new ObjectDisposedException(nameof(PeriodicTaskRunner));
             }
-            
+
             var timer = new Timer(_ =>
             {
                 try
@@ -44,12 +39,12 @@ public class PeriodicTaskRunner : IDisposable
                     _logger?.LogError(ex, "Error in periodic task {Task}", name);
                 }
             }, null, interval, interval);
-            
+
             _timers.Add((timer, name));
             _logger?.LogDebug("Scheduled periodic task {Task} with interval {Interval}", name, interval);
         }
     }
-    
+
     /// <summary>
     /// Stops all periodic tasks.
     /// </summary>
@@ -65,7 +60,7 @@ public class PeriodicTaskRunner : IDisposable
             _timers.Clear();
         }
     }
-    
+
     public void Dispose()
     {
         if (_disposed) return;

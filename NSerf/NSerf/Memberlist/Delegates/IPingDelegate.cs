@@ -19,7 +19,7 @@ public interface IPingDelegate
     /// </summary>
     /// <returns>Payload to append to ack message.</returns>
     byte[] AckPayload();
-    
+
     /// <summary>
     /// Invoked when an ack for a ping is received.
     /// </summary>

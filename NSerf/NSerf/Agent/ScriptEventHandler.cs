@@ -20,7 +20,7 @@ public class ScriptEventHandler(Func<Member> selfFunc, EventScript[] scripts, IL
     private EventScript[] _scripts = scripts ?? [];
     private EventScript[]? _newScripts;  // Staged for atomic swap
 
-    public void HandleEvent(Event @event)
+    public void HandleEvent(IEvent @event)
     {
         // Atomic swap of scripts if update pending (hot-reload)
         lock (_scriptLock)
@@ -68,7 +68,7 @@ public class ScriptEventHandler(Func<Member> selfFunc, EventScript[] scripts, IL
         }
     }
 
-    private async Task InvokeScriptAsync(EventScript script, Member self, Event @event)
+    private async Task InvokeScriptAsync(EventScript script, Member self, IEvent @event)
     {
         var envVars = ScriptInvoker.BuildEnvironmentVariables(self, @event);
         var stdin = ScriptInvoker.BuildStdin(@event);

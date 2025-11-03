@@ -9,7 +9,7 @@ namespace NSerf.Memberlist;
 /// <summary>
 /// Helper for merge operations.
 /// </summary>
-public class MergeHelper
+public static class MergeHelper
 {
     /// <summary>
     /// Determines if two clusters should merge.

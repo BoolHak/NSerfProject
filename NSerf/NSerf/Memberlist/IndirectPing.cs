@@ -12,17 +12,11 @@ namespace NSerf.Memberlist;
 /// <summary>
 /// Handles indirect ping operations through other nodes.
 /// </summary>
-public class IndirectPing
+public class IndirectPing(Memberlist memberlist, ILogger? logger = null)
 {
-    private readonly Memberlist _memberlist;
-    private readonly ILogger? _logger;
-    
-    public IndirectPing(Memberlist memberlist, ILogger? logger = null)
-    {
-        _memberlist = memberlist;
-        _logger = logger;
-    }
-    
+    private readonly Memberlist _memberlist = memberlist;
+    private readonly ILogger? _logger = logger;
+
     /// <summary>
     /// Sends indirect ping requests to intermediary nodes.
     /// </summary>
@@ -36,19 +30,19 @@ public class IndirectPing
         {
             return false;
         }
-        
+
         var seqNo = _memberlist.NextSequenceNum();
         _logger?.LogDebug("Indirect ping {SeqNo} to {Target} via {Count} nodes",
             seqNo, target.Name, intermediaries.Count);
-        
-        var tasks = intermediaries.Select(node => 
+
+        var tasks = intermediaries.Select(node =>
             SendIndirectPingRequestAsync(node, target, seqNo, timeout, cancellationToken));
-        
+
         // Wait for any success
         var results = await Task.WhenAll(tasks);
         return results.Any(r => r);
     }
-    
+
     private async Task<bool> SendIndirectPingRequestAsync(
         NodeState intermediary,
         NodeState target,
@@ -70,12 +64,12 @@ public class IndirectPing
                 SourcePort = (ushort)port,
                 SourceNode = _memberlist._config.Name
             };
-            
+
             // Set up ack handler to wait for response
             var ackReceived = new TaskCompletionSource<bool>();
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             cts.CancelAfter(timeout);
-            
+
             var handler = new AckNackHandler(_logger);
             _memberlist._ackHandlers.TryAdd(seqNo, handler);
             handler.SetAckHandler(
@@ -90,7 +84,7 @@ public class IndirectPing
                 },
                 timeout
             );
-            
+
             try
             {
                 // Send indirect ping request to intermediary
@@ -99,10 +93,10 @@ public class IndirectPing
                     Addr = $"{intermediary.Node.Addr}:{intermediary.Node.Port}",
                     Name = intermediary.Name
                 };
-                
+
                 var pingBytes = Messages.MessageEncoder.Encode(MessageType.IndirectPing, indirectPing);
                 await _memberlist.SendUdpAsync(pingBytes, intermediaryAddr, cts.Token);
-                
+
                 // Wait for ack
                 return await ackReceived.Task;
             }

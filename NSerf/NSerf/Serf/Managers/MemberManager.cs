@@ -10,8 +10,8 @@ namespace NSerf.Serf.Managers;
 internal class MemberManager : IMemberManager, IDisposable
 {
     private readonly ReaderWriterLockSlim _lock = new();
-    private readonly Dictionary<string, MemberInfo> _members = new();
-    
+    private readonly Dictionary<string, MemberInfo> _members = [];
+
     /// <summary>
     /// Executes an operation under write lock with access to member state.
     /// </summary>
@@ -28,7 +28,7 @@ internal class MemberManager : IMemberManager, IDisposable
             _lock.ExitWriteLock();
         }
     }
-    
+
     /// <summary>
     /// Executes an operation under write lock with access to member state (no return value).
     /// </summary>
@@ -45,7 +45,7 @@ internal class MemberManager : IMemberManager, IDisposable
             _lock.ExitWriteLock();
         }
     }
-    
+
     /// <summary>
     /// Disposes the lock resources.
     /// </summary>
@@ -53,72 +53,59 @@ internal class MemberManager : IMemberManager, IDisposable
     {
         _lock?.Dispose();
     }
-    
+
     /// <summary>
     /// Internal accessor implementation - provides direct access to member state.
     /// Assumes caller already holds the lock.
     /// </summary>
-    private class MemberStateAccessor : IMemberStateAccessor
+    private class MemberStateAccessor(MemberManager manager) : IMemberStateAccessor
     {
-        private readonly MemberManager _manager;
-        
-        public MemberStateAccessor(MemberManager manager)
-        {
-            _manager = manager;
-        }
-        
         public MemberInfo? GetMember(string name)
         {
-            return _manager._members.TryGetValue(name, out var member) ? member : null;
+            return manager._members.TryGetValue(name, out var member) ? member : null;
         }
-        
+
         public List<MemberInfo> GetAllMembers()
         {
-            return _manager._members.Values.ToList();
+            return [.. manager._members.Values];
         }
-        
+
         public int GetMemberCount()
         {
-            return _manager._members.Count;
+            return manager._members.Count;
         }
-        
+
         public void AddMember(MemberInfo member)
         {
-            _manager._members[member.Name] = member;
+            manager._members[member.Name] = member;
         }
-        
+
         public void UpdateMember(string name, Action<MemberInfo> updater)
         {
-            if (_manager._members.TryGetValue(name, out var member))
+            if (manager._members.TryGetValue(name, out var member))
             {
                 updater(member);
             }
         }
-        
+
         public bool RemoveMember(string name)
         {
-            return _manager._members.Remove(name);
+            return manager._members.Remove(name);
         }
-        
+
         public List<MemberInfo> GetFailedMembers()
         {
-            return _manager._members.Values
-                .Where(m => m.Status == MemberStatus.Failed)
-                .ToList();
+            return [.. manager._members.Values.Where(m => m.Status == MemberStatus.Failed)];
         }
-        
+
         public List<MemberInfo> GetLeftMembers()
         {
-            return _manager._members.Values
-                .Where(m => m.Status == MemberStatus.Left)
-                .ToList();
+            return [.. manager._members.Values.Where(m => m.Status == MemberStatus.Left)];
         }
-        
+
         public List<MemberInfo> GetMembersByStatus(MemberStatus status)
         {
-            return _manager._members.Values
-                .Where(m => m.Status == status)
-                .ToList();
+            return [.. manager._members.Values.Where(m => m.Status == status)];
         }
     }
 }

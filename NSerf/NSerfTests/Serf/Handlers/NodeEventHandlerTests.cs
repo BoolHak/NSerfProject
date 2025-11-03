@@ -22,7 +22,7 @@ namespace NSerfTests.Serf.Handlers;
 public class NodeEventHandlerTests
 {
     // ==================== HANDLE NODE JOIN TESTS ====================
-    
+
     /// <summary>
     /// Test: HandleNodeJoin creates a new member when it doesn't exist.
     /// Expected: Member created with Alive status, event emitted.
@@ -32,11 +32,11 @@ public class NodeEventHandlerTests
     {
         // Arrange
         var memberManager = new MemberManager();
-        var eventLog = new List<Event>();
+        var eventLog = new List<IEvent>();
         var clock = new LamportClock();
-        
+
         var handler = new NodeEventHandler(memberManager, eventLog, clock, null, null);
-        
+
         var node = new Node
         {
             Name = "node1",
@@ -44,10 +44,10 @@ public class NodeEventHandlerTests
             Port = 7946,
             Meta = []
         };
-        
+
         // Act
         handler.HandleNodeJoin(node);
-        
+
         // Assert
         var member = memberManager.ExecuteUnderLock(accessor => accessor.GetMember("node1"));
         member.Should().NotBeNull();
@@ -56,7 +56,7 @@ public class NodeEventHandlerTests
         member.Member!.Name.Should().Be("node1");
         member.Member.Addr.Should().Be(IPAddress.Parse("192.168.1.1"));
         member.Member.Port.Should().Be(7946);
-        
+
         eventLog.Should().HaveCount(1);
         eventLog[0].Should().BeOfType<MemberEvent>();
         var memberEvent = (MemberEvent)eventLog[0];
@@ -64,7 +64,7 @@ public class NodeEventHandlerTests
         memberEvent.Members.Should().HaveCount(1);
         memberEvent.Members[0].Name.Should().Be("node1");
     }
-    
+
     /// <summary>
     /// CRITICAL: HandleNodeJoin resurrects Left members (AUTHORITATIVE).
     /// Per Go: memberlist NotifyJoin is authoritative, always succeeds.
@@ -74,11 +74,11 @@ public class NodeEventHandlerTests
     {
         // Arrange
         var memberManager = new MemberManager();
-        var eventLog = new List<Event>();
+        var eventLog = new List<IEvent>();
         var clock = new LamportClock();
-        
+
         var handler = new NodeEventHandler(memberManager, eventLog, clock, null, null);
-        
+
         // Add member in Left state
         memberManager.ExecuteUnderLock(accessor =>
         {
@@ -88,7 +88,7 @@ public class NodeEventHandlerTests
                 StateMachine = new MemberStateMachine("node1", MemberStatus.Left, 100, null)
             });
         });
-        
+
         var node = new Node
         {
             Name = "node1",
@@ -96,19 +96,19 @@ public class NodeEventHandlerTests
             Port = 7946,
             Meta = []
         };
-        
+
         // Act
         handler.HandleNodeJoin(node);
-        
+
         // Assert
         var member = memberManager.ExecuteUnderLock(accessor => accessor.GetMember("node1"));
         member!.Status.Should().Be(MemberStatus.Alive, "Left members CAN be resurrected via memberlist join");
-        
+
         eventLog.Should().HaveCount(1, "EventMemberJoin should be emitted");
         eventLog[0].Should().BeOfType<MemberEvent>();
         ((MemberEvent)eventLog[0]).Type.Should().Be(EventType.MemberJoin);
     }
-    
+
     /// <summary>
     /// CRITICAL: HandleNodeJoin resurrects Failed members (AUTHORITATIVE).
     /// Per Go: memberlist NotifyJoin is authoritative, always succeeds.
@@ -118,11 +118,11 @@ public class NodeEventHandlerTests
     {
         // Arrange
         var memberManager = new MemberManager();
-        var eventLog = new List<Event>();
+        var eventLog = new List<IEvent>();
         var clock = new LamportClock();
-        
+
         var handler = new NodeEventHandler(memberManager, eventLog, clock, null, null);
-        
+
         // Add member in Failed state
         memberManager.ExecuteUnderLock(accessor =>
         {
@@ -132,7 +132,7 @@ public class NodeEventHandlerTests
                 StateMachine = new MemberStateMachine("node1", MemberStatus.Failed, 100, null)
             });
         });
-        
+
         var node = new Node
         {
             Name = "node1",
@@ -140,17 +140,17 @@ public class NodeEventHandlerTests
             Port = 7946,
             Meta = []
         };
-        
+
         // Act
         handler.HandleNodeJoin(node);
-        
+
         // Assert
         var member = memberManager.ExecuteUnderLock(accessor => accessor.GetMember("node1"));
         member!.Status.Should().Be(MemberStatus.Alive, "Failed members CAN be resurrected via memberlist join");
-        
+
         eventLog.Should().HaveCount(1, "EventMemberJoin should be emitted");
     }
-    
+
     /// <summary>
     /// Test: HandleNodeJoin with null node is ignored.
     /// </summary>
@@ -159,20 +159,20 @@ public class NodeEventHandlerTests
     {
         // Arrange
         var memberManager = new MemberManager();
-        var eventLog = new List<Event>();
+        var eventLog = new List<IEvent>();
         var clock = new LamportClock();
-        
+
         var handler = new NodeEventHandler(memberManager, eventLog, clock, null, null);
-        
+
         // Act
         handler.HandleNodeJoin(null);
-        
+
         // Assert
         eventLog.Should().BeEmpty();
     }
-    
+
     // ==================== HANDLE NODE LEAVE TESTS ====================
-    
+
     /// <summary>
     /// Test: HandleNodeLeave with Dead state transitions to Failed.
     /// Expected: MemberStatus.Failed, EventMemberFailed emitted.
@@ -182,11 +182,11 @@ public class NodeEventHandlerTests
     {
         // Arrange
         var memberManager = new MemberManager();
-        var eventLog = new List<Event>();
+        var eventLog = new List<IEvent>();
         var clock = new LamportClock();
-        
+
         var handler = new NodeEventHandler(memberManager, eventLog, clock, null, null);
-        
+
         // Add member in Alive state
         memberManager.ExecuteUnderLock(accessor =>
         {
@@ -197,7 +197,7 @@ public class NodeEventHandlerTests
                 Member = new Member { Name = "node1", Status = MemberStatus.Alive }
             });
         });
-        
+
         var node = new Node
         {
             Name = "node1",
@@ -206,21 +206,21 @@ public class NodeEventHandlerTests
             State = NodeStateType.Dead,  // Dead = failure
             Meta = []
         };
-        
+
         // Act
         handler.HandleNodeLeave(node);
-        
+
         // Assert
         var member = memberManager.ExecuteUnderLock(accessor => accessor.GetMember("node1"));
         member!.Status.Should().Be(MemberStatus.Failed);
-        
+
         eventLog.Should().HaveCount(1);
         eventLog[0].Should().BeOfType<MemberEvent>();
         var memberEvent = (MemberEvent)eventLog[0];
         memberEvent.Type.Should().Be(EventType.MemberFailed);
         memberEvent.Members[0].Status.Should().Be(MemberStatus.Failed);
     }
-    
+
     /// <summary>
     /// Test: HandleNodeLeave with Left state transitions to Left.
     /// Expected: MemberStatus.Left, EventMemberLeave emitted.
@@ -230,11 +230,11 @@ public class NodeEventHandlerTests
     {
         // Arrange
         var memberManager = new MemberManager();
-        var eventLog = new List<Event>();
+        var eventLog = new List<IEvent>();
         var clock = new LamportClock();
-        
+
         var handler = new NodeEventHandler(memberManager, eventLog, clock, null, null);
-        
+
         // Add member in Alive state
         memberManager.ExecuteUnderLock(accessor =>
         {
@@ -245,7 +245,7 @@ public class NodeEventHandlerTests
                 Member = new Member { Name = "node1", Status = MemberStatus.Alive }
             });
         });
-        
+
         var node = new Node
         {
             Name = "node1",
@@ -254,21 +254,21 @@ public class NodeEventHandlerTests
             State = NodeStateType.Left,  // Left = graceful leave
             Meta = []
         };
-        
+
         // Act
         handler.HandleNodeLeave(node);
-        
+
         // Assert
         var member = memberManager.ExecuteUnderLock(accessor => accessor.GetMember("node1"));
         member!.Status.Should().Be(MemberStatus.Left);
-        
+
         eventLog.Should().HaveCount(1);
         eventLog[0].Should().BeOfType<MemberEvent>();
         var memberEvent = (MemberEvent)eventLog[0];
         memberEvent.Type.Should().Be(EventType.MemberLeave);
         memberEvent.Members[0].Status.Should().Be(MemberStatus.Left);
     }
-    
+
     /// <summary>
     /// Test: HandleNodeLeave sets LeaveTime.
     /// Expected: LeaveTime is set to current time.
@@ -278,11 +278,11 @@ public class NodeEventHandlerTests
     {
         // Arrange
         var memberManager = new MemberManager();
-        var eventLog = new List<Event>();
+        var eventLog = new List<IEvent>();
         var clock = new LamportClock();
-        
+
         var handler = new NodeEventHandler(memberManager, eventLog, clock, null, null);
-        
+
         // Add member in Alive state
         memberManager.ExecuteUnderLock(accessor =>
         {
@@ -293,24 +293,24 @@ public class NodeEventHandlerTests
                 Member = new Member { Name = "node1", Status = MemberStatus.Alive }
             });
         });
-        
+
         var node = new Node
         {
             Name = "node1",
             State = NodeStateType.Dead,
             Meta = []
         };
-        
+
         var beforeLeave = DateTimeOffset.UtcNow;
-        
+
         // Act
         handler.HandleNodeLeave(node);
-        
+
         // Assert
         var member = memberManager.ExecuteUnderLock(accessor => accessor.GetMember("node1"));
         member!.LeaveTime.Should().BeCloseTo(beforeLeave, TimeSpan.FromSeconds(1));
     }
-    
+
     /// <summary>
     /// Test: HandleNodeLeave with null node is ignored.
     /// </summary>
@@ -319,18 +319,18 @@ public class NodeEventHandlerTests
     {
         // Arrange
         var memberManager = new MemberManager();
-        var eventLog = new List<Event>();
+        var eventLog = new List<IEvent>();
         var clock = new LamportClock();
-        
+
         var handler = new NodeEventHandler(memberManager, eventLog, clock, null, null);
-        
+
         // Act
         handler.HandleNodeLeave(null);
-        
+
         // Assert
         eventLog.Should().BeEmpty();
     }
-    
+
     /// <summary>
     /// Test: HandleNodeLeave for unknown member is ignored.
     /// Expected: No errors, no events.
@@ -340,27 +340,27 @@ public class NodeEventHandlerTests
     {
         // Arrange
         var memberManager = new MemberManager();
-        var eventLog = new List<Event>();
+        var eventLog = new List<IEvent>();
         var clock = new LamportClock();
-        
+
         var handler = new NodeEventHandler(memberManager, eventLog, clock, null, null);
-        
+
         var node = new Node
         {
             Name = "unknown-node",
             State = NodeStateType.Dead,
             Meta = []
         };
-        
+
         // Act
         handler.HandleNodeLeave(node);
-        
+
         // Assert
         eventLog.Should().BeEmpty("no event should be emitted for unknown member");
     }
-    
+
     // ==================== EDGE CASES FROM DEEPWIKI ====================
-    
+
     /// <summary>
     /// EDGE CASE: Same node joins multiple times.
     /// Per Go: Status is updated to Alive each time, node info is refreshed.
@@ -370,11 +370,11 @@ public class NodeEventHandlerTests
     {
         // Arrange
         var memberManager = new MemberManager();
-        var eventLog = new List<Event>();
+        var eventLog = new List<IEvent>();
         var clock = new LamportClock();
-        
+
         var handler = new NodeEventHandler(memberManager, eventLog, clock, null, null);
-        
+
         var node = new Node
         {
             Name = "node1",
@@ -382,20 +382,20 @@ public class NodeEventHandlerTests
             Port = 7946,
             Meta = []
         };
-        
+
         // Act - Join multiple times
         handler.HandleNodeJoin(node);
         handler.HandleNodeJoin(node);
         handler.HandleNodeJoin(node);
-        
+
         // Assert
         var member = memberManager.ExecuteUnderLock(accessor => accessor.GetMember("node1"));
         member!.Status.Should().Be(MemberStatus.Alive);
-        
+
         eventLog.Should().HaveCount(3, "each join should emit an event");
         eventLog.All(e => ((MemberEvent)e).Type == EventType.MemberJoin).Should().BeTrue();
     }
-    
+
     /// <summary>
     /// EDGE CASE: Node leaves then joins again quickly (within same session).
     /// Per Go: Status transitions Failed→Alive or Left→Alive.
@@ -405,11 +405,11 @@ public class NodeEventHandlerTests
     {
         // Arrange
         var memberManager = new MemberManager();
-        var eventLog = new List<Event>();
+        var eventLog = new List<IEvent>();
         var clock = new LamportClock();
-        
+
         var handler = new NodeEventHandler(memberManager, eventLog, clock, null, null);
-        
+
         var node = new Node
         {
             Name = "node1",
@@ -417,10 +417,10 @@ public class NodeEventHandlerTests
             Port = 7946,
             Meta = []
         };
-        
+
         // Act - Join, Leave (fail), then Join again
         handler.HandleNodeJoin(node);
-        
+
         var leaveNode = new Node
         {
             Name = "node1",
@@ -430,19 +430,19 @@ public class NodeEventHandlerTests
             Meta = []
         };
         handler.HandleNodeLeave(leaveNode);
-        
+
         handler.HandleNodeJoin(node);
-        
+
         // Assert
         var member = memberManager.ExecuteUnderLock(accessor => accessor.GetMember("node1"));
         member!.Status.Should().Be(MemberStatus.Alive, "node should be resurrected after rejoin");
-        
+
         eventLog.Should().HaveCount(3);
         eventLog[0].Should().BeOfType<MemberEvent>().Which.Type.Should().Be(EventType.MemberJoin);
         eventLog[1].Should().BeOfType<MemberEvent>().Which.Type.Should().Be(EventType.MemberFailed);
         eventLog[2].Should().BeOfType<MemberEvent>().Which.Type.Should().Be(EventType.MemberJoin);
     }
-    
+
     /// <summary>
     /// EDGE CASE: Flap detection - Failed node rejoins within FlapTimeout.
     /// Per Go: LeaveTime should be set when node fails, allowing flap detection.
@@ -452,11 +452,11 @@ public class NodeEventHandlerTests
     {
         // Arrange
         var memberManager = new MemberManager();
-        var eventLog = new List<Event>();
+        var eventLog = new List<IEvent>();
         var clock = new LamportClock();
-        
+
         var handler = new NodeEventHandler(memberManager, eventLog, clock, null, null);
-        
+
         // First join
         var joinNode = new Node
         {
@@ -466,9 +466,9 @@ public class NodeEventHandlerTests
             Meta = []
         };
         handler.HandleNodeJoin(joinNode);
-        
+
         var beforeLeave = DateTimeOffset.UtcNow;
-        
+
         // Then fail
         var leaveNode = new Node
         {
@@ -477,20 +477,20 @@ public class NodeEventHandlerTests
             Meta = []
         };
         handler.HandleNodeLeave(leaveNode);
-        
+
         // Assert - LeaveTime should be set
         var member = memberManager.ExecuteUnderLock(accessor => accessor.GetMember("node1"));
         member!.Status.Should().Be(MemberStatus.Failed);
         member.LeaveTime.Should().BeCloseTo(beforeLeave, TimeSpan.FromSeconds(1));
-        
+
         // Rejoin quickly
         handler.HandleNodeJoin(joinNode);
-        
+
         // Assert - After rejoin, still alive
         member = memberManager.ExecuteUnderLock(accessor => accessor.GetMember("node1"));
         member!.Status.Should().Be(MemberStatus.Alive);
     }
-    
+
     /// <summary>
     /// EDGE CASE: HandleNodeJoin updates existing Alive member.
     /// Per Go: Member info is refreshed even if already Alive.
@@ -500,11 +500,11 @@ public class NodeEventHandlerTests
     {
         // Arrange
         var memberManager = new MemberManager();
-        var eventLog = new List<Event>();
+        var eventLog = new List<IEvent>();
         var clock = new LamportClock();
-        
+
         var handler = new NodeEventHandler(memberManager, eventLog, clock, null, null);
-        
+
         // Add member in Alive state
         memberManager.ExecuteUnderLock(accessor =>
         {
@@ -512,15 +512,15 @@ public class NodeEventHandlerTests
             {
                 Name = "node1",
                 StateMachine = new MemberStateMachine("node1", MemberStatus.Alive, 100, null),
-                Member = new Member 
-                { 
-                    Name = "node1", 
+                Member = new Member
+                {
+                    Name = "node1",
                     Status = MemberStatus.Alive,
-                    Port = 7946 
+                    Port = 7946
                 }
             });
         });
-        
+
         var node = new Node
         {
             Name = "node1",
@@ -528,19 +528,19 @@ public class NodeEventHandlerTests
             Port = 8946,  // Different port
             Meta = []
         };
-        
+
         // Act
         handler.HandleNodeJoin(node);
-        
+
         // Assert - Member info should be updated
         var member = memberManager.ExecuteUnderLock(accessor => accessor.GetMember("node1"));
         member!.Status.Should().Be(MemberStatus.Alive);
         member.Member!.Port.Should().Be(8946, "port should be updated");
         member.Member.Addr.Should().Be(IPAddress.Parse("192.168.1.100"), "address should be updated");
-        
+
         eventLog.Should().HaveCount(1, "event should still be emitted for info update");
     }
-    
+
     /// <summary>
     /// EDGE CASE: HandleNodeLeave distinguishes between Dead and Left states.
     /// Per Go: NodeStateType.Dead = Failed, NodeStateType.Left = graceful leave.
@@ -550,11 +550,11 @@ public class NodeEventHandlerTests
     {
         // Arrange
         var memberManager = new MemberManager();
-        var eventLog = new List<Event>();
+        var eventLog = new List<IEvent>();
         var clock = new LamportClock();
-        
+
         var handler = new NodeEventHandler(memberManager, eventLog, clock, null, null);
-        
+
         // Setup: Add two alive members
         handler.HandleNodeJoin(new Node
         {
@@ -563,7 +563,7 @@ public class NodeEventHandlerTests
             Port = 7946,
             Meta = []
         });
-        
+
         handler.HandleNodeJoin(new Node
         {
             Name = "node2",
@@ -571,10 +571,10 @@ public class NodeEventHandlerTests
             Port = 7946,
             Meta = []
         });
-        
+
         // Clear events from joins
         eventLog.Clear();
-        
+
         // Act - node1 fails (Dead), node2 leaves gracefully (Left)
         handler.HandleNodeLeave(new Node
         {
@@ -582,21 +582,21 @@ public class NodeEventHandlerTests
             State = NodeStateType.Dead,
             Meta = []
         });
-        
+
         handler.HandleNodeLeave(new Node
         {
             Name = "node2",
             State = NodeStateType.Left,
             Meta = []
         });
-        
+
         // Assert
         var member1 = memberManager.ExecuteUnderLock(accessor => accessor.GetMember("node1"));
         var member2 = memberManager.ExecuteUnderLock(accessor => accessor.GetMember("node2"));
-        
+
         member1!.Status.Should().Be(MemberStatus.Failed, "Dead state = Failed");
         member2!.Status.Should().Be(MemberStatus.Left, "Left state = graceful leave");
-        
+
         eventLog.Should().HaveCount(2);
         ((MemberEvent)eventLog[0]).Type.Should().Be(EventType.MemberFailed);
         ((MemberEvent)eventLog[1]).Type.Should().Be(EventType.MemberLeave);

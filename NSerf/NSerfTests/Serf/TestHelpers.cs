@@ -44,18 +44,18 @@ public static class TestHelpers
                 BindPort = port,
                 AdvertiseAddr = "127.0.0.1",
                 AdvertisePort = port,
-                
+
                 // Aggressive test timeouts for faster convergence
                 ProbeInterval = TimeSpan.FromMilliseconds(50),
                 ProbeTimeout = TimeSpan.FromMilliseconds(25),
                 GossipInterval = TimeSpan.FromMilliseconds(5),
                 TCPTimeout = TimeSpan.FromMilliseconds(100),
                 SuspicionMult = 1,
-                
+
                 // Require node names for strict validation
                 RequireNodeNames = true
             },
-            
+
             // Short intervals for testing
             ReapInterval = TimeSpan.FromSeconds(1),
             ReconnectInterval = TimeSpan.FromMilliseconds(100),
@@ -78,7 +78,7 @@ public static class TestHelpers
         params NSerf.Serf.Serf[] instances)
     {
         using var cts = new CancellationTokenSource(timeout);
-        
+
         while (!cts.Token.IsCancellationRequested)
         {
             if (instances.All(s => s.NumMembers() == expected))
@@ -142,7 +142,7 @@ public static class TestHelpers
     /// <param name="expectedEvents">Expected sequence of event types</param>
     /// <param name="timeout">Maximum time to wait for events</param>
     public static async Task TestEventsAsync(
-        ChannelReader<Event> eventChannel,
+        ChannelReader<IEvent> eventChannel,
         string nodeName,
         EventType[] expectedEvents,
         TimeSpan? timeout = null)
@@ -163,7 +163,7 @@ public static class TestHelpers
                     if (member != null)
                     {
                         actualEvents.Add(memberEvent.Type);
-                        
+
                         // Stop if we've collected enough events
                         if (actualEvents.Count >= expectedEvents.Length)
                         {
@@ -186,7 +186,7 @@ public static class TestHelpers
     /// Verifies that expected user events occurred with specific names and payloads.
     /// </summary>
     public static async Task TestUserEventsAsync(
-        ChannelReader<Event> eventChannel,
+        ChannelReader<IEvent> eventChannel,
         string[] expectedNames,
         byte[][] expectedPayloads,
         TimeSpan? timeout = null)
@@ -205,7 +205,7 @@ public static class TestHelpers
                 {
                     actualNames.Add(userEvent.Name);
                     actualPayloads.Add(userEvent.Payload);
-                    
+
                     if (actualNames.Count >= expectedNames.Length)
                     {
                         break;
@@ -219,7 +219,7 @@ public static class TestHelpers
         }
 
         actualNames.Should().Equal(expectedNames, "User event names should match");
-        
+
         for (int i = 0; i < Math.Min(actualPayloads.Count, expectedPayloads.Length); i++)
         {
             actualPayloads[i].Should().Equal(expectedPayloads[i],
@@ -231,7 +231,7 @@ public static class TestHelpers
     /// Verifies that expected queries occurred with specific names and payloads.
     /// </summary>
     public static async Task TestQueryEventsAsync(
-        ChannelReader<Event> eventChannel,
+        ChannelReader<IEvent> eventChannel,
         string[] expectedNames,
         byte[][] expectedPayloads,
         TimeSpan? timeout = null)
@@ -250,7 +250,7 @@ public static class TestHelpers
                 {
                     actualNames.Add(query.Name);
                     actualPayloads.Add(query.Payload);
-                    
+
                     if (actualNames.Count >= expectedNames.Length)
                     {
                         break;
@@ -264,7 +264,7 @@ public static class TestHelpers
         }
 
         actualNames.Should().Equal(expectedNames, "Query names should match");
-        
+
         for (int i = 0; i < Math.Min(actualPayloads.Count, expectedPayloads.Length); i++)
         {
             actualPayloads[i].Should().Equal(expectedPayloads[i],
@@ -292,10 +292,10 @@ public static class TestHelpers
     /// Creates a test event channel for Serf configuration.
     /// Returns both reader and writer for test control.
     /// </summary>
-    public static (ChannelWriter<Event> writer, ChannelReader<Event> reader) CreateTestEventChannel(
+    public static (ChannelWriter<IEvent> writer, ChannelReader<IEvent> reader) CreateTestEventChannel(
         int capacity = 1000)
     {
-        var channel = Channel.CreateBounded<Event>(new BoundedChannelOptions(capacity)
+        var channel = Channel.CreateBounded<IEvent>(new BoundedChannelOptions(capacity)
         {
             FullMode = BoundedChannelFullMode.DropOldest
         });
@@ -313,7 +313,7 @@ public static class TestHelpers
         string? errorMessage = null)
     {
         using var cts = new CancellationTokenSource(timeout);
-        
+
         while (!cts.Token.IsCancellationRequested)
         {
             if (condition())
@@ -341,7 +341,7 @@ public static class TestHelpers
     public static List<SerfConfig> CreateTestCluster(int nodeCount)
     {
         var configs = new List<SerfConfig>();
-        
+
         for (int i = 0; i < nodeCount; i++)
         {
             configs.Add(CreateTestConfig($"node-{i}"));

@@ -14,8 +14,8 @@ public static class SerfValidationHelper
     // Regex pattern to match invalid characters in node names
     // Valid characters are: A-Z, a-z, 0-9, dash (-), and dot (.)
     // Reference: Go serf.go line 1926
-    private static readonly Regex InvalidNameRegex = new Regex(@"[^A-Za-z0-9\-\.]+", RegexOptions.Compiled);
-    
+    private static readonly Regex InvalidNameRegex = new(@"[^A-Za-z0-9\-\.]+", RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
+
     /// <summary>
     /// Validates a node name according to Serf requirements.
     /// Returns null if valid, or an error message if invalid.
@@ -63,7 +63,7 @@ public static class SerfValidationHelper
             throw new ArgumentException(
                 $"Protocol version '{version}' too low. Must be in range: [{minVersion}, {maxVersion}]");
         }
-        
+
         if (version > maxVersion)
         {
             throw new ArgumentException(
@@ -98,9 +98,9 @@ public static class SerfValidationHelper
     /// <param name="encodedSize">Size after encoding (0 if not yet encoded)</param>
     /// <exception cref="InvalidOperationException">Thrown when size exceeds limits</exception>
     public static void ValidateUserEventSize(
-        string name, 
-        byte[] payload, 
-        int configuredLimit, 
+        string name,
+        byte[] payload,
+        int configuredLimit,
         int absoluteLimit,
         int encodedSize = 0)
     {

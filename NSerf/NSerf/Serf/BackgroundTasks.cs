@@ -42,11 +42,11 @@ public partial class Serf
                 await Task.Delay(Config.ReapInterval, _shutdownCts.Token);
 
                 var now = DateTimeOffset.UtcNow;
-                
+
                 // Get failed and left members from MemberManager and reap them
                 var failedMembers = _memberManager.ExecuteUnderLock(accessor => accessor.GetFailedMembers());
                 var leftMembers = _memberManager.ExecuteUnderLock(accessor => accessor.GetLeftMembers());
-                
+
                 Reap(failedMembers, now, Config.ReconnectTimeout);
                 Reap(leftMembers, now, Config.TombstoneTimeout);
             }
@@ -100,8 +100,8 @@ public partial class Serf
 
                 // Check event queue depth
                 var eventQueueDepth = EventBroadcasts.Count;
-                Config.Metrics.AddSample(new[] { "serf", "queue", "event" }, eventQueueDepth, Config.MetricLabels);
-                
+                Config.Metrics.AddSample(["serf", "queue", "event"], eventQueueDepth, Config.MetricLabels);
+
                 if (eventQueueDepth >= Config.QueueDepthWarning)
                 {
                     Logger?.LogWarning("[Serf] event queue depth: {Depth}", eventQueueDepth);
@@ -109,8 +109,8 @@ public partial class Serf
 
                 // Check query queue depth
                 var queryQueueDepth = QueryBroadcasts.Count;
-                Config.Metrics.AddSample(new[] { "serf", "queue", "query" }, queryQueueDepth, Config.MetricLabels);
-                
+                Config.Metrics.AddSample(["serf", "queue", "query"], queryQueueDepth, Config.MetricLabels);
+
                 if (queryQueueDepth >= Config.QueueDepthWarning)
                 {
                     Logger?.LogWarning("[Serf] query queue depth: {Depth}", queryQueueDepth);
@@ -193,10 +193,7 @@ public partial class Serf
             try
             {
                 // Remove cached coordinate entry for this node
-                if (_coordCache != null)
-                {
-                    _coordCache.Remove(member.Name);
-                }
+                _coordCache?.Remove(member.Name);
             }
             finally
             {
@@ -210,7 +207,7 @@ public partial class Serf
             var reapEvent = new MemberEvent
             {
                 Type = EventType.MemberReap,
-                Members = new List<Member> { member.Member }
+                Members = [member.Member]
             };
 
             Config.EventCh.TryWrite(reapEvent);
@@ -230,7 +227,7 @@ public partial class Serf
         // Get failed members from MemberManager
         var failedMembers = _memberManager.ExecuteUnderLock(accessor => accessor.GetFailedMembers());
         numFailed = failedMembers.Count;
-        
+
         if (numFailed == 0)
         {
             return; // Nothing to do
@@ -274,7 +271,7 @@ public partial class Serf
             // Attempt to join at memberlist level
             if (Memberlist != null)
             {
-                await Memberlist.JoinAsync(new[] { joinAddr }, _shutdownCts.Token);
+                await Memberlist.JoinAsync([joinAddr], _shutdownCts.Token);
             }
         }
         catch (Exception ex)

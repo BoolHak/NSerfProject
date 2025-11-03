@@ -13,25 +13,20 @@ namespace NSerf.Serf;
 /// PingDelegate is the Serf implementation of IPingDelegate from Memberlist.
 /// It handles ping/ack messages to update network coordinates and track RTT.
 /// </summary>
-internal class PingDelegate : IPingDelegate
+/// <remarks>
+/// Creates a new PingDelegate for the given Serf instance.
+/// </remarks>
+/// <param name="serf">The Serf instance to coordinate with</param>
+/// <exception cref="ArgumentNullException">Thrown if serf is null</exception>
+internal class PingDelegate(Serf serf) : IPingDelegate
 {
-    private readonly Serf _serf;
+    private readonly Serf _serf = serf ?? throw new ArgumentNullException(nameof(serf));
 
     /// <summary>
     /// Internal version for the ping message, above the normal versioning from protocol version.
     /// Enables small updates to the ping message without a full protocol bump.
     /// </summary>
     internal const byte PingVersion = 1;
-
-    /// <summary>
-    /// Creates a new PingDelegate for the given Serf instance.
-    /// </summary>
-    /// <param name="serf">The Serf instance to coordinate with</param>
-    /// <exception cref="ArgumentNullException">Thrown if serf is null</exception>
-    public PingDelegate(Serf serf)
-    {
-        _serf = serf ?? throw new ArgumentNullException(nameof(serf));
-    }
 
     /// <summary>
     /// Called to produce a payload to send back in response to a ping request.
@@ -50,13 +45,13 @@ internal class PingDelegate : IPingDelegate
         {
             // Get current coordinate from coordinate client
             var coordinate = _serf.GetCoordinate();
-            
+
             // Serialize: [version byte][msgpack coordinate]
             var coordinateBytes = MessagePackSerializer.Serialize(coordinate);
             var payload = new byte[1 + coordinateBytes.Length];
             payload[0] = PingVersion;
             Array.Copy(coordinateBytes, 0, payload, 1, coordinateBytes.Length);
-            
+
             return payload;
         }
         catch (Exception ex)

@@ -18,21 +18,15 @@ namespace NSerf.Serf.Managers;
 /// 
 /// Reference: Go serf.go State enum and Leave/Shutdown methods
 /// </summary>
-public class ClusterCoordinator : IDisposable
+/// <remarks>
+/// Initializes a new ClusterCoordinator in Alive state.
+/// </remarks>
+public class ClusterCoordinator(ILogger? logger) : IDisposable
 {
-    private readonly ILogger? _logger;
+    private readonly ILogger? _logger = logger;
     private readonly SemaphoreSlim _stateLock = new(1, 1);
-    private SerfState _currentState;
+    private SerfState _currentState = SerfState.SerfAlive;
     private volatile bool _disposed;
-
-    /// <summary>
-    /// Initializes a new ClusterCoordinator in Alive state.
-    /// </summary>
-    public ClusterCoordinator(ILogger? logger)
-    {
-        _logger = logger;
-        _currentState = SerfState.SerfAlive;
-    }
 
     /// <summary>
     /// Gets the current state of the Serf instance.
@@ -43,7 +37,7 @@ public class ClusterCoordinator : IDisposable
     {
         if (_disposed)
             return SerfState.SerfShutdown;
-        
+
         try
         {
             return LockHelper.WithLock(_stateLock, () => _currentState);
@@ -64,7 +58,7 @@ public class ClusterCoordinator : IDisposable
     {
         if (_disposed)
             return false;
-        
+
         try
         {
             return LockHelper.WithLock(_stateLock, () =>
@@ -78,7 +72,7 @@ public class ClusterCoordinator : IDisposable
             _currentState = SerfState.SerfLeaving;
             _logger?.LogInformation("[ClusterCoordinator] Transitioned to Leaving");
             return true;
-            });
+        });
         }
         catch (ObjectDisposedException)
         {
@@ -96,7 +90,7 @@ public class ClusterCoordinator : IDisposable
     {
         if (_disposed)
             return false;
-        
+
         try
         {
             return LockHelper.WithLock(_stateLock, () =>
@@ -110,7 +104,7 @@ public class ClusterCoordinator : IDisposable
             _currentState = SerfState.SerfLeft;
             _logger?.LogInformation("[ClusterCoordinator] Transitioned to Left");
             return true;
-            });
+        });
         }
         catch (ObjectDisposedException)
         {
@@ -128,7 +122,7 @@ public class ClusterCoordinator : IDisposable
     {
         if (_disposed)
             return false;
-        
+
         try
         {
             return LockHelper.WithLock(_stateLock, () =>
@@ -143,7 +137,7 @@ public class ClusterCoordinator : IDisposable
             _currentState = SerfState.SerfShutdown;
             _logger?.LogInformation("[ClusterCoordinator] Transitioned to Shutdown from {PreviousState}", previousState);
             return true;
-            });
+        });
         }
         catch (ObjectDisposedException)
         {
@@ -160,7 +154,7 @@ public class ClusterCoordinator : IDisposable
     {
         if (_disposed)
             return true;
-        
+
         try
         {
             return LockHelper.WithLock(_stateLock, () => _currentState == SerfState.SerfShutdown);
@@ -180,7 +174,7 @@ public class ClusterCoordinator : IDisposable
     {
         if (_disposed)
             return false;
-        
+
         try
         {
             return LockHelper.WithLock(_stateLock, () => _currentState == SerfState.SerfLeaving);
@@ -201,7 +195,7 @@ public class ClusterCoordinator : IDisposable
     {
         if (_disposed)
             return;
-        
+
         try
         {
             LockHelper.WithLock(_stateLock, () =>
@@ -228,7 +222,7 @@ public class ClusterCoordinator : IDisposable
     {
         if (_disposed)
             return false;
-        
+
         try
         {
             return LockHelper.WithLock(_stateLock, () =>
@@ -264,7 +258,7 @@ public class ClusterCoordinator : IDisposable
                 IsLeaving = false
             };
         }
-        
+
         try
         {
             return LockHelper.WithLock(_stateLock, () => new StateSnapshot
@@ -293,10 +287,10 @@ public class ClusterCoordinator : IDisposable
     {
         if (_disposed)
             return;
-        
+
         // Mark as disposed BEFORE disposing lock to prevent new operations
         _disposed = true;
-        
+
         // Transition to shutdown first (needs lock)
         try
         {
@@ -308,6 +302,7 @@ public class ClusterCoordinator : IDisposable
         {
             // Then dispose the lock
             _stateLock?.Dispose();
+            System.GC.SuppressFinalize(this);
         }
     }
 }

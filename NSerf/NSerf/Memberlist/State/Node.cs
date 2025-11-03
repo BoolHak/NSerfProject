@@ -17,57 +17,57 @@ public class Node
     /// Unique name of the node in the cluster.
     /// </summary>
     public string Name { get; set; } = string.Empty;
-    
+
     /// <summary>
     /// IP address of the node.
     /// </summary>
     public IPAddress Addr { get; set; } = IPAddress.None;
-    
+
     /// <summary>
     /// Port number the node is listening on.
     /// </summary>
     public ushort Port { get; set; }
-    
+
     /// <summary>
     /// Metadata from the delegate for this node.
     /// </summary>
-    public byte[] Meta { get; set; } = Array.Empty<byte>();
-    
+    public byte[] Meta { get; set; } = [];
+
     /// <summary>
     /// Current state of the node.
     /// </summary>
     public NodeStateType State { get; set; }
-    
+
     /// <summary>
     /// Minimum protocol version this node understands.
     /// </summary>
     public byte PMin { get; set; }
-    
+
     /// <summary>
     /// Maximum protocol version this node understands.
     /// </summary>
     public byte PMax { get; set; }
-    
+
     /// <summary>
     /// Current protocol version the node is speaking.
     /// </summary>
     public byte PCur { get; set; }
-    
+
     /// <summary>
     /// Minimum delegate protocol version this node understands.
     /// </summary>
     public byte DMin { get; set; }
-    
+
     /// <summary>
     /// Maximum delegate protocol version this node understands.
     /// </summary>
     public byte DMax { get; set; }
-    
+
     /// <summary>
     /// Current delegate protocol version the node is speaking.
     /// </summary>
     public byte DCur { get; set; }
-    
+
     /// <summary>
     /// Returns the host:port form of the node's address.
     /// </summary>
@@ -75,7 +75,7 @@ public class Node
     {
         return NetworkUtils.JoinHostPort(Addr.ToString(), Port);
     }
-    
+
     /// <summary>
     /// Returns the node name and host:port form of the node's address.
     /// </summary>
@@ -87,7 +87,7 @@ public class Node
             Name = Name
         };
     }
-    
+
     /// <summary>
     /// Returns the node name.
     /// </summary>
@@ -107,32 +107,32 @@ public class NodeState
     /// The node information.
     /// </summary>
     public Node Node { get; set; } = new();
-    
+
     /// <summary>
     /// Last known incarnation number.
     /// </summary>
     public uint Incarnation { get; set; }
-    
+
     /// <summary>
     /// Current state of the node.
     /// </summary>
     public NodeStateType State { get; set; }
-    
+
     /// <summary>
     /// Time when the last state change occurred.
     /// </summary>
     public DateTimeOffset StateChange { get; set; }
-    
+
     /// <summary>
     /// Returns the host:port form of the node's address.
     /// </summary>
     public string Address() => Node.Address();
-    
+
     /// <summary>
     /// Returns the full address of the node.
     /// </summary>
     public Address FullAddress() => Node.FullAddress();
-    
+
     /// <summary>
     /// Returns true if the node is dead or has left the cluster.
     /// </summary>
@@ -140,12 +140,12 @@ public class NodeState
     {
         return State == NodeStateType.Dead || State == NodeStateType.Left;
     }
-    
+
     /// <summary>
     /// Gets the node name.
     /// </summary>
     public string Name => Node.Name;
-    
+
     /// <summary>
     /// Converts the NodeState to a Node instance.
     /// </summary>

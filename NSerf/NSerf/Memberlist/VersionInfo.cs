@@ -15,7 +15,7 @@ public class VersionInfo
     public byte DelegateMin { get; set; }
     public byte DelegateMax { get; set; }
     public byte DelegateCur { get; set; }
-    
+
     /// <summary>
     /// Returns the version as a byte array for wire format.
     /// </summary>
@@ -23,7 +23,7 @@ public class VersionInfo
     {
         return [ProtocolMin, ProtocolMax, ProtocolCur, DelegateMin, DelegateMax, DelegateCur];
     }
-    
+
     /// <summary>
     /// Checks if this version is compatible with another.
     /// </summary>

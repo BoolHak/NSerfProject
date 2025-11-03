@@ -16,28 +16,19 @@ namespace NSerf.Serf.Handlers;
 /// 
 /// Phase 4: Composition over inheritance - extracted from Serf.cs.
 /// </summary>
-internal class NodeEventHandler : INodeEventHandler
+internal class NodeEventHandler(
+    IMemberManager memberManager,
+    List<IEvent> eventLog,
+    LamportClock clock,
+    ILogger? logger,
+    Func<Dictionary<string, string>>? decodeTags) : INodeEventHandler
 {
-    private readonly IMemberManager _memberManager;
-    private readonly List<Event> _eventLog;
-    private readonly LamportClock _clock;
-    private readonly ILogger? _logger;
-    private readonly Func<Dictionary<string, string>>? _decodeTags;
-    
-    public NodeEventHandler(
-        IMemberManager memberManager,
-        List<Event> eventLog,
-        LamportClock clock,
-        ILogger? logger,
-        Func<Dictionary<string, string>>? decodeTags)
-    {
-        _memberManager = memberManager ?? throw new ArgumentNullException(nameof(memberManager));
-        _eventLog = eventLog ?? throw new ArgumentNullException(nameof(eventLog));
-        _clock = clock ?? throw new ArgumentNullException(nameof(clock));
-        _logger = logger;
-        _decodeTags = decodeTags;
-    }
-    
+    private readonly IMemberManager _memberManager = memberManager ?? throw new ArgumentNullException(nameof(memberManager));
+    private readonly List<IEvent> _eventLog = eventLog ?? throw new ArgumentNullException(nameof(eventLog));
+    private readonly LamportClock _clock = clock ?? throw new ArgumentNullException(nameof(clock));
+    private readonly ILogger? _logger = logger;
+    private readonly Func<Dictionary<string, string>>? _decodeTags = decodeTags;
+
     /// <summary>
     /// Handles a memberlist NotifyJoin callback.
     /// AUTHORITATIVE: Can resurrect Left/Failed members.
@@ -50,9 +41,9 @@ internal class NodeEventHandler : INodeEventHandler
             _logger?.LogWarning("[NodeEventHandler] HandleNodeJoin called with null node");
             return;
         }
-        
+
         _logger?.LogDebug("[NodeEventHandler] HandleNodeJoin: {Name}", node.Name);
-        
+
         _memberManager.ExecuteUnderLock(accessor =>
         {
             // Create the full member object
@@ -70,7 +61,7 @@ internal class NodeEventHandler : INodeEventHandler
                 DelegateMax = node.DMax,
                 DelegateCur = node.DCur
             };
-            
+
             // Update or create member state
             var memberInfo = accessor.GetMember(node.Name);
             if (memberInfo == null)
@@ -95,20 +86,20 @@ internal class NodeEventHandler : INodeEventHandler
                 {
                     var result = m.StateMachine.TransitionOnMemberlistJoin();
                     m.Member = member;
-                    
+
                     _logger?.LogInformation("[NodeEventHandler] Member rejoined: {Name} ({Reason})",
                         node.Name, result.Reason);
                 });
             }
         });
-        
+
         // Emit EventMemberJoin
         var memberForEvent = new Member
         {
             Name = node.Name,
             Addr = node.Addr,
             Port = node.Port,
-            Tags = _decodeTags?.Invoke() ?? new Dictionary<string, string>(),
+            Tags = _decodeTags?.Invoke() ?? [],
             Status = MemberStatus.Alive,
             ProtocolMin = node.PMin,
             ProtocolMax = node.PMax,
@@ -117,16 +108,16 @@ internal class NodeEventHandler : INodeEventHandler
             DelegateMax = node.DMax,
             DelegateCur = node.DCur
         };
-        
+
         var memberEvent = new MemberEvent
         {
             Type = EventType.MemberJoin,
             Members = new List<Member> { memberForEvent }
         };
-        
+
         _eventLog.Add(memberEvent);
     }
-    
+
     /// <summary>
     /// Handles a memberlist NotifyLeave callback.
     /// AUTHORITATIVE: Transitions to Failed (dead) or Left (graceful).
@@ -139,14 +130,14 @@ internal class NodeEventHandler : INodeEventHandler
             _logger?.LogWarning("[NodeEventHandler] HandleNodeLeave called with null node");
             return;
         }
-        
+
         _logger?.LogDebug("[NodeEventHandler] HandleNodeLeave: {Name}, NodeState={State}", node.Name, node.State);
-        
+
         // Determine event type based on memberlist's determination
         // Memberlist sets State to Left for graceful leave, Dead for actual failure
         var eventType = EventType.MemberLeave;
         var memberStatus = MemberStatus.Left;
-        
+
         if (node.State == NodeStateType.Dead)
         {
             // This is an actual failure, not a graceful leave
@@ -159,7 +150,7 @@ internal class NodeEventHandler : INodeEventHandler
             eventType = EventType.MemberLeave;
             memberStatus = MemberStatus.Left;
         }
-        
+
         _memberManager.ExecuteUnderLock(accessor =>
         {
             // Update member state if it exists
@@ -172,7 +163,7 @@ internal class NodeEventHandler : INodeEventHandler
                     Name = node.Name,
                     Addr = node.Addr,
                     Port = node.Port,
-                    Tags = _decodeTags?.Invoke() ?? new Dictionary<string, string>(),
+                    Tags = _decodeTags?.Invoke() ?? [],
                     Status = memberStatus,
                     ProtocolMin = node.PMin,
                     ProtocolMax = node.PMax,
@@ -181,27 +172,27 @@ internal class NodeEventHandler : INodeEventHandler
                     DelegateMax = node.DMax,
                     DelegateCur = node.DCur
                 };
-                
+
                 accessor.UpdateMember(node.Name, m =>
                 {
                     var isDead = (memberStatus == MemberStatus.Failed);
                     var result = m.StateMachine.TransitionOnMemberlistLeave(isDead);
                     m.LeaveTime = DateTimeOffset.UtcNow;
                     m.Member = member;
-                    
+
                     _logger?.LogDebug("[NodeEventHandler] {Reason}", result.Reason);
                 });
-                
+
                 _logger?.LogInformation("[NodeEventHandler] Member {Status}: {Name}",
                     eventType == EventType.MemberFailed ? "failed" : "left", node.Name);
-                
+
                 // Emit event
                 var memberEvent = new MemberEvent
                 {
                     Type = eventType,
-                    Members = new List<Member> { member }
+                    Members = [member]
                 };
-                
+
                 _eventLog.Add(memberEvent);
             }
         });

@@ -168,8 +168,8 @@ public partial class Serf
 
             // Emit metrics
             // Reference: Go serf.go:1348-1349
-            Config.Metrics.IncrCounter(new[] { "serf", "queries" }, 1, Config.MetricLabels);
-            Config.Metrics.IncrCounter(new[] { "serf", "queries", query.Name }, 1, Config.MetricLabels);
+            Config.Metrics.IncrCounter(["serf", "queries"], 1, Config.MetricLabels);
+            Config.Metrics.IncrCounter(["serf", "queries", query.Name], 1, Config.MetricLabels);
 
             // Check if we should process this query
             if (!ShouldProcessQuery(query.Filters))
@@ -187,16 +187,16 @@ public partial class Serf
                     ID = query.ID,
                     From = Config.NodeName,
                     Flags = (uint)QueryFlags.Ack,
-                    Payload = Array.Empty<byte>()
+                    Payload = []
                 };
                 var raw = EncodeMessage(MessageType.QueryResponse, ack);
-                
+
                 // CRITICAL: Wrap QueryResponse in User message type for memberlist transport
                 // (same way Query messages are wrapped when broadcast)
                 var wrapped = new byte[1 + raw.Length];
                 wrapped[0] = (byte)NSerf.Memberlist.Messages.MessageType.User;
                 Array.Copy(raw, 0, wrapped, 1, raw.Length);
-                
+
                 // Send directly to the query originator (matching Go implementation)
                 var addrStr = System.Text.Encoding.UTF8.GetString(query.Addr);
                 var targetAddr = new Memberlist.Transport.Address
@@ -204,7 +204,7 @@ public partial class Serf
                     Addr = $"{addrStr}:{query.Port}",
                     Name = query.SourceNode ?? string.Empty
                 };
-                
+
                 // Queue async send to avoid blocking the lock
                 // Use Task.Run to ensure it executes on thread pool
                 _ = Task.Run(async () => await SendAckAsync(wrapped, targetAddr, query.Name));

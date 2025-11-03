@@ -10,17 +10,9 @@ namespace NSerf.Memberlist;
 /// <summary>
 /// Handles user-defined messages for application-level communication.
 /// </summary>
-public class UserMessageHandler
+public class UserMessageHandler(IDelegate? delegateHandler = null, ILogger? logger = null)
 {
-    private readonly IDelegate? _delegate;
-    private readonly ILogger? _logger;
-    
-    public UserMessageHandler(IDelegate? delegateHandler = null, ILogger? logger = null)
-    {
-        _delegate = delegateHandler;
-        _logger = logger;
-    }
-    
+
     /// <summary>
     /// Processes an incoming user message.
     /// </summary>
@@ -28,14 +20,14 @@ public class UserMessageHandler
     {
         try
         {
-            _delegate?.NotifyMsg(message);
+            delegateHandler?.NotifyMsg(message);
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "Error handling user message");
+            logger?.LogError(ex, "Error handling user message");
         }
     }
-    
+
     /// <summary>
     /// Gets user messages to broadcast.
     /// </summary>
@@ -43,12 +35,12 @@ public class UserMessageHandler
     {
         try
         {
-            return _delegate?.GetBroadcasts(overhead, limit) ?? new List<byte[]>();
+            return delegateHandler?.GetBroadcasts(overhead, limit) ?? new List<byte[]>();
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "Error getting broadcasts from delegate");
-            return new List<byte[]>();
+            logger?.LogError(ex, "Error getting broadcasts from delegate");
+            return [];
         }
     }
 }

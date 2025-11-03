@@ -19,7 +19,7 @@ internal class QueryCollection
     /// <summary>
     /// List of query IDs at this lamport time.
     /// </summary>
-    public List<uint> QueryIDs { get; set; } = new();
+    public List<uint> QueryIDs { get; set; } = [];
 
     /// <summary>
     /// Returns a string representation of the query collection.

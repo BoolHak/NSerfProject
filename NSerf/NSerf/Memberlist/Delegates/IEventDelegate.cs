@@ -75,20 +75,13 @@ public class NodeEvent
 /// Care must be taken that events are processed in a timely manner from the channel,
 /// since this delegate will block until an event can be sent.
 /// </summary>
-public class ChannelEventDelegate : IEventDelegate
+public class ChannelEventDelegate(ChannelWriter<NodeEvent> channel) : IEventDelegate
 {
-    private readonly ChannelWriter<NodeEvent> _channel;
-
-    public ChannelEventDelegate(ChannelWriter<NodeEvent> channel)
-    {
-        _channel = channel;
-    }
-
     public void NotifyJoin(Node node)
     {
         // Create a copy to avoid modification issues
         var nodeCopy = CloneNode(node);
-        _channel.TryWrite(new NodeEvent
+        channel.TryWrite(new NodeEvent
         {
             EventType = NodeEventType.NodeJoin,
             Node = nodeCopy
@@ -98,7 +91,7 @@ public class ChannelEventDelegate : IEventDelegate
     public void NotifyLeave(Node node)
     {
         var nodeCopy = CloneNode(node);
-        _channel.TryWrite(new NodeEvent
+        channel.TryWrite(new NodeEvent
         {
             EventType = NodeEventType.NodeLeave,
             Node = nodeCopy
@@ -108,7 +101,7 @@ public class ChannelEventDelegate : IEventDelegate
     public void NotifyUpdate(Node node)
     {
         var nodeCopy = CloneNode(node);
-        _channel.TryWrite(new NodeEvent
+        channel.TryWrite(new NodeEvent
         {
             EventType = NodeEventType.NodeUpdate,
             Node = nodeCopy

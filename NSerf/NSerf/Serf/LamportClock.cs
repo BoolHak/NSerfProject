@@ -105,7 +105,7 @@ public class LamportClock
             // Ensure that our local clock is at least one ahead
             // This maintains the "happened before" relationship
             var newValue = other + 1;
-            
+
             if (Interlocked.CompareExchange(ref _counter, newValue, current) == current)
             {
                 // CAS succeeded, we're done

@@ -55,7 +55,7 @@ public class Config
     /// enough or buffering the channel, otherwise it can block state updates
     /// within Serf itself.
     /// </summary>
-    public ChannelWriter<Event>? EventCh { get; set; }
+    public ChannelWriter<IEvent>? EventCh { get; set; }
 
     /// <summary>
     /// ProtocolVersion is the protocol version to speak. This must be between
@@ -304,7 +304,7 @@ public class Config
     /// For example: [new MetricLabel("datacenter", "us-west"), new MetricLabel("env", "prod")]
     /// Reference: Go implementation uses []metrics.Label
     /// </summary>
-    public MetricLabel[] MetricLabels { get; set; } = Array.Empty<MetricLabel>();
+    public MetricLabel[] MetricLabels { get; set; } = [];
 
     /// <summary>
     /// Init allocates the sub-data structures.
@@ -314,7 +314,7 @@ public class Config
         Tags ??= new Dictionary<string, string>();
         MessageDropper ??= _ => false;
         Metrics ??= NullMetrics.Instance;
-        MetricLabels ??= Array.Empty<MetricLabel>();
+        MetricLabels ??= [];
     }
 
     /// <summary>

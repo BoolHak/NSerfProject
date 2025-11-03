@@ -30,14 +30,14 @@ public class SerfServiceDiscoveryProvider : IProxyConfigProvider, IEventHandler,
         _agent = agent ?? throw new ArgumentNullException(nameof(agent));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _config = new InMemoryConfig(Array.Empty<RouteConfig>(), Array.Empty<ClusterConfig>());
-        
+
         // Register event handler for immediate updates
         _agent.RegisterEventHandler(this);
-        
+
         // Slower reconciliation timer as fallback (every 30 seconds)
         // This ensures eventual consistency even if events are missed
         _reconciliationTimer = new Timer(UpdateConfiguration, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(30));
-        
+
         _logger.LogInformation("SerfServiceDiscoveryProvider initialized with event-driven updates");
     }
 
@@ -46,7 +46,7 @@ public class SerfServiceDiscoveryProvider : IProxyConfigProvider, IEventHandler,
     /// <summary>
     /// Handle Serf events for immediate configuration updates.
     /// </summary>
-    public void HandleEvent(Event @event)
+    public void HandleEvent(IEvent @event)
     {
         if (_disposed)
             return;
@@ -55,13 +55,13 @@ public class SerfServiceDiscoveryProvider : IProxyConfigProvider, IEventHandler,
         if (@event is MemberEvent memberEvent)
         {
             var eventType = memberEvent.Type;
-            
+
             // Log event for visibility
             var memberNames = string.Join(", ", memberEvent.Members.Select(m => m.Name));
             _logger.LogDebug("Received {EventType} for members: {Members}", eventType.String(), memberNames);
 
             // Check if any affected members are backends
-            var hasBackendMembers = memberEvent.Members.Any(m => 
+            var hasBackendMembers = memberEvent.Members.Any(m =>
                 m.Tags.TryGetValue("service", out var svc) && svc == "backend");
 
             if (hasBackendMembers)
@@ -200,10 +200,10 @@ public class SerfServiceDiscoveryProvider : IProxyConfigProvider, IEventHandler,
             return;
 
         _disposed = true;
-        
+
         // Deregister event handler
         _agent.DeregisterEventHandler(this);
-        
+
         _reconciliationTimer?.Dispose();
         _config?.Dispose();
     }

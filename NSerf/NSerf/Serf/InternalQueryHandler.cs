@@ -86,8 +86,8 @@ public static class InternalQueryConstants
 /// </summary>
 public class SerfQueries
 {
-    private readonly ChannelReader<Event> _inCh;
-    private readonly ChannelWriter<Event>? _outCh;
+    private readonly ChannelReader<IEvent> _inCh;
+    private readonly ChannelWriter<IEvent>? _outCh;
     private readonly Serf _serf;
     private readonly CancellationToken _shutdownToken;
     private readonly ILogger? _logger;
@@ -100,13 +100,13 @@ public class SerfQueries
     /// <param name="outCh">Output channel for non-internal events (can be null)</param>
     /// <param name="shutdownToken">Cancellation token for shutdown</param>
     /// <returns>Tuple with input channel writer and handler instance</returns>
-    public static (ChannelWriter<Event> InputChannel, SerfQueries Handler) Create(
+    public static (ChannelWriter<IEvent> InputChannel, SerfQueries Handler) Create(
         Serf serf,
-        ChannelWriter<Event>? outCh,
+        ChannelWriter<IEvent>? outCh,
         CancellationToken shutdownToken)
     {
         // Create unbounded channel for event ingestion
-        var channel = Channel.CreateUnbounded<Event>(new UnboundedChannelOptions
+        var channel = Channel.CreateUnbounded<IEvent>(new UnboundedChannelOptions
         {
             SingleReader = true,
             SingleWriter = false
@@ -128,8 +128,8 @@ public class SerfQueries
     /// Private constructor - use Create() factory method instead.
     /// </summary>
     private SerfQueries(
-        ChannelReader<Event> inCh,
-        ChannelWriter<Event>? outCh,
+        ChannelReader<IEvent> inCh,
+        ChannelWriter<IEvent>? outCh,
         Serf serf,
         CancellationToken shutdownToken)
     {
@@ -251,7 +251,7 @@ public class SerfQueries
             });
 
             // Encode the response (null if we don't know the node)
-            var buf = member != null 
+            var buf = member != null
                 ? _serf.EncodeMessage(MessageType.ConflictResponse, member)
                 : Array.Empty<byte>();
 

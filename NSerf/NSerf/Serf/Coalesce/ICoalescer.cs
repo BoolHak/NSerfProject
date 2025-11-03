@@ -15,15 +15,15 @@ internal interface ICoalescer
     /// <summary>
     /// Can the coalescer handle this event? If not, it is directly passed through to the destination channel.
     /// </summary>
-    bool Handle(Event e);
+    bool Handle(IEvent e);
 
     /// <summary>
     /// Invoked to coalesce the given event.
     /// </summary>
-    void Coalesce(Event e);
+    void Coalesce(IEvent e);
 
     /// <summary>
     /// Invoked to flush the coalesced events.
     /// </summary>
-    void Flush(ChannelWriter<Event> outChan);
+    void Flush(ChannelWriter<IEvent> outChan);
 }

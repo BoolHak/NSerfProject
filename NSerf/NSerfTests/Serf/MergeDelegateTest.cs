@@ -151,7 +151,7 @@ public class MergeDelegateTest
         var invalidAddr = new byte[] { 1, 2 };  // Only 2 bytes - invalid
 
         // Act - Test the internal validation logic directly
-        var result = mergeDelegate.ValidateIPLength(invalidAddr);
+        var result = MergeDelegate.ValidateIPLength(invalidAddr);
 
         // Assert
         result.Should().NotBeNull();
@@ -278,7 +278,7 @@ public class MergeDelegateTest
         member.DelegateMin.Should().Be(1);
         member.DelegateMax.Should().Be(3);
         member.DelegateCur.Should().Be(2);
-        
+
         // TODO: Phase 9 - Verify member status mapping and tag decoding
     }
 

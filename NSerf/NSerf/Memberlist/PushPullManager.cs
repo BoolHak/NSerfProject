@@ -11,21 +11,16 @@ namespace NSerf.Memberlist;
 /// <summary>
 /// Manages push/pull state synchronization.
 /// </summary>
-public class PushPullManager
+public class PushPullManager(ILogger? logger = null)
 {
-    private readonly ILogger? _logger;
+    private readonly ILogger? _logger = logger;
     private int _activePushPullRequests;
-    
-    public PushPullManager(ILogger? logger = null)
-    {
-        _logger = logger;
-    }
-    
+
     /// <summary>
     /// Gets the current number of active push/pull requests.
     /// </summary>
     public int ActiveRequests => Interlocked.CompareExchange(ref _activePushPullRequests, 0, 0);
-    
+
     /// <summary>
     /// Increments the active request counter.
     /// </summary>
@@ -33,7 +28,7 @@ public class PushPullManager
     {
         Interlocked.Increment(ref _activePushPullRequests);
     }
-    
+
     /// <summary>
     /// Decrements the active request counter.
     /// </summary>
@@ -41,7 +36,7 @@ public class PushPullManager
     {
         Interlocked.Decrement(ref _activePushPullRequests);
     }
-    
+
     /// <summary>
     /// Checks if we should accept a new push/pull request.
     /// </summary>
@@ -49,13 +44,13 @@ public class PushPullManager
     {
         return ActiveRequests < maxConcurrent;
     }
-    
+
     /// <summary>
     /// Converts local node states to push format.
     /// </summary>
-    public List<PushNodeState> SerializeNodeStates(List<NodeState> nodes)
+    public static List<PushNodeState> SerializeNodeStates(List<NodeState> nodes)
     {
-        return nodes.Select(n => new PushNodeState
+        return [.. nodes.Select(n => new PushNodeState
         {
             Name = n.Name,
             Addr = n.Node.Addr.GetAddressBytes(),
@@ -63,7 +58,14 @@ public class PushPullManager
             Meta = n.Node.Meta,
             Incarnation = n.Incarnation,
             State = n.State,
-            Vsn = new[] { n.Node.PMin, n.Node.PMax, n.Node.PCur, n.Node.DMin, n.Node.DMax, n.Node.DCur }
-        }).ToList();
+            Vsn = [
+                n.Node.PMin,
+                n.Node.PMax,
+                n.Node.PCur,
+                n.Node.DMin,
+                n.Node.DMax,
+                n.Node.DCur
+                ]
+        })];
     }
 }

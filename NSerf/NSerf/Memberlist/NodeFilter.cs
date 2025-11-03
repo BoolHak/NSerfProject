@@ -18,7 +18,7 @@ public static class NodeFilter
     {
         return n => n.Name == localNodeName;
     }
-    
+
     /// <summary>
     /// Returns a filter that excludes dead nodes.
     /// </summary>
@@ -26,7 +26,7 @@ public static class NodeFilter
     {
         return n => n.State == NodeStateType.Dead;
     }
-    
+
     /// <summary>
     /// Returns a filter that only includes alive nodes.
     /// </summary>
@@ -34,7 +34,7 @@ public static class NodeFilter
     {
         return n => n.State != NodeStateType.Alive;
     }
-    
+
     /// <summary>
     /// Returns a filter that excludes multiple node names.
     /// </summary>
@@ -43,22 +43,10 @@ public static class NodeFilter
         var set = new HashSet<string>(nodeNames);
         return n => set.Contains(n.Name);
     }
-    
+
     /// <summary>
     /// Combines multiple filters with OR logic.
     /// </summary>
     public static Func<NodeState, bool> CombineOr(params Func<NodeState, bool>[] filters)
-    {
-        return n =>
-        {
-            foreach (var filter in filters)
-            {
-                if (filter(n))
-                {
-                    return true;
-                }
-            }
-            return false;
-        };
-    }
+        => n => filters.Any(f => f(n));
 }

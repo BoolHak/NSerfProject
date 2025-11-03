@@ -8,7 +8,7 @@ namespace NSerf.Serf.Events;
 /// UserEvent is the struct used for events that are triggered
 /// by the user and are not related to members.
 /// </summary>
-public class UserEvent : Event
+public class UserEvent : IEvent
 {
     /// <summary>
     /// Lamport time when the event occurred.
@@ -23,7 +23,7 @@ public class UserEvent : Event
     /// <summary>
     /// Payload of the user event.
     /// </summary>
-    public byte[] Payload { get; set; } = Array.Empty<byte>();
+    public byte[] Payload { get; set; } = [];
 
     /// <summary>
     /// Whether this event can be coalesced.

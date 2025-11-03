@@ -14,8 +14,8 @@ public class QueryResponse
 {
     private readonly Channel<string>? _ackCh;
     private readonly Channel<NodeResponse> _respCh;
-    private readonly HashSet<string> _acks = new();
-    private readonly HashSet<string> _responses = new();
+    private readonly HashSet<string> _acks = [];
+    private readonly HashSet<string> _responses = [];
     private readonly object _closeLock = new();
     private bool _closed;
     private readonly Serf? _serf; // For metrics emission
@@ -45,7 +45,7 @@ public class QueryResponse
     {
         _respCh = Channel.CreateBounded<NodeResponse>(capacity);
         _serf = serf;
-        
+
         if (requestAck)
         {
             _ackCh = Channel.CreateBounded<string>(capacity);
@@ -108,14 +108,14 @@ public class QueryResponse
                 _responses.Add(nr.From);
             }
         }
-        
+
         if (!shouldSend)
         {
             // Emit duplicate response metric
-            _serf?.Config.Metrics.IncrCounter(new[] { "serf", "query_duplicate_responses" }, 1, _serf.Config.MetricLabels);
+            _serf?.Config.Metrics.IncrCounter(["serf", "query_duplicate_responses"], 1, _serf.Config.MetricLabels);
             return;
         }
-        
+
         lock (_closeLock)
         {
             if (_closed)
@@ -128,7 +128,7 @@ public class QueryResponse
         {
             await _respCh.Writer.WriteAsync(nr);
             // Emit valid response metric (Go serf.go:1452)
-            _serf?.Config.Metrics.IncrCounter(new[] { "serf", "query_responses" }, 1, _serf.Config.MetricLabels);
+            _serf?.Config.Metrics.IncrCounter(["serf", "query_responses"], 1, _serf.Config.MetricLabels);
         }
     }
 
@@ -153,11 +153,11 @@ public class QueryResponse
                 _acks.Add(from);
             }
         }
-        
+
         if (!shouldSend)
         {
             // Emit duplicate ack metric
-            _serf?.Config.Metrics.IncrCounter(new[] { "serf", "query_duplicate_acks" }, 1, _serf.Config.MetricLabels);
+            _serf?.Config.Metrics.IncrCounter(["serf", "query_duplicate_acks"], 1, _serf.Config.MetricLabels);
             return;
         }
 
@@ -173,7 +173,7 @@ public class QueryResponse
         {
             await _ackCh.Writer.WriteAsync(from);
             // Emit valid ack metric (Go serf.go:1440)
-            _serf?.Config.Metrics.IncrCounter(new[] { "serf", "query_acks" }, 1, _serf.Config.MetricLabels);
+            _serf?.Config.Metrics.IncrCounter(["serf", "query_acks"], 1, _serf.Config.MetricLabels);
         }
     }
 }
@@ -191,5 +191,5 @@ public class NodeResponse
     /// <summary>
     /// The response payload.
     /// </summary>
-    public byte[] Payload { get; set; } = Array.Empty<byte>();
+    public byte[] Payload { get; set; } = [];
 }

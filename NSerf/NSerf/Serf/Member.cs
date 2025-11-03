@@ -31,7 +31,7 @@ public class Member
     /// <summary>
     /// Tags associated with this member (metadata key-value pairs).
     /// </summary>
-    public Dictionary<string, string> Tags { get; set; } = new();
+    public Dictionary<string, string> Tags { get; set; } = [];
 
     /// <summary>
     /// Current status of the member (Alive, Leaving, Left, Failed, None).

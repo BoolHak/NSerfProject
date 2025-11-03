@@ -21,14 +21,14 @@ internal static class CoalesceLoop
     /// <param name="quiescentPeriod">Time to wait for quiescence before flushing</param>
     /// <param name="coalescer">The coalescer implementation to use</param>
     /// <returns>Input channel for receiving events</returns>
-    public static ChannelWriter<Event> CoalescedEventChannel(
-        ChannelWriter<Event> outCh,
+    public static ChannelWriter<IEvent> CoalescedEventChannel(
+        ChannelWriter<IEvent> outCh,
         CancellationToken shutdownToken,
         TimeSpan coalescePeriod,
         TimeSpan quiescentPeriod,
         ICoalescer coalescer)
     {
-        var channel = Channel.CreateUnbounded<Event>(new UnboundedChannelOptions
+        var channel = Channel.CreateUnbounded<IEvent>(new UnboundedChannelOptions
         {
             SingleWriter = false,
             SingleReader = true
@@ -54,8 +54,8 @@ internal static class CoalesceLoop
     /// Matches Go's select-based implementation.
     /// </summary>
     private static async Task RunCoalesceLoopAsync(
-        ChannelReader<Event> inCh,
-        ChannelWriter<Event> outCh,
+        ChannelReader<IEvent> inCh,
+        ChannelWriter<IEvent> outCh,
         CancellationToken shutdownToken,
         TimeSpan coalescePeriod,
         TimeSpan quiescentPeriod,
@@ -115,7 +115,7 @@ internal static class CoalesceLoop
                                 try { await outCh.WriteAsync(pendingEvent); } catch { }
                             }
                         }
-                        
+
                         shutdown = true;
                         break; // Will flush in FLUSH section below
                     }

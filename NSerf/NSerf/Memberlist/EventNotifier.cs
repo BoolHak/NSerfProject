@@ -11,17 +11,11 @@ namespace NSerf.Memberlist;
 /// <summary>
 /// Notifies delegates about node events.
 /// </summary>
-public class EventNotifier
+public class EventNotifier(IEventDelegate? eventDelegate = null, ILogger? logger = null)
 {
-    private readonly IEventDelegate? _eventDelegate;
-    private readonly ILogger? _logger;
-    
-    public EventNotifier(IEventDelegate? eventDelegate = null, ILogger? logger = null)
-    {
-        _eventDelegate = eventDelegate;
-        _logger = logger;
-    }
-    
+    private readonly IEventDelegate? _eventDelegate = eventDelegate;
+    private readonly ILogger? _logger = logger;
+
     /// <summary>
     /// Notifies about a node joining.
     /// </summary>
@@ -37,7 +31,7 @@ public class EventNotifier
             _logger?.LogError(ex, "Error notifying join for {Node}", node.Name);
         }
     }
-    
+
     /// <summary>
     /// Notifies about a node leaving.
     /// </summary>
@@ -53,7 +47,7 @@ public class EventNotifier
             _logger?.LogError(ex, "Error notifying leave for {Node}", node.Name);
         }
     }
-    
+
     /// <summary>
     /// Notifies about a node update.
     /// </summary>

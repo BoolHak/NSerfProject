@@ -9,18 +9,11 @@ namespace NSerf.Memberlist;
 /// <summary>
 /// A broadcast that has been queued with metadata.
 /// </summary>
-internal class QueuedBroadcast
+internal class QueuedBroadcast(IBroadcast broadcast)
 {
-    public IBroadcast Broadcast { get; set; } = null!;
-    public int Transmits { get; set; }
-    public DateTimeOffset QueueTime { get; set; }
-    
-    public QueuedBroadcast(IBroadcast broadcast)
-    {
-        Broadcast = broadcast;
-        Transmits = 0;
-        QueueTime = DateTimeOffset.UtcNow;
-    }
+    public IBroadcast Broadcast { get; set; } = broadcast;
+    public int Transmits { get; set; } = 0;
+    public DateTimeOffset QueueTime { get; set; } = DateTimeOffset.UtcNow;
 }
 
 /// <summary>
@@ -34,14 +27,14 @@ internal class BroadcastComparer : IComparer<QueuedBroadcast>
         {
             return 0;
         }
-        
+
         // Lower transmits = higher priority
         var transmitCompare = x.Transmits.CompareTo(y.Transmits);
         if (transmitCompare != 0)
         {
             return transmitCompare;
         }
-        
+
         // Older = higher priority
         return x.QueueTime.CompareTo(y.QueueTime);
     }

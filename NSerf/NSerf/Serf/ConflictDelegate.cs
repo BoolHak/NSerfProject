@@ -11,19 +11,14 @@ namespace NSerf.Serf;
 /// ConflictDelegate is the Serf implementation of IConflictDelegate from Memberlist.
 /// It handles name conflicts when two nodes attempt to join with the same name but different addresses.
 /// </summary>
-internal class ConflictDelegate : IConflictDelegate
+/// <remarks>
+/// Creates a new ConflictDelegate for the given Serf instance.
+/// </remarks>
+/// <param name="serf">The Serf instance to forward conflict notifications to</param>
+/// <exception cref="ArgumentNullException">Thrown if serf is null</exception>
+internal class ConflictDelegate(Serf serf) : IConflictDelegate
 {
-    private readonly Serf _serf;
-
-    /// <summary>
-    /// Creates a new ConflictDelegate for the given Serf instance.
-    /// </summary>
-    /// <param name="serf">The Serf instance to forward conflict notifications to</param>
-    /// <exception cref="ArgumentNullException">Thrown if serf is null</exception>
-    public ConflictDelegate(Serf serf)
-    {
-        _serf = serf ?? throw new ArgumentNullException(nameof(serf));
-    }
+    private readonly Serf _serf = serf ?? throw new ArgumentNullException(nameof(serf));
 
     /// <summary>
     /// Invoked when a name conflict is detected - two nodes with the same name but different addresses.

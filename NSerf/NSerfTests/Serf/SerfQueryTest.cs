@@ -30,7 +30,7 @@ public class SerfQueryTest
     public async Task Serf_Query_ShouldBroadcastAndReceiveResponse()
     {
         // Arrange - Create 2 nodes
-        var eventCh = Channel.CreateUnbounded<Event>();
+        var eventCh = Channel.CreateUnbounded<IEvent>();
         var config1 = new Config
         {
             NodeName = "node1",
@@ -85,7 +85,7 @@ public class SerfQueryTest
         var queryParams = serf2.DefaultQueryParams();
         queryParams.RequestAck = true;
         var response = await serf2.QueryAsync("load", System.Text.Encoding.UTF8.GetBytes("sup girl"), queryParams);
-        
+
         // CRITICAL: Give time for query to propagate through gossip to target node
         // AND for async Task.Run channel writes to execute
         await Task.Delay(500);
@@ -100,9 +100,9 @@ public class SerfQueryTest
         Console.WriteLine($"[TEST] RespCh is {(respCh == null ? "NULL" : "NOT NULL")}");
 
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
-        
+
         Console.WriteLine($"[TEST] Starting to read from channels...");
-        
+
         // Try synchronous TryRead first to see if data is available
         if (ackCh?.TryRead(out var testAck) == true)
         {
@@ -113,7 +113,7 @@ public class SerfQueryTest
         {
             Console.WriteLine($"[TEST] TryRead FAILED: no ack available");
         }
-        
+
         if (respCh?.TryRead(out var testResp) == true)
         {
             Console.WriteLine($"[TEST] TryRead SUCCESS: got response from {testResp.From}");
@@ -162,7 +162,7 @@ public class SerfQueryTest
 
         // CRITICAL: Give time for any in-flight messages to complete processing
         await Task.Delay(500);
-        
+
         cts.Cancel();
         await serf1.ShutdownAsync();
         await serf2.ShutdownAsync();
@@ -177,7 +177,7 @@ public class SerfQueryTest
     public async Task Serf_Query_Relay_ShouldDuplicateResponsesViaPeer()
     {
         // Arrange - Create 3 nodes
-        var eventCh = Channel.CreateUnbounded<Event>();
+        var eventCh = Channel.CreateUnbounded<IEvent>();
         var config1 = new Config
         {
             NodeName = "node1",
@@ -278,7 +278,7 @@ public class SerfQueryTest
     public async Task Serf_Query_WithFilter_ShouldOnlyTargetMatchingNodes()
     {
         // Arrange - Create 3 nodes
-        var eventCh = Channel.CreateUnbounded<Event>();
+        var eventCh = Channel.CreateUnbounded<IEvent>();
         var config1 = new Config
         {
             NodeName = "node1",
@@ -331,7 +331,7 @@ public class SerfQueryTest
         queryParams.RelayFactor = 1;
 
         var response = await serf2.QueryAsync("load", System.Text.Encoding.UTF8.GetBytes("sup girl"), queryParams);
-        
+
         // CRITICAL: Give time for query to propagate through gossip to target node
         // AND for async Task.Run channel writes to execute
         await Task.Delay(500);
@@ -347,7 +347,7 @@ public class SerfQueryTest
         {
             acks.Add(testAck);
         }
-        
+
         if (respCh?.TryRead(out var testResp) == true)
         {
             responses.Add(testResp);
@@ -395,7 +395,7 @@ public class SerfQueryTest
 
         // CRITICAL: Give time for any in-flight messages to complete processing
         await Task.Delay(500);
-        
+
         cts.Cancel();
         await serf1.ShutdownAsync();
         await serf2.ShutdownAsync();
@@ -503,7 +503,7 @@ public class SerfQueryTest
     public async Task Serf_Query_ResponseSizeLimit_ShouldRejectLargeResponses()
     {
         // Arrange
-        var eventCh = Channel.CreateUnbounded<Event>();
+        var eventCh = Channel.CreateUnbounded<IEvent>();
         var config = new Config
         {
             NodeName = "node1",
@@ -600,8 +600,8 @@ public class SerfQueryTest
     public async Task Serf_Query_NodeFilter_ShouldOnlyTargetSpecificNodes()
     {
         // Arrange - Create 2 nodes
-        var eventCh1 = Channel.CreateUnbounded<Event>();
-        var eventCh2 = Channel.CreateUnbounded<Event>();
+        var eventCh1 = Channel.CreateUnbounded<IEvent>();
+        var eventCh2 = Channel.CreateUnbounded<IEvent>();
 
         var config1 = new Config
         {

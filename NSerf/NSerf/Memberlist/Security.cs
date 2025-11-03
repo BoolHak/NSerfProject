@@ -15,7 +15,7 @@ public static class Security
     private const int NonceSize = 12;
     private const int TagSize = 16;
     private const int BlockSize = 16; // AES block size
-    
+
     /// <summary>
     /// Returns the maximum possible overhead of encryption by version.
     /// </summary>
@@ -28,7 +28,7 @@ public static class Security
             _ => throw new ArgumentException("Unsupported version", nameof(version))
         };
     }
-    
+
     /// <summary>
     /// Computes the buffer size needed for a message of given length.
     /// </summary>
@@ -39,12 +39,12 @@ public static class Security
             // Version 1: no padding
             return VersionSize + NonceSize + messageLength + TagSize;
         }
-        
+
         // Version 0: PKCS7 padding
         int padding = BlockSize - (messageLength % BlockSize);
         return VersionSize + NonceSize + messageLength + padding + TagSize;
     }
-    
+
     /// <summary>
     /// Encrypts a message with the given key using AES-GCM.
     /// </summary>
@@ -59,20 +59,20 @@ public static class Security
         {
             throw new ArgumentException("Unsupported encryption version", nameof(version));
         }
-        
+
         using var aes = new AesGcm(key, TagSize);
-        
+
         // Prepare output buffer
         var output = new List<byte>();
-        
+
         // Add version
         output.Add(version);
-        
+
         // Generate random nonce
         var nonce = new byte[NonceSize];
         RandomNumberGenerator.Fill(nonce);
         output.AddRange(nonce);
-        
+
         // Prepare message for encryption
         byte[] plaintext;
         if (version == 0)
@@ -85,20 +85,20 @@ public static class Security
             // Version 1: No padding
             plaintext = message;
         }
-        
+
         // Encrypt
         var ciphertext = new byte[plaintext.Length];
         var tag = new byte[TagSize];
-        
+
         aes.Encrypt(nonce, plaintext, ciphertext, tag, additionalData);
-        
+
         // Append ciphertext and tag
         output.AddRange(ciphertext);
         output.AddRange(tag);
-        
-        return output.ToArray();
+
+        return [.. output];
     }
-    
+
     /// <summary>
     /// Decrypts a message using the provided keys, trying each until one succeeds.
     /// </summary>
@@ -113,30 +113,30 @@ public static class Security
         {
             throw new ArgumentException("Cannot decrypt empty payload", nameof(encryptedMessage));
         }
-        
+
         // Extract version
         byte version = encryptedMessage[0];
         if (version > 1)
         {
             throw new ArgumentException($"Unsupported encryption version {version}", nameof(encryptedMessage));
         }
-        
+
         // Validate length
         int minLength = EncryptedLength(version, 0);
         if (encryptedMessage.Length < minLength)
         {
             throw new ArgumentException($"Payload is too small to decrypt: {encryptedMessage.Length}", nameof(encryptedMessage));
         }
-        
+
         // Extract nonce
         var nonce = encryptedMessage.AsSpan(VersionSize, NonceSize).ToArray();
-        
+
         // Extract ciphertext and tag
         int ciphertextStart = VersionSize + NonceSize;
         int ciphertextLength = encryptedMessage.Length - ciphertextStart - TagSize;
         var ciphertext = encryptedMessage.AsSpan(ciphertextStart, ciphertextLength).ToArray();
         var tag = encryptedMessage.AsSpan(ciphertextStart + ciphertextLength, TagSize).ToArray();
-        
+
         // Try each key
         foreach (var key in keys)
         {
@@ -144,9 +144,9 @@ public static class Security
             {
                 using var aes = new AesGcm(key, TagSize);
                 var plaintext = new byte[ciphertext.Length];
-                
+
                 aes.Decrypt(nonce, ciphertext, tag, plaintext, additionalData);
-                
+
                 // Remove padding for version 0
                 if (version == 0)
                 {
@@ -163,10 +163,10 @@ public static class Security
                 continue;
             }
         }
-        
+
         throw new CryptographicException("No installed keys could decrypt the message");
     }
-    
+
     /// <summary>
     /// Applies PKCS7 padding to a byte array.
     /// </summary>
@@ -175,16 +175,16 @@ public static class Security
         int padding = BlockSize - (data.Length % BlockSize);
         var result = new byte[data.Length + padding];
         Array.Copy(data, result, data.Length);
-        
+
         // Fill padding bytes with the padding length
         for (int i = data.Length; i < result.Length; i++)
         {
             result[i] = (byte)padding;
         }
-        
+
         return result;
     }
-    
+
     /// <summary>
     /// Removes PKCS7 padding from a byte array.
     /// </summary>
@@ -194,13 +194,13 @@ public static class Security
         {
             throw new ArgumentException("Cannot decode a PKCS7 buffer of zero length");
         }
-        
-        int padding = data[data.Length - 1];
+
+        int padding = data[^1];
         int newLength = data.Length - padding;
-        
+
         var result = new byte[newLength];
         Array.Copy(data, result, newLength);
-        
+
         return result;
     }
 }

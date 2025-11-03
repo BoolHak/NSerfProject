@@ -18,26 +18,26 @@ public class PingMessage
     /// </summary>
     [Key(0)]
     public uint SeqNo { get; set; }
-    
+
     /// <summary>
     /// Node name - sent so the target can verify they are the intended recipient.
     /// This protects against an agent restart with a new name.
     /// </summary>
     [Key(1)]
     public string Node { get; set; } = string.Empty;
-    
+
     /// <summary>
     /// Source address, used for a direct reply (optional).
     /// </summary>
     [Key(2)]
     public byte[] SourceAddr { get; set; } = Array.Empty<byte>();
-    
+
     /// <summary>
     /// Source port, used for a direct reply (optional).
     /// </summary>
     [Key(3)]
     public ushort SourcePort { get; set; }
-    
+
     /// <summary>
     /// Source node name, used for a direct reply (optional).
     /// </summary>
@@ -56,43 +56,43 @@ public class IndirectPingMessage
     /// </summary>
     [Key(0)]
     public uint SeqNo { get; set; }
-    
+
     /// <summary>
     /// Target node address.
     /// </summary>
     [Key(1)]
-    public byte[] Target { get; set; } = Array.Empty<byte>();
-    
+    public byte[] Target { get; set; } = [];
+
     /// <summary>
     /// Target node port.
     /// </summary>
     [Key(2)]
     public ushort Port { get; set; }
-    
+
     /// <summary>
     /// Target node name - for verification.
     /// </summary>
     [Key(3)]
     public string Node { get; set; } = string.Empty;
-    
+
     /// <summary>
     /// True if we'd like a nack back.
     /// </summary>
     [Key(4)]
     public bool Nack { get; set; }
-    
+
     /// <summary>
     /// Source address, used for a direct reply (optional).
     /// </summary>
     [Key(5)]
-    public byte[] SourceAddr { get; set; } = Array.Empty<byte>();
-    
+    public byte[] SourceAddr { get; set; } = [];
+
     /// <summary>
     /// Source port, used for a direct reply (optional).
     /// </summary>
     [Key(6)]
     public ushort SourcePort { get; set; }
-    
+
     /// <summary>
     /// Source node name, used for a direct reply (optional).
     /// </summary>
@@ -111,12 +111,12 @@ public class AckRespMessage
     /// </summary>
     [Key(0)]
     public uint SeqNo { get; set; }
-    
+
     /// <summary>
     /// Optional payload data.
     /// </summary>
     [Key(1)]
-    public byte[] Payload { get; set; } = Array.Empty<byte>();
+    public byte[] Payload { get; set; } = [];
 }
 
 /// <summary>
@@ -157,13 +157,13 @@ public class SuspectMessage
     /// </summary>
     [Key(0)]
     public uint Incarnation { get; set; }
-    
+
     /// <summary>
     /// Name of the suspected node.
     /// </summary>
     [Key(1)]
     public string Node { get; set; } = string.Empty;
-    
+
     /// <summary>
     /// Name of the node reporting the suspicion.
     /// </summary>
@@ -183,36 +183,36 @@ public class AliveMessage
     /// </summary>
     [Key(0)]
     public uint Incarnation { get; set; }
-    
+
     /// <summary>
     /// Name of the alive node.
     /// </summary>
     [Key(1)]
     public string Node { get; set; } = string.Empty;
-    
+
     /// <summary>
     /// IP address of the node.
     /// </summary>
     [Key(2)]
-    public byte[] Addr { get; set; } = Array.Empty<byte>();
-    
+    public byte[] Addr { get; set; } = [];
+
     /// <summary>
     /// Port number of the node.
     /// </summary>
     [Key(3)]
     public ushort Port { get; set; }
-    
+
     /// <summary>
     /// Metadata from the delegate for this node.
     /// </summary>
     [Key(4)]
-    public byte[] Meta { get; set; } = Array.Empty<byte>();
-    
+    public byte[] Meta { get; set; } = [];
+
     /// <summary>
     /// Protocol versions: [pmin, pmax, pcur, dmin, dmax, dcur].
     /// </summary>
     [Key(5)]
-    public byte[] Vsn { get; set; } = Array.Empty<byte>();
+    public byte[] Vsn { get; set; } = [];
 }
 
 /// <summary>
@@ -227,13 +227,13 @@ public class DeadMessage
     /// </summary>
     [Key(0)]
     public uint Incarnation { get; set; }
-    
+
     /// <summary>
     /// Name of the dead node.
     /// </summary>
     [Key(1)]
     public string Node { get; set; } = string.Empty;
-    
+
     /// <summary>
     /// Name of the node reporting the death.
     /// </summary>
@@ -252,13 +252,13 @@ public class PushPullHeader
     /// </summary>
     [Key(0)]
     public int Nodes { get; set; }
-    
+
     /// <summary>
     /// Length of user state in bytes.
     /// </summary>
     [Key(1)]
     public int UserStateLen { get; set; }
-    
+
     /// <summary>
     /// True if this is a join request, false for anti-entropy.
     /// </summary>
@@ -290,42 +290,42 @@ public class PushNodeState
     /// </summary>
     [Key(0)]
     public string Name { get; set; } = string.Empty;
-    
+
     /// <summary>
     /// IP address.
     /// </summary>
     [Key(1)]
-    public byte[] Addr { get; set; } = Array.Empty<byte>();
-    
+    public byte[] Addr { get; set; } = [];
+
     /// <summary>
     /// Port number.
     /// </summary>
     [Key(2)]
     public ushort Port { get; set; }
-    
+
     /// <summary>
     /// Node metadata.
     /// </summary>
     [Key(3)]
-    public byte[] Meta { get; set; } = Array.Empty<byte>();
-    
+    public byte[] Meta { get; set; } = [];
+
     /// <summary>
     /// Incarnation number.
     /// </summary>
     [Key(4)]
     public uint Incarnation { get; set; }
-    
+
     /// <summary>
     /// Current state of the node.
     /// </summary>
     [Key(5)]
     public NodeStateType State { get; set; }
-    
+
     /// <summary>
     /// Protocol versions.
     /// </summary>
     [Key(6)]
-    public byte[] Vsn { get; set; } = Array.Empty<byte>();
+    public byte[] Vsn { get; set; } = [];
 }
 
 /// <summary>
@@ -339,10 +339,10 @@ public class CompressMessage
     /// </summary>
     [Key(0)]
     public CompressionType Algo { get; set; }
-    
+
     /// <summary>
     /// Compressed payload.
     /// </summary>
     [Key(1)]
-    public byte[] Buf { get; set; } = Array.Empty<byte>();
+    public byte[] Buf { get; set; } = [];
 }

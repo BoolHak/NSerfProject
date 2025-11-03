@@ -12,33 +12,22 @@ namespace NSerf.Serf.Handlers;
 /// Handles join and leave intent messages using StateMachine pattern.
 /// STATELESS - delegates all state management to MemberManager.
 /// </summary>
-internal class IntentHandler : IIntentHandler
+internal class IntentHandler(
+    IMemberManager memberManager,
+    List<IEvent> eventLog,
+    LamportClock clock,
+    ILogger? logger,
+    string? localNodeName = null,
+    Func<SerfState>? getSerfState = null,
+    Action<byte[]>? broadcastJoinIntent = null) : IIntentHandler
 {
-    private readonly IMemberManager _memberManager;
-    private readonly List<Event> _eventLog;
-    private readonly LamportClock _clock;
-    private readonly ILogger? _logger;
-    private readonly string _localNodeName;
-    private readonly Func<SerfState> _getSerfState;
-    private readonly Action<byte[]>? _broadcastJoinIntent;
-
-    public IntentHandler(
-        IMemberManager memberManager,
-        List<Event> eventLog,
-        LamportClock clock,
-        ILogger? logger,
-        string? localNodeName = null,
-        Func<SerfState>? getSerfState = null,
-        Action<byte[]>? broadcastJoinIntent = null)
-    {
-        _memberManager = memberManager ?? throw new ArgumentNullException(nameof(memberManager));
-        _eventLog = eventLog ?? throw new ArgumentNullException(nameof(eventLog));
-        _clock = clock ?? throw new ArgumentNullException(nameof(clock));
-        _logger = logger;
-        _localNodeName = localNodeName ?? string.Empty;
-        _getSerfState = getSerfState ?? (() => SerfState.SerfAlive);
-        _broadcastJoinIntent = broadcastJoinIntent;
-    }
+    private readonly IMemberManager _memberManager = memberManager ?? throw new ArgumentNullException(nameof(memberManager));
+    private readonly List<IEvent> _eventLog = eventLog ?? throw new ArgumentNullException(nameof(eventLog));
+    private readonly LamportClock _clock = clock ?? throw new ArgumentNullException(nameof(clock));
+    private readonly ILogger? _logger = logger;
+    private readonly string _localNodeName = localNodeName ?? string.Empty;
+    private readonly Func<SerfState> _getSerfState = getSerfState ?? (() => SerfState.SerfAlive);
+    private readonly Action<byte[]>? _broadcastJoinIntent = broadcastJoinIntent;
 
     /// <summary>
     /// Handles a join intent message.

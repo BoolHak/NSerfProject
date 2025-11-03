@@ -22,7 +22,7 @@ public class AgentEventHandlerTests : IAsyncLifetime
     {
         _fixture = new AgentFixture();
         await _fixture.InitializeAsync();
-        
+
         _handler = new MockEventHandler();
         _fixture.Agent!.RegisterEventHandler(_handler);
     }
@@ -48,7 +48,7 @@ public class AgentEventHandlerTests : IAsyncLifetime
 
         // Act - trigger user event
         await _fixture!.Agent!.Serf!.UserEventAsync(eventName, payload, coalesce: false);
-        
+
         // Wait for event to propagate
         await Task.Delay(500);
 
@@ -70,7 +70,7 @@ public class AgentEventHandlerTests : IAsyncLifetime
         // Arrange
         var handler2 = new MockEventHandler();
         _fixture!.Agent!.RegisterEventHandler(handler2);
-        
+
         var eventName = "test-event";
         var payload = System.Text.Encoding.UTF8.GetBytes("test-payload");
 
@@ -81,10 +81,10 @@ public class AgentEventHandlerTests : IAsyncLifetime
         // Assert - both handlers received the event
         Assert.NotEmpty(_handler!.ReceivedEvents);
         Assert.NotEmpty(handler2.ReceivedEvents);
-        
+
         var event1 = _handler.ReceivedEvents.OfType<UserEvent>().FirstOrDefault();
         var event2 = handler2.ReceivedEvents.OfType<UserEvent>().FirstOrDefault();
-        
+
         Assert.NotNull(event1);
         Assert.NotNull(event2);
         Assert.Equal(eventName, event1.Name);
@@ -101,13 +101,13 @@ public class AgentEventHandlerTests : IAsyncLifetime
         // Arrange - create second agent to join
         await using var agent2 = new AgentFixture();
         await agent2.InitializeAsync();
-        
+
         var agent2Members = agent2.Agent!.Serf!.Members();
         var agent2Addr = $"{agent2Members[0].Addr}:{agent2Members[0].Port}";
 
         // Act - join the agents
         await _fixture!.Agent!.Serf!.JoinAsync(new[] { agent2Addr }, ignoreOld: false);
-        
+
         // Wait for join event to propagate
         await Task.Delay(2000);
 
@@ -115,7 +115,7 @@ public class AgentEventHandlerTests : IAsyncLifetime
         Assert.NotEmpty(_handler!.ReceivedEvents);
         var joinEvent = _handler.ReceivedEvents.OfType<MemberEvent>()
             .FirstOrDefault(e => e.EventType() == EventType.MemberJoin);
-        
+
         Assert.NotNull(joinEvent);
         Assert.Contains(joinEvent.Members, m => m.Name == agent2.Agent.NodeName);
     }
@@ -129,10 +129,10 @@ public class AgentEventHandlerTests : IAsyncLifetime
     {
         // Arrange
         var initialEventCount = _handler!.ReceivedEvents.Count;
-        
+
         // Deregister the handler
         _fixture!.Agent!.DeregisterEventHandler(_handler);
-        
+
         // Act - trigger event
         await _fixture.Agent.Serf!.UserEventAsync("test", new byte[] { 1, 2, 3 }, coalesce: false);
         await Task.Delay(500);
@@ -151,7 +151,7 @@ public class AgentEventHandlerTests : IAsyncLifetime
         // Arrange
         var faultyHandler = new FaultyEventHandler();
         var goodHandler = new MockEventHandler();
-        
+
         _fixture!.Agent!.RegisterEventHandler(faultyHandler);
         _fixture.Agent.RegisterEventHandler(goodHandler);
 
@@ -193,9 +193,9 @@ public class AgentEventHandlerTests : IAsyncLifetime
 /// </summary>
 public class MockEventHandler : IEventHandler
 {
-    public List<Event> ReceivedEvents { get; } = new();
-    
-    public void HandleEvent(Event evt)
+    public List<IEvent> ReceivedEvents { get; } = new();
+
+    public void HandleEvent(IEvent evt)
     {
         ReceivedEvents.Add(evt);
     }
@@ -206,7 +206,7 @@ public class MockEventHandler : IEventHandler
 /// </summary>
 public class FaultyEventHandler : IEventHandler
 {
-    public void HandleEvent(Event evt)
+    public void HandleEvent(IEvent evt)
     {
         throw new InvalidOperationException("Simulated handler failure");
     }

@@ -7,7 +7,7 @@ namespace NSerf.Serf.Events;
 /// Base interface for all Serf events.
 /// Minimal implementation for Phase 0 - will be expanded in Phase 3.
 /// </summary>
-public interface Event
+public interface IEvent
 {
     /// <summary>
     /// Gets the type of this event.

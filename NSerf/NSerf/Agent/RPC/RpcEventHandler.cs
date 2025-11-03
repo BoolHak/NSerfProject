@@ -24,7 +24,7 @@ public class RpcEventHandler(NetworkStream stream, SemaphoreSlim writeLock, stri
         MessagePackSerializerOptions.Standard
             .WithCompression(MessagePackCompression.None);
 
-    public void HandleEvent(Event @event)
+    public void HandleEvent(IEvent @event)
     {
         if (_disposed || _cancellationToken.IsCancellationRequested)
             return;
@@ -55,7 +55,7 @@ public class RpcEventHandler(NetworkStream stream, SemaphoreSlim writeLock, stri
         }
     }
 
-    private static Client.Responses.StreamEvent ConvertToStreamEvent(Event @event)
+    private static Client.Responses.StreamEvent ConvertToStreamEvent(IEvent @event)
     {
         var eventType = @event.EventType();
         var streamEvent = new Client.Responses.StreamEvent

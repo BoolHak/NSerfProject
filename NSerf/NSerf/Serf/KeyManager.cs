@@ -11,18 +11,13 @@ namespace NSerf.Serf;
 /// KeyManager encapsulates all functionality within Serf for handling
 /// encryption keyring changes across a cluster.
 /// </summary>
-public class KeyManager
+/// <remarks>
+/// Creates a new KeyManager for the given Serf instance.
+/// </remarks>
+public class KeyManager(Serf serf)
 {
-    private readonly Serf _serf;
+    private readonly Serf _serf = serf ?? throw new ArgumentNullException(nameof(serf));
     private readonly SemaphoreSlim _lock = new(1, 1);
-
-    /// <summary>
-    /// Creates a new KeyManager for the given Serf instance.
-    /// </summary>
-    public KeyManager(Serf serf)
-    {
-        _serf = serf ?? throw new ArgumentNullException(nameof(serf));
-    }
 
     /// <summary>
     /// InstallKey handles broadcasting a query to all members and gathering
@@ -132,7 +127,7 @@ public class KeyManager
         var resp = new KeyResponse();
 
         // Decode the base64 key (empty string for list-keys)
-        byte[] keyBytes = Array.Empty<byte>();
+        byte[] keyBytes = [];
         if (!string.IsNullOrEmpty(key))
         {
             try
@@ -176,7 +171,7 @@ public class KeyManager
     /// StreamKeyResp takes care of reading responses from a channel and composing
     /// them into a KeyResponse. It will update a KeyResponse in place.
     /// </summary>
-    private async Task StreamKeyResp(KeyResponse resp, ChannelReader<NodeResponse> channel)
+    private static async Task StreamKeyResp(KeyResponse resp, ChannelReader<NodeResponse> channel)
     {
         // Read all responses from the channel
         await foreach (var nodeResp in channel.ReadAllAsync())
@@ -202,9 +197,9 @@ public class KeyManager
                     // Aggregate keys - count how many nodes have each key
                     foreach (var key in keyResp.Keys)
                     {
-                        if (resp.Keys.ContainsKey(key))
+                        if (resp.Keys.TryGetValue(key, out int value))
                         {
-                            resp.Keys[key]++;
+                            resp.Keys[key] = ++value;
                         }
                         else
                         {
@@ -215,9 +210,9 @@ public class KeyManager
                     // Track primary key - count how many nodes have each primary key
                     if (!string.IsNullOrEmpty(keyResp.PrimaryKey))
                     {
-                        if (resp.PrimaryKeys.ContainsKey(keyResp.PrimaryKey))
+                        if (resp.PrimaryKeys.TryGetValue(keyResp.PrimaryKey, out int value))
                         {
-                            resp.PrimaryKeys[keyResp.PrimaryKey]++;
+                            resp.PrimaryKeys[keyResp.PrimaryKey] = ++value;
                         }
                         else
                         {
@@ -271,13 +266,13 @@ public class KeyResponse
     /// Keys is a mapping of the base64-encoded value of the key bytes to the
     /// number of nodes that have the key installed.
     /// </summary>
-    public Dictionary<string, int> Keys { get; set; } = new();
+    public Dictionary<string, int> Keys { get; set; } = [];
 
     /// <summary>
     /// PrimaryKeys is a mapping of the base64-encoded value of the primary
     /// key bytes to the number of nodes that have the key installed.
     /// </summary>
-    public Dictionary<string, int> PrimaryKeys { get; set; } = new();
+    public Dictionary<string, int> PrimaryKeys { get; set; } = [];
 }
 
 /// <summary>
@@ -299,7 +294,7 @@ public class KeyRequestOptions
 internal class KeyRequest
 {
     [Key(0)]
-    public byte[] Key { get; set; } = Array.Empty<byte>();
+    public byte[] Key { get; set; } = [];
 }
 
 /// <summary>
@@ -324,7 +319,7 @@ internal class NodeKeyResponse
     /// Keys is used in listing queries to relay a list of installed keys.
     /// </summary>
     [Key(2)]
-    public List<string> Keys { get; set; } = new();
+    public List<string> Keys { get; set; } = [];
 
     /// <summary>
     /// PrimaryKey is used in listing queries to relay the primary key.

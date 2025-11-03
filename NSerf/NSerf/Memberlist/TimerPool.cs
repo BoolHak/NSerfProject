@@ -9,9 +9,9 @@ namespace NSerf.Memberlist;
 /// </summary>
 public class TimerPool
 {
-    private readonly Dictionary<string, IDisposable> _timers = new();
+    private readonly Dictionary<string, IDisposable> _timers = [];
     private readonly object _lock = new();
-    
+
     /// <summary>
     /// Adds or updates a timer for a node.
     /// </summary>
@@ -26,7 +26,7 @@ public class TimerPool
             _timers[nodeId] = timer;
         }
     }
-    
+
     /// <summary>
     /// Removes and disposes a timer for a node.
     /// </summary>
@@ -40,7 +40,7 @@ public class TimerPool
             }
         }
     }
-    
+
     /// <summary>
     /// Clears all timers.
     /// </summary>
@@ -55,7 +55,7 @@ public class TimerPool
             _timers.Clear();
         }
     }
-    
+
     /// <summary>
     /// Gets the count of active timers.
     /// </summary>

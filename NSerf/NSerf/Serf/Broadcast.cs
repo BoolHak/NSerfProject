@@ -15,10 +15,15 @@ namespace NSerf.Serf;
 /// This class implements IUniqueBroadcast which means broadcasts are not
 /// deduplicated - each broadcast is treated as unique.
 /// </summary>
-internal class Broadcast : IBroadcast, IUniqueBroadcast
+/// <remarks>
+/// Creates a new broadcast with the specified message and notification channel.
+/// </remarks>
+/// <param name="msg">Message bytes to broadcast</param>
+/// <param name="notifyWriter">Optional channel writer to notify when broadcast completes</param>
+internal class Broadcast(byte[] msg, ChannelWriter<bool>? notifyWriter) : IUniqueBroadcast
 {
-    private readonly byte[] _msg;
-    private readonly ChannelWriter<bool>? _notifyWriter;
+    private readonly byte[] _msg = msg ?? throw new ArgumentNullException(nameof(msg));
+    private readonly ChannelWriter<bool>? _notifyWriter = notifyWriter;
 
     /// <summary>
     /// Creates a new broadcast with the specified message.
@@ -26,17 +31,6 @@ internal class Broadcast : IBroadcast, IUniqueBroadcast
     /// <param name="msg">Message bytes to broadcast</param>
     public Broadcast(byte[] msg) : this(msg, null)
     {
-    }
-
-    /// <summary>
-    /// Creates a new broadcast with the specified message and notification channel.
-    /// </summary>
-    /// <param name="msg">Message bytes to broadcast</param>
-    /// <param name="notifyWriter">Optional channel writer to notify when broadcast completes</param>
-    public Broadcast(byte[] msg, ChannelWriter<bool>? notifyWriter)
-    {
-        _msg = msg ?? throw new ArgumentNullException(nameof(msg));
-        _notifyWriter = notifyWriter;
     }
 
     /// <summary>
@@ -71,7 +65,7 @@ internal class Broadcast : IBroadcast, IUniqueBroadcast
         {
             // Try to write completion signal (non-blocking)
             _notifyWriter.TryWrite(true);
-            
+
             // Complete the channel to signal no more writes
             // Using try/catch to handle multiple Complete() calls safely
             try

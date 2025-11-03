@@ -25,8 +25,8 @@ public class SerfUserEventTest
     public async Task Serf_EventsUser_ShouldBroadcastAndReceive()
     {
         // Arrange - Create event channel
-        var eventChannel = Channel.CreateUnbounded<Event>();
-        
+        var eventChannel = Channel.CreateUnbounded<IEvent>();
+
         var config1 = new Config
         {
             NodeName = "node1",
@@ -88,12 +88,12 @@ public class SerfUserEventTest
 
         // Assert - Should have received both user events
         userEvents.Should().HaveCountGreaterOrEqualTo(2, "should receive at least the two user events");
-        
-        userEvents.Should().Contain(e => e.Name == "event!" && 
+
+        userEvents.Should().Contain(e => e.Name == "event!" &&
             System.Text.Encoding.UTF8.GetString(e.Payload) == "test",
             "should receive the first user event");
-            
-        userEvents.Should().Contain(e => e.Name == "second" && 
+
+        userEvents.Should().Contain(e => e.Name == "second" &&
             System.Text.Encoding.UTF8.GetString(e.Payload) == "foobar",
             "should receive the second user event");
 
@@ -127,9 +127,9 @@ public class SerfUserEventTest
         // Act & Assert - Large event should fail
         var name = "this is too large an event";
         var payload = new byte[config.UserEventSizeLimit];
-        
+
         var act = async () => await s1.UserEventAsync(name, payload, false);
-        
+
         await act.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*user event exceeds*");
 
@@ -143,8 +143,8 @@ public class SerfUserEventTest
     public async Task Serf_EventsUser_EmptyPayload_ShouldWork()
     {
         // Arrange - Create event channel
-        var eventChannel = Channel.CreateUnbounded<Event>();
-        
+        var eventChannel = Channel.CreateUnbounded<IEvent>();
+
         var config = new Config
         {
             NodeName = "node1",
@@ -188,8 +188,8 @@ public class SerfUserEventTest
     public async Task Serf_EventsUser_CoalesceFlag_ShouldBePreserved()
     {
         // Arrange - Create event channel
-        var eventChannel = Channel.CreateUnbounded<Event>();
-        
+        var eventChannel = Channel.CreateUnbounded<IEvent>();
+
         var config = new Config
         {
             NodeName = "node1",

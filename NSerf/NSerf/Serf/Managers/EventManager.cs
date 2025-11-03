@@ -12,42 +12,32 @@ namespace NSerf.Serf.Managers;
 /// Manages user events: buffering, deduplication, and emission.
 /// Reference: Go serf/serf.go handleUserEvent() and event management
 /// </summary>
-public class EventManager
+/// <remarks>
+/// Creates a new EventManager.
+/// </remarks>
+/// <param name="eventCh">Optional channel to emit events to</param>
+/// <param name="eventBufferSize">Size of the event deduplication buffer</param>
+/// <param name="logger">Optional logger</param>
+public class EventManager(
+    ChannelWriter<IEvent>? eventCh,
+    int eventBufferSize,
+    ILogger? logger = null)
 {
-    private readonly ChannelWriter<Event>? _eventCh;
-    private readonly int _eventBufferSize;
-    private readonly ILogger? _logger;
+    private readonly ChannelWriter<IEvent>? _eventCh = eventCh;
+    private readonly int _eventBufferSize = eventBufferSize;
+    private readonly ILogger? _logger = logger;
 
     // Event buffer for deduplication (circular buffer indexed by LTime % bufferSize)
-    private readonly Dictionary<LamportTime, UserEventCollection> _eventBuffer;
+    private readonly Dictionary<LamportTime, UserEventCollection> _eventBuffer = [];
 
     // Event clock for logical time ordering
-    private LamportTime _eventClockTime;
+    private LamportTime _eventClockTime = 0;
 
     // Minimum event time (events below this are ignored)
-    private LamportTime _eventMinTime;
+    private LamportTime _eventMinTime = 0;
 
     // Lock for thread-safe access to event state
     private readonly ReaderWriterLockSlim _eventLock = new();
-
-    /// <summary>
-    /// Creates a new EventManager.
-    /// </summary>
-    /// <param name="eventCh">Optional channel to emit events to</param>
-    /// <param name="eventBufferSize">Size of the event deduplication buffer</param>
-    /// <param name="logger">Optional logger</param>
-    public EventManager(
-        ChannelWriter<Event>? eventCh,
-        int eventBufferSize,
-        ILogger? logger = null)
-    {
-        _eventCh = eventCh;
-        _eventBufferSize = eventBufferSize;
-        _logger = logger;
-        _eventBuffer = [];
-        _eventClockTime = 0;
-        _eventMinTime = 0;
-    }
 
     /// <summary>
     /// Handles a user event message. Performs deduplication, buffering, and emission.
@@ -144,7 +134,7 @@ public class EventManager
     /// Emits an event to the event channel (for system events like member join/leave).
     /// This method does NOT use the event buffer or deduplication logic.
     /// </summary>
-    public void EmitEvent(Event evt)
+    public void EmitEvent(IEvent evt)
     {
         _logger?.LogDebug("[EventManager] Emitting {EventType}", evt.GetType().Name);
 

@@ -26,8 +26,8 @@ public class SerfFailureTest
     public async Task Serf_EventsFailed_ShouldEmitFailureEvents()
     {
         // Arrange - Create event channel
-        var eventChannel = Channel.CreateUnbounded<Event>();
-        
+        var eventChannel = Channel.CreateUnbounded<IEvent>();
+
         // Configure aggressive timeouts for fast failure detection (matching Go testConfig)
         var config1 = new Config
         {
@@ -84,23 +84,23 @@ public class SerfFailureTest
         await TestHelpers.WaitUntilNumNodesAsync(1, TimeSpan.FromSeconds(5), s1);
 
         // Collect all events
-        var events = new List<Event>();
+        var events = new List<IEvent>();
         while (eventChannel.Reader.TryRead(out var evt))
         {
             events.Add(evt);
         }
 
         // Assert - Should have: Join, Failed/Leave, and Reap events
-        events.Should().Contain(e => e.EventType() == EventType.MemberJoin, 
+        events.Should().Contain(e => e.EventType() == EventType.MemberJoin,
             "s1 should receive a join event when s2 joins");
-        
+
         // Note: Due to timing, shutdown without leave can be detected as either:
         // - MemberFailed (if detected via probe failures)
         // - MemberLeave (if memberlist processes node's own dead message)
         // Both are valid - the important thing is the reaper works (MemberReap below)
         events.Should().Contain(e => e.EventType() == EventType.MemberFailed || e.EventType() == EventType.MemberLeave,
             "s1 should receive a failed or leave event when s2 shuts down");
-        
+
         events.Should().Contain(e => e.EventType() == EventType.MemberReap,
             "s1 should receive a reap event after the member is removed by the reaper");
 
@@ -259,8 +259,8 @@ public class SerfFailureTest
     public async Task Serf_EventsJoin_ShouldEmitJoinEvents()
     {
         // Arrange
-        var eventChannel = Channel.CreateUnbounded<Event>();
-        
+        var eventChannel = Channel.CreateUnbounded<IEvent>();
+
         var config1 = new Config
         {
             NodeName = "node1",
@@ -292,7 +292,7 @@ public class SerfFailureTest
         await Task.Delay(100);
 
         // Assert - Should have join event
-        var events = new List<Event>();
+        var events = new List<IEvent>();
         while (eventChannel.Reader.TryRead(out var evt))
         {
             events.Add(evt);
@@ -312,8 +312,8 @@ public class SerfFailureTest
     public async Task Serf_EventsLeave_ShouldEmitLeaveEvents()
     {
         // Arrange
-        var eventChannel = Channel.CreateUnbounded<Event>();
-        
+        var eventChannel = Channel.CreateUnbounded<IEvent>();
+
         var config1 = new Config
         {
             NodeName = "node1",
@@ -348,16 +348,16 @@ public class SerfFailureTest
 
         // Act - s2 leaves gracefully
         await s2.LeaveAsync();
-        
+
         // Wait for leave events to propagate (retry up to 3 seconds)
-        var events = new List<Event>();
+        var events = new List<IEvent>();
         var deadline = DateTime.UtcNow.AddSeconds(3);
         bool foundLeaveEvent = false;
-        
+
         while (DateTime.UtcNow < deadline && !foundLeaveEvent)
         {
             await Task.Delay(100);
-            
+
             while (eventChannel.Reader.TryRead(out var evt))
             {
                 events.Add(evt);
@@ -416,7 +416,7 @@ public class SerfFailureTest
 
         // Assert - s1 should still know about the member but mark it as failed
         s1.NumMembers().Should().BeGreaterThan(0);
-        
+
         var members = s1.Members();
         members.Should().Contain(m => m.Name == "node2");
 

@@ -149,13 +149,13 @@ public class MessagePushPull
     /// Maps the node name to its status lamport time.
     /// </summary>
     [Key(1)]
-    public Dictionary<string, LamportTime> StatusLTimes { get; set; } = new();
+    public Dictionary<string, LamportTime> StatusLTimes { get; set; } = [];
 
     /// <summary>
     /// List of left node names.
     /// </summary>
     [Key(2)]
-    public List<string> LeftMembers { get; set; } = new();
+    public List<string> LeftMembers { get; set; } = [];
 
     /// <summary>
     /// Lamport time for event clock.
@@ -167,7 +167,7 @@ public class MessagePushPull
     /// Recent events.
     /// </summary>
     [Key(4)]
-    public List<UserEventCollection> Events { get; set; } = new();
+    public List<UserEventCollection> Events { get; set; } = [];
 
     /// <summary>
     /// Lamport time for query clock.
@@ -189,7 +189,7 @@ public class MessageUserEvent
     public string Name { get; set; } = string.Empty;
 
     [Key(2)]
-    public byte[] Payload { get; set; } = Array.Empty<byte>();
+    public byte[] Payload { get; set; } = [];
 
     /// <summary>
     /// CC means "Can Coalesce". Zero value is compatible with Serf 0.1.
@@ -220,7 +220,7 @@ public class MessageQuery
     /// Source address, used for a direct reply.
     /// </summary>
     [Key(2)]
-    public byte[] Addr { get; set; } = Array.Empty<byte>();
+    public byte[] Addr { get; set; } = [];
 
     /// <summary>
     /// Source port, used for a direct reply.
@@ -238,7 +238,7 @@ public class MessageQuery
     /// Potential query filters.
     /// </summary>
     [Key(5)]
-    public List<byte[]> Filters { get; set; } = new();
+    public List<byte[]> Filters { get; set; } = [];
 
     /// <summary>
     /// Used to provide various flags (Ack, NoBroadcast).
@@ -268,7 +268,7 @@ public class MessageQuery
     /// Query payload.
     /// </summary>
     [Key(10)]
-    public byte[] Payload { get; set; } = Array.Empty<byte>();
+    public byte[] Payload { get; set; } = [];
 
     /// <summary>
     /// Checks if the ack flag is set.
@@ -317,7 +317,7 @@ public class MessageQueryResponse
     /// Optional response payload.
     /// </summary>
     [Key(4)]
-    public byte[] Payload { get; set; } = Array.Empty<byte>();
+    public byte[] Payload { get; set; } = [];
 
     /// <summary>
     /// Checks if the ack flag is set.
@@ -331,7 +331,7 @@ public class MessageQueryResponse
 /// </summary>
 public class FilterNode
 {
-    public List<string> Nodes { get; set; } = new();
+    public List<string> Nodes { get; set; } = [];
 }
 
 /// <summary>
@@ -397,7 +397,7 @@ public class RelayHeader
 public class UdpAddr
 {
     [Key(0)]
-    public byte[] IP { get; set; } = Array.Empty<byte>();
+    public byte[] IP { get; set; } = [];
 
     [Key(1)]
     public int Port { get; set; }
@@ -427,13 +427,13 @@ public static class MessageCodec
     public static byte[] EncodeMessage(MessageType messageType, object message)
     {
         using var ms = new MemoryStream();
-        
+
         // Write type header byte
         ms.WriteByte((byte)messageType);
-        
+
         // Serialize message
         MessagePackSerializer.Serialize(ms, message, _standardOptions);
-        
+
         return ms.ToArray();
     }
 
@@ -443,20 +443,20 @@ public static class MessageCodec
     public static byte[] EncodeRelayMessage(MessageType messageType, IPEndPoint destAddr, string nodeName, object message)
     {
         using var ms = new MemoryStream();
-        
+
         // Write relay type header
         ms.WriteByte((byte)MessageType.Relay);
-        
+
         // Serialize relay header
         var header = RelayHeader.FromIPEndPoint(destAddr, nodeName);
         MessagePackSerializer.Serialize(ms, header, _standardOptions);
-        
+
         // Write actual message type
         ms.WriteByte((byte)messageType);
-        
+
         // Serialize actual message
         MessagePackSerializer.Serialize(ms, message, _standardOptions);
-        
+
         return ms.ToArray();
     }
 
@@ -466,10 +466,10 @@ public static class MessageCodec
     public static byte[] EncodeFilter(FilterType filterType, object filter)
     {
         using var ms = new MemoryStream();
-        
+
         // Write filter type header byte
         ms.WriteByte((byte)filterType);
-        
+
         // Serialize filter
         if (filterType == FilterType.Node && filter is List<string> nodes)
         {
@@ -480,7 +480,7 @@ public static class MessageCodec
         {
             MessagePackSerializer.Serialize(ms, filter, _standardOptions);
         }
-        
+
         return ms.ToArray();
     }
 }

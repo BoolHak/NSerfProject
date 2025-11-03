@@ -38,7 +38,7 @@ public class DelegateTest
         meta.Should().BeEquivalentTo(expected, "protocol v2 encodes role as raw string");
 
         // Decode should recover the role
-        var decoded = serf.DecodeTags(meta);
+        var decoded = NSerf.Serf.Serf.DecodeTags(meta);
         decoded.Should().ContainKey("role");
         decoded["role"].Should().Be("test");
     }
@@ -84,7 +84,7 @@ public class DelegateTest
         meta[0].Should().Be(255, "protocol v3 uses magic byte 255");
 
         // Decode should recover the tags
-        var decoded = serf.DecodeTags(meta);
+        var decoded = NSerf.Serf.Serf.DecodeTags(meta);
         decoded.Should().ContainKey("role");
         decoded["role"].Should().Be("test");
     }
@@ -168,7 +168,7 @@ public class DelegateTest
 
         // Verify left members list exists
         pushPull.LeftMembers.Should().NotBeNull();
-        
+
         // Verify events are included in serialization
         // Add a test event via HandleUserEvent (which adds to EventManager's buffer)
         var userEventMsg = new MessageUserEvent
@@ -179,16 +179,16 @@ public class DelegateTest
             CC = false
         };
         serf.HandleUserEvent(userEventMsg);
-        
+
         // Serialize again with event
         var stateWithEvent = delegateObj.LocalState(join: false);
         var pushPullWithEvent = MessagePackSerializer.Deserialize<MessagePushPull>(stateWithEvent.AsMemory(1));
-        
+
         // Verify EventManager events are included in push/pull state
         pushPullWithEvent.Events.Should().NotBeNull("Events should be serialized");
-        pushPullWithEvent.Events.Should().Contain(e => e.LTime == 100, 
+        pushPullWithEvent.Events.Should().Contain(e => e.LTime == 100,
             "EventManager events should be included in serialized state");
-        
+
         var serializedEvent = pushPullWithEvent.Events.First(e => e.LTime == 100);
         serializedEvent.Events.Should().ContainSingle("should have one event");
         serializedEvent.Events[0].Name.Should().Be("test-event");
@@ -249,18 +249,18 @@ public class DelegateTest
         serf.Clock.Time().Should().BeGreaterOrEqualTo(41, "should witness LTime - 1");
         serf.EventClock.Time().Should().BeGreaterOrEqualTo(49, "should witness EventLTime - 1");
         serf.QueryClock.Time().Should().BeGreaterOrEqualTo(99, "should witness QueryLTime - 1");
-        
+
         // Verify StatusLTimes were applied to member states
         // "test" should be processed as join intent
         serf.HasMember("test").Should().BeTrue("StatusLTime for 'test' should create/update member");
         serf.GetMember("test")!.StatusLTime.Should().Be(20, "StatusLTime should be applied");
-        
+
         // Verify LeftMembers were processed
         // "foo" is in LeftMembers, so it should be marked as leaving/left
         serf.HasMember("foo").Should().BeTrue("LeftMember 'foo' should be processed");
         serf.GetMember("foo")!.Status.Should().BeOneOf(MemberStatus.Leaving, MemberStatus.Left);
         // foo should be marked as Leaving or Left
-        
+
         // Verify Events were queued to EventManager
         // Event with LTime=45 should be added to EventManager's buffer
         var events = serf._eventManager?.GetEventCollectionsForPushPull() ?? new List<UserEventCollection>();
@@ -332,7 +332,7 @@ public class DelegateTest
         var config = new Config { NodeName = "test-node", Tags = new Dictionary<string, string>() };
         var serf = new NSerf.Serf.Serf(config);
         var delegateObj = new SerfDelegate(serf);
-        
+
         // Add the node first so leave intent can be processed
         serf.AddMember(new MemberInfo
         {
@@ -354,7 +354,7 @@ public class DelegateTest
         var buffer = new byte[payload.Length + 1];
         buffer[0] = (byte)MessageType.Leave;
         Array.Copy(payload, 0, buffer, 1, payload.Length);
-        
+
         var initialClockTime = serf.Clock.Time();
 
         // Act
@@ -364,14 +364,14 @@ public class DelegateTest
         // 1. Clock should have witnessed the LTime
         serf.Clock.Time().Should().BeGreaterOrEqualTo(10, "clock should witness LTime from leave message");
         serf.Clock.Time().Should().BeGreaterThan(initialClockTime, "clock should have advanced");
-        
+
         // 2. Member status should be updated to Leaving (Alive -> Leaving transition)
         serf.HasMember("leaving-node").Should().BeTrue();
         var memberInfo = serf.GetMember("leaving-node");
         memberInfo.Should().NotBeNull();
-        memberInfo!.Status.Should().Be(MemberStatus.Leaving, 
+        memberInfo!.Status.Should().Be(MemberStatus.Leaving,
             "member should transition from Alive to Leaving after leave intent");
-        memberInfo.StatusLTime.Should().Be(10, 
+        memberInfo.StatusLTime.Should().Be(10,
             "StatusLTime should be updated to leave message LTime");
     }
 
@@ -382,7 +382,7 @@ public class DelegateTest
         var config = new Config { NodeName = "test-node", Tags = new Dictionary<string, string>() };
         var serf = new NSerf.Serf.Serf(config);
         var delegateObj = new SerfDelegate(serf);
-        
+
         var initialClockTime = serf.Clock.Time();
         var initialMemberCount = serf.NumMembers();
 
@@ -392,10 +392,10 @@ public class DelegateTest
         // Assert - Verify no handlers were called, no state changes
         // 1. Clock should not change
         serf.Clock.Time().Should().Be(initialClockTime, "clock should not change with empty buffer");
-        
+
         // 2. No members added or changed
         serf.NumMembers().Should().Be(initialMemberCount, "member count should not change");
-        
+
         // Empty buffer should be handled gracefully without throwing
     }
 }

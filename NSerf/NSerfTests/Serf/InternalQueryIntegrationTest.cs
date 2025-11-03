@@ -26,8 +26,8 @@ public class InternalQueryIntegrationTest
     public async Task Serf_CreateAsync_ShouldWireInternalQueryHandler()
     {
         // Arrange
-        var eventCh = Channel.CreateUnbounded<Event>();
-        
+        var eventCh = Channel.CreateUnbounded<IEvent>();
+
         var config = new Config
         {
             NodeName = "test-node",
@@ -57,8 +57,8 @@ public class InternalQueryIntegrationTest
     public async Task InternalQueryHandler_NonInternalQuery_ShouldPassThrough()
     {
         // Arrange
-        var eventCh = Channel.CreateUnbounded<Event>();
-        
+        var eventCh = Channel.CreateUnbounded<IEvent>();
+
         var config = new Config
         {
             NodeName = "test-node",
@@ -79,7 +79,7 @@ public class InternalQueryIntegrationTest
         // Assert - Event should pass through to user's EventCh
         // Note: First event will be the node's initial self-join MemberEvent, keep reading for UserEvent
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-        
+
         UserEvent? userEvt = null;
         try
         {
@@ -116,8 +116,8 @@ public class InternalQueryIntegrationTest
         var keyring1 = Keyring.Create(null, key1Bytes);
         var keyring2 = Keyring.Create(null, key1Bytes);
 
-        var eventCh1 = Channel.CreateUnbounded<Event>();
-        var eventCh2 = Channel.CreateUnbounded<Event>();
+        var eventCh1 = Channel.CreateUnbounded<IEvent>();
+        var eventCh2 = Channel.CreateUnbounded<IEvent>();
 
         var config1 = new Config
         {
@@ -166,10 +166,10 @@ public class InternalQueryIntegrationTest
         // Assert - Should get responses from both nodes
         response.Should().NotBeNull();
         response.NumNodes.Should().Be(2, "cluster has 2 nodes");
-        
+
         // Note: Response count might be less if query times out before responses arrive
         // This is expected behavior in the current implementation
-        
+
         // Cleanup
         await serf1.ShutdownAsync();
         await serf2.ShutdownAsync();
@@ -182,8 +182,8 @@ public class InternalQueryIntegrationTest
     public async Task KeyManager_WithoutEncryption_ShouldHandleGracefully()
     {
         // Arrange - Create node WITHOUT encryption
-        var eventCh = Channel.CreateUnbounded<Event>();
-        
+        var eventCh = Channel.CreateUnbounded<IEvent>();
+
         var config = new Config
         {
             NodeName = "node1",
@@ -220,8 +220,8 @@ public class InternalQueryIntegrationTest
     public async Task InternalQueryHandler_MemberEvents_ShouldPassThrough()
     {
         // Arrange
-        var eventCh = Channel.CreateUnbounded<Event>();
-        
+        var eventCh = Channel.CreateUnbounded<IEvent>();
+
         var config1 = new Config
         {
             NodeName = "node1",
@@ -255,7 +255,7 @@ public class InternalQueryIntegrationTest
         // Assert - Should receive member join event on node1's EventCh
         // Note: First event will be node1's initial self-join, we need to keep reading for node2
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-        
+
         var receivedNode2Event = false;
         try
         {
@@ -277,7 +277,7 @@ public class InternalQueryIntegrationTest
         {
             receivedNode2Event.Should().BeTrue("Should have received node2's join event before timeout");
         }
-        
+
         receivedNode2Event.Should().BeTrue("Should have received node2's join event");
 
         // Cleanup
@@ -294,8 +294,8 @@ public class InternalQueryIntegrationTest
     public async Task InternalQueryHandler_Integration_IsWiredCorrectly()
     {
         // Arrange
-        var eventCh = Channel.CreateUnbounded<Event>();
-        
+        var eventCh = Channel.CreateUnbounded<IEvent>();
+
         var config = new Config
         {
             NodeName = "node1",

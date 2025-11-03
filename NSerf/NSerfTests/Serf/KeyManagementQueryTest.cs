@@ -38,7 +38,7 @@ public class KeyManagementQueryTest
         };
 
         using var serf = await NSerf.Serf.Serf.CreateAsync(config);
-        var outCh = Channel.CreateUnbounded<Event>();
+        var outCh = Channel.CreateUnbounded<IEvent>();
         using var cts = new CancellationTokenSource();
 
         // Act - Create handler
@@ -96,7 +96,7 @@ public class KeyManagementQueryTest
         // Verify encryption is enabled
         serf.EncryptionEnabled().Should().BeTrue();
 
-        var outCh = Channel.CreateUnbounded<Event>();
+        var outCh = Channel.CreateUnbounded<IEvent>();
         using var cts = new CancellationTokenSource();
 
         // Act - Create handler
@@ -146,7 +146,7 @@ public class KeyManagementQueryTest
         };
 
         using var serf = await NSerf.Serf.Serf.CreateAsync(config);
-        var outCh = Channel.CreateUnbounded<Event>();
+        var outCh = Channel.CreateUnbounded<IEvent>();
         var cts = new CancellationTokenSource();
 
         // Act - Create handler
@@ -215,7 +215,7 @@ public class KeyManagementQueryTest
         // Verify initial key count
         keyring.GetKeys().Should().HaveCount(1);
 
-        var outCh = Channel.CreateUnbounded<Event>();
+        var outCh = Channel.CreateUnbounded<IEvent>();
         var cts = new CancellationTokenSource();
 
         // Act - Create handler
@@ -289,7 +289,7 @@ public class KeyManagementQueryTest
 
             using var serf = await NSerf.Serf.Serf.CreateAsync(config);
 
-            var outCh = Channel.CreateUnbounded<Event>();
+            var outCh = Channel.CreateUnbounded<IEvent>();
             var cts = new CancellationTokenSource();
 
             // Act - Create handler
@@ -382,7 +382,7 @@ public class KeyManagementQueryTest
         // Verify we have many keys
         keyring.GetKeys().Should().HaveCountGreaterThan(20);
 
-        var outCh = Channel.CreateUnbounded<Event>();
+        var outCh = Channel.CreateUnbounded<IEvent>();
         var cts = new CancellationTokenSource();
 
         // Act - Create handler
@@ -445,7 +445,7 @@ public class KeyManagementQueryTest
         var primaryKey = keyring.GetPrimaryKey();
         primaryKey.Should().BeEquivalentTo(key1Bytes);
 
-        var outCh = Channel.CreateUnbounded<Event>();
+        var outCh = Channel.CreateUnbounded<IEvent>();
         var cts = new CancellationTokenSource();
 
         // Act - Create handler
@@ -503,7 +503,7 @@ public class KeyManagementQueryTest
         };
 
         using var serf = await NSerf.Serf.Serf.CreateAsync(config);
-        var outCh = Channel.CreateUnbounded<Event>();
+        var outCh = Channel.CreateUnbounded<IEvent>();
         var cts = new CancellationTokenSource();
 
         // Act - Create handler
@@ -575,7 +575,7 @@ public class KeyManagementQueryTest
         // Verify initial key count
         keyring.GetKeys().Should().HaveCount(2);
 
-        var outCh = Channel.CreateUnbounded<Event>();
+        var outCh = Channel.CreateUnbounded<IEvent>();
         var cts = new CancellationTokenSource();
 
         // Act - Create handler
@@ -636,7 +636,7 @@ public class KeyManagementQueryTest
         };
 
         using var serf = await NSerf.Serf.Serf.CreateAsync(config);
-        var outCh = Channel.CreateUnbounded<Event>();
+        var outCh = Channel.CreateUnbounded<IEvent>();
         var cts = new CancellationTokenSource();
 
         // Act - Create handler
@@ -713,7 +713,7 @@ public class KeyManagementQueryTest
 
             using var serf = await NSerf.Serf.Serf.CreateAsync(config);
 
-            var outCh = Channel.CreateUnbounded<Event>();
+            var outCh = Channel.CreateUnbounded<IEvent>();
             var cts = new CancellationTokenSource();
 
             // Act - Create handler

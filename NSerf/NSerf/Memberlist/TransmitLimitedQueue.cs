@@ -13,19 +13,19 @@ public class TransmitLimitedQueue
 {
     private readonly object _lock = new();
     private readonly SortedSet<LimitedBroadcast> _queue = new(new LimitedBroadcastComparer());
-    private readonly Dictionary<string, LimitedBroadcast> _nameMap = new();
+    private readonly Dictionary<string, LimitedBroadcast> _nameMap = [];
     private long _idGen;
-    
+
     /// <summary>
     /// Returns the number of nodes in the cluster. Used to determine retransmit count.
     /// </summary>
     public Func<int> NumNodes { get; set; } = () => 1;
-    
+
     /// <summary>
     /// Multiplier used to determine the maximum number of retransmissions attempted.
     /// </summary>
     public int RetransmitMult { get; set; } = 4;
-    
+
     /// <summary>
     /// Enqueues a broadcast for transmission.
     /// </summary>
@@ -33,7 +33,7 @@ public class TransmitLimitedQueue
     {
         QueueBroadcastInternal(broadcast, 0);
     }
-    
+
     private void QueueBroadcastInternal(IBroadcast broadcast, int initialTransmits)
     {
         lock (_lock)
@@ -47,7 +47,7 @@ public class TransmitLimitedQueue
             {
                 _idGen++;
             }
-            
+
             var lb = new LimitedBroadcast
             {
                 Transmits = initialTransmits,
@@ -55,14 +55,14 @@ public class TransmitLimitedQueue
                 Id = _idGen,
                 Broadcast = broadcast
             };
-            
+
             bool isUnique = broadcast is IUniqueBroadcast;
-            
+
             // Check if this is a named broadcast
             if (broadcast is INamedBroadcast nb)
             {
                 lb.Name = nb.Name();
-                
+
                 // Replace any existing broadcast with the same name
                 if (_nameMap.TryGetValue(lb.Name, out var old))
                 {
@@ -77,7 +77,7 @@ public class TransmitLimitedQueue
                 foreach (var cur in _queue)
                 {
                     // Special broadcasts can only invalidate each other
-                    if (cur.Broadcast is not INamedBroadcast && 
+                    if (cur.Broadcast is not INamedBroadcast &&
                         cur.Broadcast is not IUniqueBroadcast)
                     {
                         if (broadcast.Invalidates(cur.Broadcast))
@@ -87,7 +87,7 @@ public class TransmitLimitedQueue
                         }
                     }
                 }
-                
+
                 foreach (var cur in toRemove)
                 {
                     _queue.Remove(cur);
@@ -97,7 +97,7 @@ public class TransmitLimitedQueue
                     }
                 }
             }
-            
+
             // Add to queue
             _queue.Add(lb);
             if (lb.Name != null)
@@ -106,7 +106,7 @@ public class TransmitLimitedQueue
             }
         }
     }
-    
+
     /// <summary>
     /// Gets broadcasts up to a byte limit, applying per-message overhead.
     /// </summary>
@@ -118,31 +118,31 @@ public class TransmitLimitedQueue
             {
                 return new List<byte[]>();
             }
-            
+
             var numNodes = NumNodes();
             int transmitLimit = Common.MemberlistMath.RetransmitLimit(RetransmitMult, numNodes);
-            
+
             int bytesUsed = 0;
             var toSend = new List<byte[]>();
             var toReinsert = new List<LimitedBroadcast>();
             var toRemove = new List<LimitedBroadcast>();
-            
+
             // Process items by transmit count (lower first)
             foreach (var item in _queue)
             {
                 int msgLen = item.Broadcast.Message().Length;
-                
+
                 // Check if it fits
                 if (bytesUsed + overhead + msgLen > limit)
                 {
                     continue;
                 }
-                
+
                 var msg = item.Broadcast.Message();
                 bytesUsed += overhead + msg.Length;
                 toSend.Add(msg);
                 toRemove.Add(item);
-                
+
                 // Check if we should retransmit
                 if (item.Transmits + 1 >= transmitLimit)
                 {
@@ -162,7 +162,7 @@ public class TransmitLimitedQueue
                     toReinsert.Add(updated);
                 }
             }
-            
+
             // Remove processed items
             foreach (var item in toRemove)
             {
@@ -172,7 +172,7 @@ public class TransmitLimitedQueue
                     _nameMap.Remove(item.Name);
                 }
             }
-            
+
             // Reinsert items that need more transmits
             foreach (var item in toReinsert)
             {
@@ -182,17 +182,17 @@ public class TransmitLimitedQueue
                     _nameMap[item.Name] = item;
                 }
             }
-            
+
             // Reset ID generator if queue is empty
             if (_queue.Count == 0)
             {
                 _idGen = 0;
             }
-            
+
             return toSend;
         }
     }
-    
+
     /// <summary>
     /// Returns the number of queued messages.
     /// </summary>
@@ -203,7 +203,7 @@ public class TransmitLimitedQueue
             return _queue.Count;
         }
     }
-    
+
     /// <summary>
     /// Clears all queued messages. Should only be used for tests.
     /// </summary>
@@ -215,13 +215,13 @@ public class TransmitLimitedQueue
             {
                 item.Broadcast.Finished();
             }
-            
+
             _queue.Clear();
             _nameMap.Clear();
             _idGen = 0;
         }
     }
-    
+
     /// <summary>
     /// Retains only the maxRetain latest messages, discarding the rest.
     /// </summary>
@@ -234,7 +234,7 @@ public class TransmitLimitedQueue
                 // Remove oldest (highest transmit count)
                 var oldest = _queue.Max;
                 if (oldest == null) break;
-                
+
                 oldest.Broadcast.Finished();
                 _queue.Remove(oldest);
                 if (oldest.Name != null)
@@ -266,19 +266,19 @@ internal class LimitedBroadcastComparer : IComparer<LimitedBroadcast>
     public int Compare(LimitedBroadcast? x, LimitedBroadcast? y)
     {
         if (x == null || y == null) return 0;
-        
+
         // Primary: Lower transmit count comes first
         if (x.Transmits != y.Transmits)
         {
             return x.Transmits.CompareTo(y.Transmits);
         }
-        
+
         // Secondary: Larger messages come first (within same transmit tier)
         if (x.MsgLen != y.MsgLen)
         {
             return y.MsgLen.CompareTo(x.MsgLen);
         }
-        
+
         // Tertiary: Higher ID comes first (newer messages)
         return y.Id.CompareTo(x.Id);
     }

@@ -238,9 +238,9 @@ public class SerfAgentVerificationTests
 
 public class MockEventHandler : IEventHandler
 {
-    public List<Event> ReceivedEvents { get; } = new();
+    public List<IEvent> ReceivedEvents { get; } = new();
 
-    public void HandleEvent(Event @event)
+    public void HandleEvent(IEvent @event)
     {
         ReceivedEvents.Add(@event);
     }

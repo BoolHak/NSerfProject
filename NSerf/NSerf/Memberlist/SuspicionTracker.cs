@@ -9,9 +9,9 @@ namespace NSerf.Memberlist;
 /// </summary>
 public class SuspicionTracker
 {
-    private readonly Dictionary<string, Suspicion> _suspicions = new();
+    private readonly Dictionary<string, Suspicion> _suspicions = [];
     private readonly object _lock = new();
-    
+
     /// <summary>
     /// Adds a suspicion timer for a node.
     /// </summary>
@@ -26,7 +26,7 @@ public class SuspicionTracker
             _suspicions[nodeId] = suspicion;
         }
     }
-    
+
     /// <summary>
     /// Gets a suspicion timer for a node.
     /// </summary>
@@ -37,7 +37,7 @@ public class SuspicionTracker
             return _suspicions.TryGetValue(nodeId, out var suspicion) ? suspicion : null;
         }
     }
-    
+
     /// <summary>
     /// Removes and disposes a suspicion timer.
     /// </summary>
@@ -51,7 +51,7 @@ public class SuspicionTracker
             }
         }
     }
-    
+
     /// <summary>
     /// Clears all suspicion timers.
     /// </summary>
@@ -66,7 +66,7 @@ public class SuspicionTracker
             _suspicions.Clear();
         }
     }
-    
+
     /// <summary>
     /// Gets the count of active suspicions.
     /// </summary>

@@ -453,6 +453,7 @@ public class NetTransport : INodeAwareTransport
             _disposed = true;
             ShutdownAsync().GetAwaiter().GetResult();
             _shutdownCts.Dispose();
+            GC.SuppressFinalize(this);
         }
     }
 }

@@ -16,17 +16,15 @@ public partial class Serf
     public Dictionary<string, string> Stats()
     {
         // Get member counts by status using ExecuteUnderLock
-        var counts = _memberManager.ExecuteUnderLock(accessor =>
+        var (members, failed, left) = _memberManager.ExecuteUnderLock(accessor =>
         {
             var aliveMembers = accessor.GetMembersByStatus(MemberStatus.Alive);
             var failedMembers = accessor.GetMembersByStatus(MemberStatus.Failed);
             var leftMembers = accessor.GetMembersByStatus(MemberStatus.Left);
-            return (Alive: aliveMembers.Count, Failed: failedMembers.Count, Left: leftMembers.Count);
+            return (aliveMembers.Count, failedMembers.Count, leftMembers.Count);
         });
-        
-        var members = counts.Alive;
-        var failed = counts.Failed;
-        var left = counts.Left;
+
+
 
         // Get health score from memberlist
         var healthScore = Memberlist?.GetHealthScore() ?? 0;

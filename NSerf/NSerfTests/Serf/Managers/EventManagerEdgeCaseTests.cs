@@ -21,7 +21,7 @@ public class EventManagerEdgeCaseTests
     public void EventBuffer_Overflow_ShouldOverwriteOldestEntries()
     {
         // Arrange - Very small buffer to force overflow
-        var eventCh = Channel.CreateUnbounded<Event>();
+        var eventCh = Channel.CreateUnbounded<IEvent>();
         var eventManager = new EventManager(
             eventCh: eventCh.Writer,
             eventBufferSize: 3, // Only 3 slots
@@ -44,7 +44,7 @@ public class EventManagerEdgeCaseTests
         // Only recent events (7, 8, 9) might still be detectable
         var events = eventManager.GetEventCollectionsForPushPull();
         events.Count.Should().BeLessOrEqualTo(10, "buffer should contain at most 10 events");
-        
+
         // Try to add event with LTime=0 again - might be treated as new due to overflow
         var duplicateAtZero = new MessageUserEvent
         {
@@ -53,7 +53,7 @@ public class EventManagerEdgeCaseTests
             Payload = new byte[] { 0 },
             CC = false
         };
-        
+
         var result = eventManager.HandleUserEvent(duplicateAtZero);
         // Behavior depends on whether slot 0 was overwritten
         // Just verify it doesn't crash and returns a boolean
@@ -64,7 +64,7 @@ public class EventManagerEdgeCaseTests
     public async Task ConcurrentEventProcessing_ShouldNotCorruptState()
     {
         // Arrange
-        var eventCh = Channel.CreateUnbounded<Event>();
+        var eventCh = Channel.CreateUnbounded<IEvent>();
         var eventManager = new EventManager(
             eventCh: eventCh.Writer,
             eventBufferSize: 1000,
@@ -91,7 +91,7 @@ public class EventManagerEdgeCaseTests
                             CC = false
                         };
                         eventManager.HandleUserEvent(evt);
-                        
+
                         // Also test clock witnessing
                         eventManager.WitnessEventClock(evt.LTime + 1UL);
                     }
@@ -110,7 +110,7 @@ public class EventManagerEdgeCaseTests
 
         // Assert - No exceptions should occur
         exceptions.Should().BeEmpty("concurrent access should be thread-safe");
-        
+
         // Verify clock is consistent
         var finalClock = eventManager.GetEventClockTime();
         finalClock.Should().BeGreaterOrEqualTo(0);
@@ -137,9 +137,9 @@ public class EventManagerEdgeCaseTests
         // Assert - Should handle gracefully without throwing
         var act = () => eventManager.HandleUserEvent(evt);
         act.Should().NotThrow("should handle null channel gracefully");
-        
-        var emitAct = () => eventManager.EmitEvent(new MemberEvent 
-        { 
+
+        var emitAct = () => eventManager.EmitEvent(new MemberEvent
+        {
             Type = EventType.MemberJoin,
             Members = new List<Member>()
         });
@@ -150,7 +150,7 @@ public class EventManagerEdgeCaseTests
     public void EventsDuringShutdown_AfterDispose_ShouldNotThrow()
     {
         // Arrange
-        var eventCh = Channel.CreateUnbounded<Event>();
+        var eventCh = Channel.CreateUnbounded<IEvent>();
         var eventManager = new EventManager(
             eventCh: eventCh.Writer,
             eventBufferSize: 64,
@@ -185,7 +185,7 @@ public class EventManagerEdgeCaseTests
     public void EventJoinIgnore_OldEventsBeforeMinTime_ShouldBeIgnored()
     {
         // Arrange
-        var eventCh = Channel.CreateUnbounded<Event>();
+        var eventCh = Channel.CreateUnbounded<IEvent>();
         var eventManager = new EventManager(
             eventCh: eventCh.Writer,
             eventBufferSize: 64,
@@ -212,7 +212,7 @@ public class EventManagerEdgeCaseTests
         eventCh.Reader.TryRead(out var emittedEvent).Should().BeTrue();
         var userEvt = emittedEvent.Should().BeOfType<UserEvent>().Subject;
         userEvt.Name.Should().Be("new-1");
-        
+
         eventCh.Reader.TryRead(out _).Should().BeFalse("old events should not be emitted");
     }
 
@@ -228,13 +228,13 @@ public class EventManagerEdgeCaseTests
         // Act - Witness times in non-monotonic order
         eventManager.WitnessEventClock(100);
         var clock1 = eventManager.GetEventClockTime();
-        
+
         eventManager.WitnessEventClock(50); // Try to go backwards
         var clock2 = eventManager.GetEventClockTime();
-        
+
         eventManager.WitnessEventClock(100); // Same time
         var clock3 = eventManager.GetEventClockTime();
-        
+
         eventManager.WitnessEventClock(150); // Forward
         var clock4 = eventManager.GetEventClockTime();
 
@@ -249,7 +249,7 @@ public class EventManagerEdgeCaseTests
     public void OldEvents_BeyondBufferWindow_ShouldBeRejected()
     {
         // Arrange
-        var eventCh = Channel.CreateUnbounded<Event>();
+        var eventCh = Channel.CreateUnbounded<IEvent>();
         var eventManager = new EventManager(
             eventCh: eventCh.Writer,
             eventBufferSize: 10, // Small window
@@ -288,7 +288,7 @@ public class EventManagerEdgeCaseTests
     public void EventWithExactMinTime_ShouldBeAccepted()
     {
         // Arrange
-        var eventCh = Channel.CreateUnbounded<Event>();
+        var eventCh = Channel.CreateUnbounded<IEvent>();
         var eventManager = new EventManager(
             eventCh: eventCh.Writer,
             eventBufferSize: 64,
@@ -316,7 +316,7 @@ public class EventManagerEdgeCaseTests
     public void MultipleEventsAtSameLTime_DifferentNames_ShouldAllBeProcessed()
     {
         // Arrange
-        var eventCh = Channel.CreateUnbounded<Event>();
+        var eventCh = Channel.CreateUnbounded<IEvent>();
         var eventManager = new EventManager(
             eventCh: eventCh.Writer,
             eventBufferSize: 64,
@@ -334,7 +334,7 @@ public class EventManagerEdgeCaseTests
 
         // Assert - All should be accepted
         results.Should().OnlyContain(r => r == true, "different events at same LTime should all be processed");
-        
+
         // Verify all were emitted
         for (int i = 0; i < 3; i++)
         {
@@ -346,7 +346,7 @@ public class EventManagerEdgeCaseTests
     public void EmitEvent_WithChannelClosed_ShouldNotThrowOrDeadlock()
     {
         // Arrange
-        var channel = Channel.CreateBounded<Event>(1);
+        var channel = Channel.CreateBounded<IEvent>(1);
         var eventManager = new EventManager(
             eventCh: channel.Writer,
             eventBufferSize: 64,
@@ -426,7 +426,7 @@ public class EventManagerEdgeCaseTests
     public void ZeroLTimeEvent_ShouldBeHandledCorrectly()
     {
         // Arrange
-        var eventCh = Channel.CreateUnbounded<Event>();
+        var eventCh = Channel.CreateUnbounded<IEvent>();
         var eventManager = new EventManager(
             eventCh: eventCh.Writer,
             eventBufferSize: 64,

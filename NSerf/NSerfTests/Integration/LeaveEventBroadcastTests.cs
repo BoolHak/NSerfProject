@@ -32,7 +32,7 @@ public class LeaveEventBroadcastTests : IDisposable
         // ASSERT: Check that broadcasts queue has the message
         var broadcastCount = serf.Broadcasts.Count;
         _logger.LogInformation("Broadcasts queue count after leave: {Count}", broadcastCount);
-        
+
         Assert.True(broadcastCount >= 0, "Broadcasts queue should be accessible");
     }
 
@@ -52,10 +52,10 @@ public class LeaveEventBroadcastTests : IDisposable
 
         // ASSERT: Should take at least the propagation delay (1 second default)
         _logger.LogInformation("LeaveAsync duration: {Duration}ms", duration.TotalMilliseconds);
-        
+
         // Should complete (not hang forever)
         Assert.True(duration.TotalSeconds < 15, "LeaveAsync should complete within 15 seconds");
-        
+
         // Should wait for broadcast + propagation
         Assert.True(duration.TotalMilliseconds >= 500, "LeaveAsync should wait for broadcast to send");
     }
@@ -64,12 +64,12 @@ public class LeaveEventBroadcastTests : IDisposable
     public async Task TwoNodes_LeaveTriggersEventOnOtherNode()
     {
         // ARRANGE: Create two nodes
-        var eventChannel1 = Channel.CreateUnbounded<Event>();
-        var eventChannel2 = Channel.CreateUnbounded<Event>();
-        
+        var eventChannel1 = Channel.CreateUnbounded<IEvent>();
+        var eventChannel2 = Channel.CreateUnbounded<IEvent>();
+
         var config1 = GetTestConfig("node1", 19003, eventChannel1.Writer);
         var config2 = GetTestConfig("node2", 19004, eventChannel2.Writer);
-        
+
         var serf1 = await NSerf.Serf.Serf.CreateAsync(config1);
         var serf2 = await NSerf.Serf.Serf.CreateAsync(config2);
         _serf.Add(serf1);
@@ -95,7 +95,7 @@ public class LeaveEventBroadcastTests : IDisposable
         // ASSERT: Node1 should receive a leave event
         var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         MemberEvent? leaveEvent = null;
-        
+
         try
         {
             while (await eventChannel1.Reader.WaitToReadAsync(cts.Token))
@@ -103,15 +103,15 @@ public class LeaveEventBroadcastTests : IDisposable
                 if (eventChannel1.Reader.TryRead(out var evt))
                 {
                     _logger.LogInformation("Node1 received event: {Type}", evt.EventType());
-                    
+
                     if (evt is MemberEvent memberEvent)
                     {
                         foreach (var member in memberEvent.Members)
                         {
-                            _logger.LogInformation("  - Member: {Name}, Status: {Status}", 
+                            _logger.LogInformation("  - Member: {Name}, Status: {Status}",
                                 member.Name, member.Status);
                         }
-                        
+
                         if (memberEvent.Type == EventType.MemberLeave)
                         {
                             leaveEvent = memberEvent;
@@ -128,10 +128,10 @@ public class LeaveEventBroadcastTests : IDisposable
 
         Assert.NotNull(leaveEvent);
         Assert.Contains(leaveEvent.Members, m => m.Name == "node2");
-        
+
         var node2Status = leaveEvent.Members.First(m => m.Name == "node2").Status;
         _logger.LogInformation("Node2 status in leave event: {Status}", node2Status);
-        
+
         // Should be Leaving or Left (not Failed)
         Assert.True(
             node2Status == NSerf.Serf.MemberStatus.Leaving || node2Status == NSerf.Serf.MemberStatus.Left,
@@ -165,9 +165,9 @@ public class LeaveEventBroadcastTests : IDisposable
         // ASSERT: Check node state
         var nodeState = memberlist._nodeMap.GetValueOrDefault("test-node-3");
         Assert.NotNull(nodeState);
-        
+
         _logger.LogInformation("Node state after dead message: {State}", nodeState.State);
-        
+
         Assert.Equal(NSerf.Memberlist.State.NodeStateType.Left, nodeState.State);
     }
 
@@ -177,7 +177,7 @@ public class LeaveEventBroadcastTests : IDisposable
         // ARRANGE: Create two nodes
         var config1 = GetTestConfig("node-a", 19006);
         var config2 = GetTestConfig("node-b", 19007);
-        
+
         var serf1 = await NSerf.Serf.Serf.CreateAsync(config1);
         var serf2 = await NSerf.Serf.Serf.CreateAsync(config2);
         _serf.Add(serf1);
@@ -202,9 +202,9 @@ public class LeaveEventBroadcastTests : IDisposable
         // ASSERT: Check node state
         var nodeState = memberlist1._nodeMap.GetValueOrDefault("node-b");
         Assert.NotNull(nodeState);
-        
+
         _logger.LogInformation("Node-b state after dead message from node-a: {State}", nodeState.State);
-        
+
         Assert.Equal(NSerf.Memberlist.State.NodeStateType.Dead, nodeState.State);
     }
 
@@ -212,7 +212,7 @@ public class LeaveEventBroadcastTests : IDisposable
     public async Task SerfHandleNodeLeave_WithLeftState_MapsTol_Left()
     {
         // ARRANGE: Create a Serf instance
-        var eventChannel = Channel.CreateUnbounded<Event>();
+        var eventChannel = Channel.CreateUnbounded<IEvent>();
         var config = GetTestConfig("test-node-4", 19008, eventChannel.Writer);
         var serf = await NSerf.Serf.Serf.CreateAsync(config);
         _serf.Add(serf);
@@ -233,7 +233,7 @@ public class LeaveEventBroadcastTests : IDisposable
         // ASSERT: Check member status
         var members = serf.Members();
         var remoteMember = members.FirstOrDefault(m => m.Name == "remote-node");
-        
+
         if (remoteMember != null)
         {
             _logger.LogInformation("Remote node status: {Status}", remoteMember.Status);
@@ -249,7 +249,7 @@ public class LeaveEventBroadcastTests : IDisposable
     public async Task SerfHandleNodeLeave_WithDeadState_MapsToFailed()
     {
         // ARRANGE: Create a Serf instance
-        var eventChannel = Channel.CreateUnbounded<Event>();
+        var eventChannel = Channel.CreateUnbounded<IEvent>();
         var config = GetTestConfig("test-node-5", 19009, eventChannel.Writer);
         var serf = await NSerf.Serf.Serf.CreateAsync(config);
         _serf.Add(serf);
@@ -270,7 +270,7 @@ public class LeaveEventBroadcastTests : IDisposable
         // ASSERT: Check member status
         var members = serf.Members();
         var remoteMember = members.FirstOrDefault(m => m.Name == "remote-node-dead");
-        
+
         if (remoteMember != null)
         {
             _logger.LogInformation("Remote dead node status: {Status}", remoteMember.Status);
@@ -282,7 +282,7 @@ public class LeaveEventBroadcastTests : IDisposable
         }
     }
 
-    private NSerf.Serf.Config GetTestConfig(string nodeName, int port, ChannelWriter<Event>? eventCh = null)
+    private NSerf.Serf.Config GetTestConfig(string nodeName, int port, ChannelWriter<IEvent>? eventCh = null)
     {
         var memberlistConfig = new NSerf.Memberlist.Configuration.MemberlistConfig
         {
@@ -311,7 +311,7 @@ public class LeaveEventBroadcastTests : IDisposable
         // ARRANGE: Create two nodes
         var config1 = GetTestConfig("proxy", 19011);
         var config2 = GetTestConfig("backend-test", 19012);
-        
+
         var serf1 = await NSerf.Serf.Serf.CreateAsync(config1);
         var serf2 = await NSerf.Serf.Serf.CreateAsync(config2);
         _serf.Add(serf1);
@@ -323,7 +323,7 @@ public class LeaveEventBroadcastTests : IDisposable
 
         var memberlist1 = serf1.Memberlist!;
         var stateHandler = new NSerf.Memberlist.StateHandlers(memberlist1, _logger);
-        
+
         // Simulate failure detection on proxy: backend-test reported dead by another node
         var failureMsg = new NSerf.Memberlist.Messages.Dead
         {
@@ -331,15 +331,15 @@ public class LeaveEventBroadcastTests : IDisposable
             From = "some-other-node",  // Reported by different node = failure
             Incarnation = 5
         };
-        
+
         stateHandler.HandleDeadNode(failureMsg);
-        
+
         // Verify backend-test is marked as Dead on proxy
         var nodeState = memberlist1._nodeMap.GetValueOrDefault("backend-test");
         Assert.NotNull(nodeState);
         _logger.LogInformation("State after failure detection: {State}", nodeState.State);
         Assert.Equal(NSerf.Memberlist.State.NodeStateType.Dead, nodeState.State);
-        
+
         // ACT: Now backend-test sends graceful leave (Node==From)
         var gracefulLeaveMsg = new NSerf.Memberlist.Messages.Dead
         {
@@ -347,9 +347,9 @@ public class LeaveEventBroadcastTests : IDisposable
             From = "backend-test",  // Same as Node = graceful leave
             Incarnation = 6  // Higher incarnation
         };
-        
+
         stateHandler.HandleDeadNode(gracefulLeaveMsg);
-        
+
         // ASSERT: Should override Dead→Left
         nodeState = memberlist1._nodeMap.GetValueOrDefault("backend-test");
         Assert.NotNull(nodeState);

@@ -15,14 +15,9 @@ namespace NSerf.Serf;
 /// Delegate is the memberlist.Delegate implementation that Serf uses.
 /// Acts as a bridge between Serf and Memberlist, handling gossip messages and state synchronization.
 /// </summary>
-internal class Delegate : IDelegate
+internal class Delegate(Serf serf) : IDelegate
 {
-    private readonly Serf _serf;
-
-    public Delegate(Serf serf)
-    {
-        _serf = serf ?? throw new ArgumentNullException(nameof(serf));
-    }
+    private readonly Serf _serf = serf ?? throw new ArgumentNullException(nameof(serf));
 
     /// <summary>
     /// Retrieves meta-data about the current node when broadcasting an alive message.
@@ -31,7 +26,7 @@ internal class Delegate : IDelegate
     public byte[] NodeMeta(int limit)
     {
         var roleBytes = _serf.EncodeTags(_serf.Config.Tags);
-        
+
         if (roleBytes.Length > limit)
         {
             throw new InvalidOperationException(
@@ -59,7 +54,7 @@ internal class Delegate : IDelegate
         bool rebroadcast = false;
         BroadcastQueue? rebroadcastQueue = _serf.Broadcasts;
         var messageType = (MessageType)message[0];
-        
+
         _serf.Logger?.LogInformation("[Serf.Delegate] *** Received message type: {Type}, length: {Length} ***", messageType, message.Length);
 
         // Check if message should be dropped (for testing)
@@ -189,7 +184,7 @@ internal class Delegate : IDelegate
     public List<byte[]> GetBroadcasts(int overhead, int limit)
     {
         _serf.Logger?.LogInformation("[Serf.Delegate] *** GetBroadcasts called with overhead={Overhead}, limit={Limit} ***", overhead, limit);
-        
+
         // Get regular broadcasts
         var msgs = _serf.Broadcasts.GetBroadcasts(overhead, limit);
         _serf.Logger?.LogInformation("[Serf.Delegate] Regular broadcasts: {Count}", msgs.Count);
@@ -207,10 +202,10 @@ internal class Delegate : IDelegate
         var availForQueries = limit - bytesUsed;
         var queryQueueCount = _serf.QueryBroadcasts.Count;
         _serf.Logger?.LogInformation("[Serf.Delegate] *** Calling QueryBroadcasts.GetBroadcasts(overhead={OH}, limit={LIM}), queue has {QCount} items ***", overhead, availForQueries, queryQueueCount);
-        
+
         var queryMsgs = _serf.QueryBroadcasts.GetBroadcasts(overhead, availForQueries);
         _serf.Logger?.LogInformation("[Serf.Delegate] *** QueryBroadcasts returned {Count} messages (had {QCount} queued, {Avail} bytes available) ***", queryMsgs.Count, queryQueueCount, availForQueries);
-        
+
         if (queryMsgs.Count > 0)
         {
             _serf.Logger?.LogInformation("[Serf.Delegate] *** Adding {Count} query broadcasts to send ***", queryMsgs.Count);
@@ -255,9 +250,9 @@ internal class Delegate : IDelegate
             {
                 LTime = _serf.Clock.Time(),
                 StatusLTimes = new Dictionary<string, LamportTime>(_serf.NumMembers()),
-                LeftMembers = new List<string>(),
+                LeftMembers = [],
                 EventLTime = _serf.EventClock.Time(),
-                Events = _serf._eventManager?.GetEventCollectionsForPushPull() ?? new List<UserEventCollection>(),
+                Events = _serf._eventManager?.GetEventCollectionsForPushPull() ?? [],
                 QueryLTime = _serf.QueryClock.Time()
             };
 
@@ -283,7 +278,7 @@ internal class Delegate : IDelegate
         catch (Exception ex)
         {
             _serf.Logger?.LogError(ex, "[Serf] Failed to encode local state");
-            return Array.Empty<byte>();
+            return [];
         }
     }
 
@@ -337,7 +332,7 @@ internal class Delegate : IDelegate
         // Process the left nodes first
         var leftMap = new HashSet<string>(pushPull.LeftMembers);
         var leave = new MessageLeave();
-        
+
         foreach (var name in pushPull.LeftMembers)
         {
             if (pushPull.StatusLTimes.TryGetValue(name, out var statusLTime))

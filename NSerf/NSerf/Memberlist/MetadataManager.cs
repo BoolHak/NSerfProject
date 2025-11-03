@@ -10,19 +10,13 @@ namespace NSerf.Memberlist;
 /// <summary>
 /// Manages node metadata.
 /// </summary>
-public class MetadataManager
+public class MetadataManager(IDelegate? delegateHandler = null, ILogger? logger = null)
 {
-    private readonly IDelegate? _delegate;
-    private readonly ILogger? _logger;
-    private byte[] _localMeta = Array.Empty<byte>();
+    private readonly IDelegate? _delegate = delegateHandler;
+    private readonly ILogger? _logger = logger;
+    private byte[] _localMeta = [];
     private readonly object _lock = new();
-    
-    public MetadataManager(IDelegate? delegateHandler = null, ILogger? logger = null)
-    {
-        _delegate = delegateHandler;
-        _logger = logger;
-    }
-    
+
     /// <summary>
     /// Gets the local node metadata.
     /// </summary>
@@ -33,7 +27,7 @@ public class MetadataManager
             return _localMeta;
         }
     }
-    
+
     /// <summary>
     /// Updates the local node metadata from delegate.
     /// </summary>
@@ -41,22 +35,22 @@ public class MetadataManager
     {
         try
         {
-            var meta = _delegate?.LocalState(false) ?? Array.Empty<byte>();
-            
+            var meta = _delegate?.LocalState(false) ?? [];
+
             lock (_lock)
             {
                 _localMeta = meta;
             }
-            
+
             return meta;
         }
         catch (Exception ex)
         {
             _logger?.LogError(ex, "Error refreshing local metadata");
-            return Array.Empty<byte>();
+            return [];
         }
     }
-    
+
     /// <summary>
     /// Validates metadata size.
     /// </summary>

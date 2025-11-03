@@ -10,9 +10,9 @@ namespace NSerf.Memberlist;
 public class JoinResult
 {
     public int NumJoined { get; set; }
-    public List<string> SuccessfulNodes { get; set; } = new();
-    public List<string> FailedNodes { get; set; } = new();
-    public List<Exception> Errors { get; set; } = new();
-    
+    public List<string> SuccessfulNodes { get; set; } = [];
+    public List<string> FailedNodes { get; set; } = [];
+    public List<Exception> Errors { get; set; } = [];
+
     public bool Success => NumJoined > 0;
 }

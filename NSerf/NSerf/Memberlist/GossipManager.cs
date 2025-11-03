@@ -10,17 +10,11 @@ namespace NSerf.Memberlist;
 /// <summary>
 /// Manages gossip operations for spreading information.
 /// </summary>
-public class GossipManager
+public class GossipManager(TransmitLimitedQueue broadcasts, ILogger? logger = null)
 {
-    private readonly TransmitLimitedQueue _broadcasts;
-    private readonly ILogger? _logger;
-    
-    public GossipManager(TransmitLimitedQueue broadcasts, ILogger? logger = null)
-    {
-        _broadcasts = broadcasts;
-        _logger = logger;
-    }
-    
+    private readonly TransmitLimitedQueue _broadcasts = broadcasts;
+    private readonly ILogger? _logger = logger;
+
     /// <summary>
     /// Queues a broadcast for gossip.
     /// </summary>
@@ -28,7 +22,7 @@ public class GossipManager
     {
         _broadcasts.QueueBroadcast(broadcast);
     }
-    
+
     /// <summary>
     /// Gets broadcasts to send.
     /// </summary>
@@ -36,7 +30,7 @@ public class GossipManager
     {
         return _broadcasts.GetBroadcasts(overhead, limit);
     }
-    
+
     /// <summary>
     /// Gets the number of queued broadcasts.
     /// </summary>

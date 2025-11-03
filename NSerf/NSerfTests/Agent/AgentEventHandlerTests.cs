@@ -14,8 +14,8 @@ public class AgentEventHandlerTests
     [Fact]
     public async Task Agent_RegisterHandler_AddsHandler()
     {
-        var config = new AgentConfig 
-        { 
+        var config = new AgentConfig
+        {
             NodeName = "test-register",
             BindAddr = "127.0.0.1:0"
         };
@@ -27,21 +27,21 @@ public class AgentEventHandlerTests
 
         // Wait for initial MemberJoin event (local node) to be processed
         await Task.Delay(100);
-        
+
         // Clear initial event
         handler.ReceivedEvents.Clear();
 
         // Access internal event channel via reflection to inject test event
         var eventChannelField = typeof(SerfAgent).GetField("_eventChannel", BindingFlags.NonPublic | BindingFlags.Instance);
-        var eventChannel = (Channel<Event>)eventChannelField!.GetValue(agent)!;
-        
+        var eventChannel = (Channel<IEvent>)eventChannelField!.GetValue(agent)!;
+
         // Write test event
         var testEvent = new MemberEvent { Type = EventType.MemberJoin };
         await eventChannel.Writer.WriteAsync(testEvent);
-        
+
         // Wait for event loop to process
         await Task.Delay(100);
-        
+
         // Verify handler received the test event
         Assert.Single(handler.ReceivedEvents);
         Assert.IsType<MemberEvent>(handler.ReceivedEvents[0]);
@@ -52,8 +52,8 @@ public class AgentEventHandlerTests
     [Fact]
     public async Task Agent_RegisterMultipleHandlers_AllSupported()
     {
-        var config = new AgentConfig 
-        { 
+        var config = new AgentConfig
+        {
             NodeName = "test-multiple",
             BindAddr = "127.0.0.1:0"
         };
@@ -66,12 +66,12 @@ public class AgentEventHandlerTests
         agent.RegisterEventHandler(handler1);
         agent.RegisterEventHandler(handler2);
         agent.RegisterEventHandler(handler3);
-        
+
         await agent.StartAsync();
 
         // Wait for initial MemberJoin event (local node) to be processed
         await Task.Delay(100);
-        
+
         // Clear initial events
         handler1.ReceivedEvents.Clear();
         handler2.ReceivedEvents.Clear();
@@ -79,12 +79,12 @@ public class AgentEventHandlerTests
 
         // Inject test event
         var eventChannelField = typeof(SerfAgent).GetField("_eventChannel", BindingFlags.NonPublic | BindingFlags.Instance);
-        var eventChannel = (Channel<Event>)eventChannelField!.GetValue(agent)!;
+        var eventChannel = (Channel<IEvent>)eventChannelField!.GetValue(agent)!;
         var testEvent = new MemberEvent { Type = EventType.MemberJoin };
         await eventChannel.Writer.WriteAsync(testEvent);
-        
+
         await Task.Delay(100);
-        
+
         // All handlers should receive the test event
         Assert.Single(handler1.ReceivedEvents);
         Assert.Single(handler2.ReceivedEvents);
@@ -96,8 +96,8 @@ public class AgentEventHandlerTests
     [Fact]
     public async Task Agent_RegisterDuplicateHandler_OnlyAddedOnce()
     {
-        var config = new AgentConfig 
-        { 
+        var config = new AgentConfig
+        {
             NodeName = "test-duplicate",
             BindAddr = "127.0.0.1:0"
         };
@@ -107,23 +107,23 @@ public class AgentEventHandlerTests
         agent.RegisterEventHandler(handler);
         agent.RegisterEventHandler(handler);  // Duplicate
         agent.RegisterEventHandler(handler);  // Duplicate
-        
+
         await agent.StartAsync();
 
         // Wait for initial MemberJoin event (local node) to be processed
         await Task.Delay(100);
-        
+
         // Clear initial event
         handler.ReceivedEvents.Clear();
 
         // Inject test event
         var eventChannelField = typeof(SerfAgent).GetField("_eventChannel", BindingFlags.NonPublic | BindingFlags.Instance);
-        var eventChannel = (Channel<Event>)eventChannelField!.GetValue(agent)!;
+        var eventChannel = (Channel<IEvent>)eventChannelField!.GetValue(agent)!;
         var testEvent = new MemberEvent { Type = EventType.MemberJoin };
         await eventChannel.Writer.WriteAsync(testEvent);
-        
+
         await Task.Delay(100);
-        
+
         // Handler should receive test event only once (HashSet deduplication)
         Assert.Single(handler.ReceivedEvents);
 
@@ -133,8 +133,8 @@ public class AgentEventHandlerTests
     [Fact]
     public async Task Agent_DeregisterHandler_RemovesHandler()
     {
-        var config = new AgentConfig 
-        { 
+        var config = new AgentConfig
+        {
             NodeName = "test-deregister",
             BindAddr = "127.0.0.1:0"
         };
@@ -143,22 +143,22 @@ public class AgentEventHandlerTests
 
         agent.RegisterEventHandler(handler);
         await agent.StartAsync();
-        
+
         // Wait for initial MemberJoin event (local node) to be processed
         await Task.Delay(100);
-        
+
         // Deregister handler and clear any received events
         agent.DeregisterEventHandler(handler);
         handler.ReceivedEvents.Clear();
 
         // Inject test event after deregistration
         var eventChannelField = typeof(SerfAgent).GetField("_eventChannel", BindingFlags.NonPublic | BindingFlags.Instance);
-        var eventChannel = (Channel<Event>)eventChannelField!.GetValue(agent)!;
+        var eventChannel = (Channel<IEvent>)eventChannelField!.GetValue(agent)!;
         var testEvent = new MemberEvent { Type = EventType.MemberJoin };
         await eventChannel.Writer.WriteAsync(testEvent);
-        
+
         await Task.Delay(100);
-        
+
         // Handler should NOT receive the test event (was deregistered)
         Assert.Empty(handler.ReceivedEvents);
 
@@ -185,18 +185,18 @@ public class AgentEventHandlerTests
 
         // Wait for initial MemberJoin event (local node) to be processed
         await Task.Delay(100);
-        
+
         // Clear initial events (local node join)
         handler1.ReceivedEvents.Clear();
         handler2.ReceivedEvents.Clear();
 
         // Inject multiple test events
         var eventChannelField = typeof(SerfAgent).GetField("_eventChannel", BindingFlags.NonPublic | BindingFlags.Instance);
-        var eventChannel = (Channel<Event>)eventChannelField!.GetValue(agent)!;
-        
+        var eventChannel = (Channel<IEvent>)eventChannelField!.GetValue(agent)!;
+
         await eventChannel.Writer.WriteAsync(new MemberEvent { Type = EventType.MemberJoin });
         await eventChannel.Writer.WriteAsync(new MemberEvent { Type = EventType.MemberLeave });
-        
+
         await Task.Delay(200);
 
         // Both handlers should receive both test events
@@ -226,14 +226,14 @@ public class AgentEventHandlerTests
 
         // Wait for initial MemberJoin event (local node) to be processed
         await Task.Delay(100);
-        
+
         // Clear initial events
         normalHandler.ReceivedEvents.Clear();
 
         // Inject events - first will cause exception, second should still be processed
         var eventChannelField = typeof(SerfAgent).GetField("_eventChannel", BindingFlags.NonPublic | BindingFlags.Instance);
-        var eventChannel = (Channel<Event>)eventChannelField!.GetValue(agent)!;
-        
+        var eventChannel = (Channel<IEvent>)eventChannelField!.GetValue(agent)!;
+
         await eventChannel.Writer.WriteAsync(new MemberEvent { Type = EventType.MemberJoin });
         await Task.Delay(100);
         await eventChannel.Writer.WriteAsync(new MemberEvent { Type = EventType.MemberLeave });
@@ -249,9 +249,9 @@ public class AgentEventHandlerTests
 
 public class TestEventHandler : IEventHandler
 {
-    public List<Event> ReceivedEvents { get; } = new();
+    public List<IEvent> ReceivedEvents { get; } = new();
 
-    public void HandleEvent(Event @event)
+    public void HandleEvent(IEvent @event)
     {
         ReceivedEvents.Add(@event);
     }
@@ -259,7 +259,7 @@ public class TestEventHandler : IEventHandler
 
 public class ThrowingEventHandler : IEventHandler
 {
-    public void HandleEvent(Event @event)
+    public void HandleEvent(IEvent @event)
     {
         throw new InvalidOperationException("Test exception");
     }

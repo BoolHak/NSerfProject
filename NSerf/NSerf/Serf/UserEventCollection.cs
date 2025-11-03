@@ -23,7 +23,7 @@ public class UserEventData
     /// Payload of the user event (arbitrary binary data).
     /// </summary>
     [Key(1)]
-    public byte[] Payload { get; set; } = Array.Empty<byte>();
+    public byte[] Payload { get; set; } = [];
 
     /// <summary>
     /// Checks if this event equals another event.
@@ -62,7 +62,7 @@ public class UserEventCollection
     /// List of events at this lamport time.
     /// </summary>
     [Key(1)]
-    public List<UserEventData> Events { get; set; } = new();
+    public List<UserEventData> Events { get; set; } = [];
 
     /// <summary>
     /// Returns a string representation of the event collection.

@@ -17,5 +17,5 @@ public interface IEventHandler
     /// Exceptions thrown by this method will be logged but will not stop the event loop.
     /// </summary>
     /// <param name="event">The Serf event to handle</param>
-    void HandleEvent(Event @event);
+    void HandleEvent(IEvent @event);
 }

@@ -20,7 +20,7 @@ public class CoalesceTest
     /// <summary>
     /// Counter event for testing coalescing logic.
     /// </summary>
-    private class CounterEvent : Event
+    private class CounterEvent : IEvent
     {
         public int Delta { get; set; }
 
@@ -36,17 +36,17 @@ public class CoalesceTest
     {
         public int Value { get; set; }
 
-        public bool Handle(Event e)
+        public bool Handle(IEvent e)
         {
             return e.EventType() == EventCounter;
         }
 
-        public void Coalesce(Event e)
+        public void Coalesce(IEvent e)
         {
             Value += ((CounterEvent)e).Delta;
         }
 
-        public void Flush(ChannelWriter<Event> outChan)
+        public void Flush(ChannelWriter<IEvent> outChan)
         {
             outChan.TryWrite(new CounterEvent { Delta = Value });
             Value = 0;
@@ -56,11 +56,11 @@ public class CoalesceTest
     /// <summary>
     /// Helper to create a test coalescer setup.
     /// </summary>
-    private static (ChannelWriter<Event> inCh, ChannelReader<Event> outCh, CancellationTokenSource shutdownCts) CreateTestCoalescer(
+    private static (ChannelWriter<IEvent> inCh, ChannelReader<IEvent> outCh, CancellationTokenSource shutdownCts) CreateTestCoalescer(
         TimeSpan coalescePeriod,
         TimeSpan quiescentPeriod)
     {
-        var outChannel = Channel.CreateUnbounded<Event>();
+        var outChannel = Channel.CreateUnbounded<IEvent>();
         var shutdownCts = new CancellationTokenSource();
         var coalescer = new MockCoalescer();
 
@@ -84,7 +84,7 @@ public class CoalesceTest
 
         try
         {
-            var send = new Event[]
+            var send = new IEvent[]
             {
                 new CounterEvent { Delta = 1 },
                 new CounterEvent { Delta = 39 },
@@ -124,7 +124,7 @@ public class CoalesceTest
 
         try
         {
-            var send = new Event[]
+            var send = new IEvent[]
             {
                 new CounterEvent { Delta = 1 },
                 new CounterEvent { Delta = 39 },

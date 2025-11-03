@@ -19,7 +19,7 @@ public class UserEventCoalescerTest
     public async Task UserEventCoalesce_Basic_ShouldCoalesceByNameAndLTime()
     {
         // Arrange
-        var outChannel = Channel.CreateUnbounded<Event>();
+        var outChannel = Channel.CreateUnbounded<IEvent>();
         var shutdownCts = new CancellationTokenSource();
 
         var coalescer = new UserEventCoalescer();
@@ -32,7 +32,7 @@ public class UserEventCoalescerTest
 
         try
         {
-            var send = new Event[]
+            var send = new IEvent[]
             {
                 new UserEvent
                 {
@@ -123,11 +123,11 @@ public class UserEventCoalescerTest
         // Arrange
         var testCases = new[]
         {
-            (Event: (Event)new UserEvent { Coalesce = false }, ShouldHandle: false),
-            (Event: (Event)new UserEvent { Coalesce = true }, ShouldHandle: true),
-            (Event: (Event)new MemberEvent { Type = EventType.MemberJoin }, ShouldHandle: false),
-            (Event: (Event)new MemberEvent { Type = EventType.MemberLeave }, ShouldHandle: false),
-            (Event: (Event)new MemberEvent { Type = EventType.MemberFailed }, ShouldHandle: false)
+            (Event: (IEvent)new UserEvent { Coalesce = false }, ShouldHandle: false),
+            (Event: (IEvent)new UserEvent { Coalesce = true }, ShouldHandle: true),
+            (Event: (IEvent)new MemberEvent { Type = EventType.MemberJoin }, ShouldHandle: false),
+            (Event: (IEvent)new MemberEvent { Type = EventType.MemberLeave }, ShouldHandle: false),
+            (Event: (IEvent)new MemberEvent { Type = EventType.MemberFailed }, ShouldHandle: false)
         };
 
         var coalescer = new UserEventCoalescer();
@@ -144,7 +144,7 @@ public class UserEventCoalescerTest
     public async Task UserEventCoalesce_OlderLTime_ShouldBeDiscarded()
     {
         // Arrange
-        var outChannel = Channel.CreateUnbounded<Event>();
+        var outChannel = Channel.CreateUnbounded<IEvent>();
         var shutdownCts = new CancellationTokenSource();
 
         var coalescer = new UserEventCoalescer();
@@ -198,7 +198,7 @@ public class UserEventCoalescerTest
     public async Task UserEventCoalesce_SameLTime_ShouldKeepBoth()
     {
         // Arrange
-        var outChannel = Channel.CreateUnbounded<Event>();
+        var outChannel = Channel.CreateUnbounded<IEvent>();
         var shutdownCts = new CancellationTokenSource();
 
         var coalescer = new UserEventCoalescer();
@@ -259,7 +259,7 @@ public class UserEventCoalescerTest
     public async Task UserEventCoalesce_NonCoalescingEvents_ShouldPassThrough()
     {
         // Arrange
-        var outChannel = Channel.CreateUnbounded<Event>();
+        var outChannel = Channel.CreateUnbounded<IEvent>();
         var shutdownCts = new CancellationTokenSource();
 
         var coalescer = new UserEventCoalescer();
@@ -299,7 +299,7 @@ public class UserEventCoalescerTest
     public async Task UserEventCoalesce_DifferentNames_ShouldBeSeparate()
     {
         // Arrange
-        var outChannel = Channel.CreateUnbounded<Event>();
+        var outChannel = Channel.CreateUnbounded<IEvent>();
         var shutdownCts = new CancellationTokenSource();
 
         var coalescer = new UserEventCoalescer();

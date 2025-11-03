@@ -21,7 +21,7 @@ public class EventManagerTests
     public void HandleUserEvent_WithNewEvent_ShouldAddToBufferAndEmit()
     {
         // Arrange
-        var eventCh = Channel.CreateUnbounded<Event>();
+        var eventCh = Channel.CreateUnbounded<IEvent>();
         var eventManager = new EventManager(
             eventCh: eventCh.Writer,
             eventBufferSize: 64,
@@ -40,7 +40,7 @@ public class EventManagerTests
 
         // Assert
         shouldRebroadcast.Should().BeTrue("new events should be rebroadcast");
-        
+
         // Verify event was emitted
         eventCh.Reader.TryRead(out var emittedEvent).Should().BeTrue();
         var evt = emittedEvent.Should().BeOfType<UserEvent>().Subject;
@@ -53,7 +53,7 @@ public class EventManagerTests
     public void HandleUserEvent_WithDuplicateEvent_ShouldNotEmitOrRebroadcast()
     {
         // Arrange
-        var eventCh = Channel.CreateUnbounded<Event>();
+        var eventCh = Channel.CreateUnbounded<IEvent>();
         var eventManager = new EventManager(
             eventCh: eventCh.Writer,
             eventBufferSize: 64,
@@ -83,7 +83,7 @@ public class EventManagerTests
     public void HandleUserEvent_WithEventBelowMinTime_ShouldIgnore()
     {
         // Arrange
-        var eventCh = Channel.CreateUnbounded<Event>();
+        var eventCh = Channel.CreateUnbounded<IEvent>();
         var eventManager = new EventManager(
             eventCh: eventCh.Writer,
             eventBufferSize: 64,
@@ -112,7 +112,7 @@ public class EventManagerTests
     public void HandleUserEvent_WithTooOldEvent_ShouldIgnore()
     {
         // Arrange
-        var eventCh = Channel.CreateUnbounded<Event>();
+        var eventCh = Channel.CreateUnbounded<IEvent>();
         var eventManager = new EventManager(
             eventCh: eventCh.Writer,
             eventBufferSize: 10, // Small buffer
@@ -152,7 +152,7 @@ public class EventManagerTests
     public void HandleUserEvent_WithSameLTimeDifferentPayload_ShouldEmitBoth()
     {
         // Arrange
-        var eventCh = Channel.CreateUnbounded<Event>();
+        var eventCh = Channel.CreateUnbounded<IEvent>();
         var eventManager = new EventManager(
             eventCh: eventCh.Writer,
             eventBufferSize: 64,
@@ -181,7 +181,7 @@ public class EventManagerTests
         // Assert
         result1.Should().BeTrue();
         result2.Should().BeTrue();
-        
+
         // Both events should be emitted
         eventCh.Reader.TryRead(out var evt1).Should().BeTrue();
         eventCh.Reader.TryRead(out var evt2).Should().BeTrue();
@@ -209,7 +209,7 @@ public class EventManagerTests
 
         // Assert
         shouldRebroadcast.Should().BeTrue("event should still be processed and rebroadcast");
-        
+
         // Try duplicate - should be detected even without EventCh
         var shouldRebroadcastDupe = eventManager.HandleUserEvent(userEvent);
         shouldRebroadcastDupe.Should().BeFalse("duplicate should still be detected");
@@ -238,7 +238,7 @@ public class EventManagerTests
     public void CircularBuffer_ShouldWrapAround()
     {
         // Arrange
-        var eventCh = Channel.CreateUnbounded<Event>();
+        var eventCh = Channel.CreateUnbounded<IEvent>();
         var eventManager = new EventManager(
             eventCh: eventCh.Writer,
             eventBufferSize: 4, // Very small buffer
@@ -276,7 +276,7 @@ public class EventManagerTests
     public void EmitEvent_WithMemberJoinEvent_ShouldEmit()
     {
         // Arrange
-        var eventCh = Channel.CreateUnbounded<Event>();
+        var eventCh = Channel.CreateUnbounded<IEvent>();
         var eventManager = new EventManager(
             eventCh: eventCh.Writer,
             eventBufferSize: 64,

@@ -883,21 +883,12 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
                     return true;
 
                 // Include alive and suspect nodes
-                switch (node.State)
+                return node.State switch
                 {
-                    case NodeStateType.Alive:
-                    case NodeStateType.Suspect:
-                        return false;
-
-                    case NodeStateType.Dead:
-                    case NodeStateType.Left:
-                        // Gossip to dead/left nodes if they transitioned recently
-                        // This allows leave messages to propagate even to nodes that already left
-                        return (DateTimeOffset.UtcNow - node.StateChange) > _config.GossipToTheDeadTime;
-
-                    default:
-                        return true; // Exclude other states
-                }
+                    NodeStateType.Alive or NodeStateType.Suspect => false,
+                    NodeStateType.Dead or NodeStateType.Left => (DateTimeOffset.UtcNow - node.StateChange) > _config.GossipToTheDeadTime,// Gossip to dead/left nodes if they transitioned recently                                                                                                                 // This allows leave messages to propagate even to nodes that already left
+                    _ => true,// Exclude other states
+                };
             });
         }
 
@@ -1073,7 +1064,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
                 try
                 {
                     var authData = System.Text.Encoding.UTF8.GetBytes(streamLabel);
-                    messageData = Security.DecryptPayload(_config.Keyring!.GetKeys().ToArray(), messageData, authData);
+                    messageData = Security.DecryptPayload([.. _config.Keyring!.GetKeys()], messageData, authData);
                 }
                 catch (Exception ex)
                 {
@@ -1684,13 +1675,13 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
             Addr = localNode.Addr.GetAddressBytes(),
             Port = localNode.Port,
             Meta = meta,
-            Vsn = new[]
-            {
+            Vsn =
+            [
                 _config.ProtocolVersion,
                 _config.DelegateProtocolMin,
                 _config.DelegateProtocolMax,
                 _config.DelegateProtocolVersion
-            }
+            ]
         };
 
         // Step 5: Update our own NodeState directly (don't go through HandleAliveNode for local updates)
@@ -1913,7 +1904,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
             {
                 _logger?.LogDebug("Decrypting push-pull response");
                 var authData = System.Text.Encoding.UTF8.GetBytes(_config.Label);
-                messageData = Security.DecryptPayload(_config.Keyring!.GetKeys().ToArray(), messageData, authData);
+                messageData = Security.DecryptPayload([.. _config.Keyring!.GetKeys()], messageData, authData);
             }
 
             // Get message type and create stream
@@ -2135,13 +2126,14 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
             // use Task.Run to avoid deadlocks in synchronization contexts
             try
             {
-                Task.Run(async () => await ShutdownAsync()).GetAwaiter().GetResult();
+                Task.Run(ShutdownAsync).GetAwaiter().GetResult();
             }
             catch (Exception ex)
             {
                 _logger?.LogError(ex, "Error during synchronous disposal");
             }
             _shutdownCts.Dispose();
+            GC.SuppressFinalize(this);
         }
     }
 
@@ -2152,6 +2144,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
             _disposed = true;
             await ShutdownAsync();
             _shutdownCts.Dispose();
+            GC.SuppressFinalize(this);
         }
     }
 }

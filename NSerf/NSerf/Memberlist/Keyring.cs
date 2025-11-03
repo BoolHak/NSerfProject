@@ -12,12 +12,12 @@ namespace NSerf.Memberlist;
 public class Keyring
 {
     private readonly object _lock = new();
-    private List<byte[]> _keys = new();
-    
+    private List<byte[]> _keys = [];
+
     private Keyring()
     {
     }
-    
+
     /// <summary>
     /// Constructs a new keyring for encryption keys.
     /// </summary>
@@ -30,10 +30,10 @@ public class Keyring
         {
             throw new ArgumentException("Empty primary key not allowed", nameof(primaryKey));
         }
-        
+
         var keyring = new Keyring();
         keyring.AddKey(primaryKey);
-        
+
         if (secondaryKeys != null)
         {
             foreach (var key in secondaryKeys)
@@ -41,10 +41,10 @@ public class Keyring
                 keyring.AddKey(key);
             }
         }
-        
+
         return keyring;
     }
-    
+
     /// <summary>
     /// Validates that a key is the correct size for AES encryption.
     /// Key should be either 16, 24, or 32 bytes for AES-128, AES-192, or AES-256.
@@ -56,7 +56,7 @@ public class Keyring
             throw new ArgumentException("Key size must be 16, 24 or 32 bytes", nameof(key));
         }
     }
-    
+
     /// <summary>
     /// Installs a new key on the ring. The key will be available for decryption.
     /// If the key already exists, this is a no-op.
@@ -64,7 +64,7 @@ public class Keyring
     public void AddKey(byte[] key)
     {
         ValidateKey(key);
-        
+
         lock (_lock)
         {
             // Check if key already exists
@@ -75,11 +75,11 @@ public class Keyring
                     return; // Already installed
                 }
             }
-            
+
             // Add new key
             var primaryKey = GetPrimaryKeyInternal();
             _keys.Add(key);
-            
+
             // If this is the first key, it becomes primary
             if (primaryKey == null)
             {
@@ -87,7 +87,7 @@ public class Keyring
             }
         }
     }
-    
+
     /// <summary>
     /// Changes the key used to encrypt messages. The key must already be in the keyring.
     /// </summary>
@@ -105,16 +105,16 @@ public class Keyring
                     break;
                 }
             }
-            
+
             if (!found)
             {
                 throw new InvalidOperationException("Requested key is not in the keyring");
             }
-            
+
             InstallKeysInternal(_keys, key);
         }
     }
-    
+
     /// <summary>
     /// Removes a key from the keyring. Cannot remove the primary key.
     /// </summary>
@@ -126,7 +126,7 @@ public class Keyring
             {
                 throw new InvalidOperationException("Removing the primary key is not allowed");
             }
-            
+
             for (int i = 0; i < _keys.Count; i++)
             {
                 if (KeysEqual(key, _keys[i]))
@@ -139,7 +139,7 @@ public class Keyring
             }
         }
     }
-    
+
     /// <summary>
     /// Returns the current set of keys on the ring.
     /// </summary>
@@ -147,10 +147,10 @@ public class Keyring
     {
         lock (_lock)
         {
-            return new List<byte[]>(_keys);
+            return [.. _keys];
         }
     }
-    
+
     /// <summary>
     /// Returns the primary key (position 0) used for encrypting messages.
     /// </summary>
@@ -161,16 +161,16 @@ public class Keyring
             return GetPrimaryKeyInternal();
         }
     }
-    
+
     private byte[]? GetPrimaryKeyInternal()
     {
         return _keys.Count > 0 ? _keys[0] : null;
     }
-    
+
     private void InstallKeysInternal(List<byte[]> keys, byte[] primaryKey)
     {
         var newKeys = new List<byte[]> { primaryKey };
-        
+
         foreach (var key in keys)
         {
             if (!KeysEqual(key, primaryKey))
@@ -178,19 +178,19 @@ public class Keyring
                 newKeys.Add(key);
             }
         }
-        
+
         _keys = newKeys;
     }
-    
+
     private static bool KeysEqual(byte[] a, byte[] b)
     {
         if (a.Length != b.Length) return false;
-        
+
         for (int i = 0; i < a.Length; i++)
         {
             if (a[i] != b[i]) return false;
         }
-        
+
         return true;
     }
 }

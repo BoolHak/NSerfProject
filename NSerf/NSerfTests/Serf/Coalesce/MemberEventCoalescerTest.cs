@@ -20,7 +20,7 @@ public class MemberEventCoalescerTest
     public async Task MemberEventCoalesce_Basic_ShouldCoalesceCorrectly()
     {
         // Arrange
-        var outChannel = Channel.CreateUnbounded<Event>();
+        var outChannel = Channel.CreateUnbounded<IEvent>();
         var shutdownCts = new CancellationTokenSource();
 
         var coalescer = new MemberEventCoalescer();
@@ -33,7 +33,7 @@ public class MemberEventCoalescerTest
 
         try
         {
-            var send = new Event[]
+            var send = new IEvent[]
             {
                 new MemberEvent
                 {
@@ -88,7 +88,7 @@ public class MemberEventCoalescerTest
             }
 
             // Collect events with timeout
-            var events = new Dictionary<EventType, Event>();
+            var events = new Dictionary<EventType, IEvent>();
             using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
 
             while (await outChannel.Reader.WaitToReadAsync(timeoutCts.Token))
@@ -135,7 +135,7 @@ public class MemberEventCoalescerTest
     public async Task MemberEventCoalesce_TagUpdate_ShouldNotSuppress()
     {
         // Arrange
-        var outChannel = Channel.CreateUnbounded<Event>();
+        var outChannel = Channel.CreateUnbounded<IEvent>();
         var shutdownCts = new CancellationTokenSource();
 
         var coalescer = new MemberEventCoalescer();
@@ -202,12 +202,12 @@ public class MemberEventCoalescerTest
         // Arrange
         var testCases = new[]
         {
-            (Event: (Event)new UserEvent(), ShouldHandle: false),
-            (Event: (Event)new MemberEvent { Type = EventType.MemberJoin }, ShouldHandle: true),
-            (Event: (Event)new MemberEvent { Type = EventType.MemberLeave }, ShouldHandle: true),
-            (Event: (Event)new MemberEvent { Type = EventType.MemberFailed }, ShouldHandle: true),
-            (Event: (Event)new MemberEvent { Type = EventType.MemberUpdate }, ShouldHandle: true),
-            (Event: (Event)new MemberEvent { Type = EventType.MemberReap }, ShouldHandle: true)
+            (Event: (IEvent)new UserEvent(), ShouldHandle: false),
+            (Event: (IEvent)new MemberEvent { Type = EventType.MemberJoin }, ShouldHandle: true),
+            (Event: (IEvent)new MemberEvent { Type = EventType.MemberLeave }, ShouldHandle: true),
+            (Event: (IEvent)new MemberEvent { Type = EventType.MemberFailed }, ShouldHandle: true),
+            (Event: (IEvent)new MemberEvent { Type = EventType.MemberUpdate }, ShouldHandle: true),
+            (Event: (IEvent)new MemberEvent { Type = EventType.MemberReap }, ShouldHandle: true)
         };
 
         var coalescer = new MemberEventCoalescer();
@@ -224,7 +224,7 @@ public class MemberEventCoalescerTest
     public async Task MemberEventCoalesce_SameEventSuppression_ShouldNotDuplicateNonUpdates()
     {
         // Arrange
-        var outChannel = Channel.CreateUnbounded<Event>();
+        var outChannel = Channel.CreateUnbounded<IEvent>();
         var shutdownCts = new CancellationTokenSource();
 
         var coalescer = new MemberEventCoalescer();

@@ -12,16 +12,10 @@ namespace NSerf.Memberlist;
 /// <summary>
 /// Handles incoming packet processing for Memberlist.
 /// </summary>
-internal class PacketHandler
+internal class PacketHandler(Memberlist memberlist, ILogger? logger)
 {
-    private readonly Memberlist _memberlist;
-    private readonly ILogger? _logger;
-
-    public PacketHandler(Memberlist memberlist, ILogger? logger)
-    {
-        _memberlist = memberlist;
-        _logger = logger;
-    }
+    private readonly Memberlist _memberlist = memberlist;
+    private readonly ILogger? _logger = logger;
 
     /// <summary>
     /// Ingests and processes an incoming packet.
@@ -438,7 +432,7 @@ internal class PacketHandler
                 case MessageType.Dead:
                     _logger?.LogInformation("[QUEUE] Decoding Dead message, buf length: {Length}", buf.Length);
                     var deadMsg = Messages.MessageEncoder.Decode<Messages.DeadMessage>(buf);
-                    _logger?.LogInformation("[QUEUE] Decoded Dead: Node={Node}, From={From}, Inc={Inc}", 
+                    _logger?.LogInformation("[QUEUE] Decoded Dead: Node={Node}, From={From}, Inc={Inc}",
                         deadMsg.Node, deadMsg.From, deadMsg.Incarnation);
                     var dead = new Messages.Dead
                     {

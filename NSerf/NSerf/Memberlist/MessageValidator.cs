@@ -9,15 +9,10 @@ namespace NSerf.Memberlist;
 /// <summary>
 /// Validates incoming protocol messages.
 /// </summary>
-public class MessageValidator
+public class MessageValidator(ILogger? logger = null)
 {
-    private readonly ILogger? _logger;
-    
-    public MessageValidator(ILogger? logger = null)
-    {
-        _logger = logger;
-    }
-    
+    private readonly ILogger? _logger = logger;
+
     /// <summary>
     /// Validates message size.
     /// </summary>
@@ -30,7 +25,7 @@ public class MessageValidator
         }
         return true;
     }
-    
+
     /// <summary>
     /// Validates node name.
     /// </summary>
@@ -41,20 +36,20 @@ public class MessageValidator
             _logger?.LogWarning("Invalid node name: empty");
             return false;
         }
-        
+
         if (name.Length > 255)
         {
             _logger?.LogWarning("Node name too long: {Length}", name.Length);
             return false;
         }
-        
+
         return true;
     }
-    
+
     /// <summary>
     /// Validates incarnation number transition.
     /// </summary>
-    public bool ValidateIncarnation(uint oldInc, uint newInc)
+    public static bool ValidateIncarnation(uint oldInc, uint newInc)
     {
         return newInc >= oldInc;
     }

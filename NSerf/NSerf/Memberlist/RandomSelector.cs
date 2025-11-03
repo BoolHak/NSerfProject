@@ -11,9 +11,9 @@ public static class RandomSelector
 {
     [ThreadStatic]
     private static Random? _random;
-    
+
     private static Random Random => _random ??= new Random();
-    
+
     /// <summary>
     /// Selects a random item from a list.
     /// </summary>
@@ -23,10 +23,10 @@ public static class RandomSelector
         {
             throw new ArgumentException("Cannot select from empty list");
         }
-        
+
         return items[Random.Next(items.Count)];
     }
-    
+
     /// <summary>
     /// Selects k random items from a list without replacement.
     /// </summary>
@@ -34,12 +34,12 @@ public static class RandomSelector
     {
         if (k >= items.Count)
         {
-            return new List<T>(items);
+            return [.. items];
         }
-        
+
         var selected = new List<T>(k);
         var indices = new HashSet<int>();
-        
+
         while (selected.Count < k)
         {
             var idx = Random.Next(items.Count);
@@ -48,10 +48,10 @@ public static class RandomSelector
                 selected.Add(items[idx]);
             }
         }
-        
+
         return selected;
     }
-    
+
     /// <summary>
     /// Shuffles a list in place.
     /// </summary>

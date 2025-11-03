@@ -17,7 +17,7 @@ public class SerfAgent : IAsyncDisposable
     private readonly HashSet<IEventHandler> _eventHandlers = new();
     private readonly object _eventHandlersLock = new();
     private IEventHandler[] _eventHandlerList = [];
-    private readonly Channel<Event> _eventChannel;
+    private readonly Channel<IEvent> _eventChannel;
     private readonly CancellationTokenSource _cts = new();
     private Serf.Serf? _serf;
     private RpcServer? _rpcServer;
@@ -65,7 +65,7 @@ public class SerfAgent : IAsyncDisposable
         }
 
         // Create event channel (size=64 as per Go implementation)
-        _eventChannel = Channel.CreateBounded<Event>(new BoundedChannelOptions(64)
+        _eventChannel = Channel.CreateBounded<IEvent>(new BoundedChannelOptions(64)
         {
             FullMode = BoundedChannelFullMode.Wait
         });
@@ -302,7 +302,7 @@ public class SerfAgent : IAsyncDisposable
                 // Monitor for events or Serf shutdown
                 var eventRead = _eventChannel.Reader.ReadAsync(_cts.Token);
 
-                Event evt;
+                IEvent evt;
                 try
                 {
                     evt = await eventRead;
@@ -331,7 +331,7 @@ public class SerfAgent : IAsyncDisposable
     /// <summary>
     /// Dispatches event to all registered handlers. Handler exceptions don't stop the loop.
     /// </summary>
-    private void DispatchEvent(Event evt)
+    private void DispatchEvent(IEvent evt)
     {
         IEventHandler[] handlers;
         lock (_eventHandlersLock)
