@@ -32,8 +32,8 @@ public partial class Serf : IDisposable, IAsyncDisposable
     internal BroadcastQueue EventBroadcasts { get; private set; }
     internal BroadcastQueue QueryBroadcasts { get; private set; }
     internal Dictionary<LamportTime, QueryCollection> QueryBuffer { get; private set; }
-    internal readonly IMemberManager _memberManager;
-    internal EventManager? _eventManager;
+    internal readonly IMemberManager MemberManager;
+    internal EventManager? EventManager;
     private SerfMetricsRecorder? _metricsRecorder;
     private SerfQueryHelper? _queryHelper; internal bool EventJoinIgnore { get; set; }
     internal LamportTime QueryMinTime { get; set; }
@@ -49,7 +49,6 @@ public partial class Serf : IDisposable, IAsyncDisposable
     private readonly SemaphoreSlim _joinLock = new(1, 1);
 
     // Phase 16: Internal event channel for IPC streaming (separate from user's EventCh)
-    private readonly Channel<IEvent> _ipcEventChannel;
     private readonly ChannelWriter<IEvent> _ipcEventWriter;
 
     /// <summary>
@@ -69,12 +68,12 @@ public partial class Serf : IDisposable, IAsyncDisposable
         EventClock = new LamportClock();
         QueryClock = new LamportClock();
 
-        // Initialize broadcast queues with proper NumNodes function
+        // Initialize broadcast queues with a proper NumNodes function
         var broadcastsQueue = new TransmitLimitedQueue { RetransmitMult = 4 };
         var eventBroadcastsQueue = new TransmitLimitedQueue { RetransmitMult = 4 };
         var queryBroadcastsQueue = new TransmitLimitedQueue { RetransmitMult = 4 };
 
-        // Set NumNodes to return member count from memberlist (via callback to avoid circular ref)
+        // Set NumNodes to return member count from the memberlist (via callback to avoid circular ref)
         broadcastsQueue.NumNodes = () => Memberlist?.EstNumNodes() ?? 1;
         eventBroadcastsQueue.NumNodes = () => Memberlist?.EstNumNodes() ?? 1;
         queryBroadcastsQueue.NumNodes = () => Memberlist?.EstNumNodes() ?? 1;
@@ -83,8 +82,8 @@ public partial class Serf : IDisposable, IAsyncDisposable
         EventBroadcasts = new BroadcastQueue(eventBroadcastsQueue);
         QueryBroadcasts = new BroadcastQueue(queryBroadcastsQueue);
         QueryBuffer = [];
-        _memberManager = new MemberManager();
-        _eventManager = new EventManager(
+        MemberManager = new MemberManager();
+        EventManager = new EventManager(
             eventCh: config.EventCh,
             eventBufferSize: config.EventBuffer,
             logger: Logger);
@@ -92,19 +91,19 @@ public partial class Serf : IDisposable, IAsyncDisposable
         EventJoinIgnore = false;
         QueryMinTime = 0;
 
-        _ipcEventChannel = Channel.CreateBounded<IEvent>(new BoundedChannelOptions(64)
+        var ipcEventChannel = Channel.CreateBounded<IEvent>(new BoundedChannelOptions(64)
         {
             FullMode = BoundedChannelFullMode.DropWrite,
             SingleReader = false, // Multiple IPC clients may read
-            SingleWriter = false  // Multiple Serf components may write
+            SingleWriter = false // Multiple Serf components may write
         });
-        _ipcEventWriter = _ipcEventChannel.Writer;
-        IpcEventReader = _ipcEventChannel.Reader;
+        _ipcEventWriter = ipcEventChannel.Writer;
+        IpcEventReader = ipcEventChannel.Reader;
     }
 
     /// <summary>
-    /// BroadcastJoin broadcasts a new join intent with a given clock value.
-    /// Used on join or to refute an older leave intent. Cannot be called with member lock held.
+    /// BroadcastJoin broadcasts new join intent with a given clock value.
+    /// Used on join or to refute older leave intent. Cannot be called with member lock held.
     /// </summary>
     internal void BroadcastJoin(LamportTime ltime)
     {
@@ -124,16 +123,16 @@ public partial class Serf : IDisposable, IAsyncDisposable
 
     /// <summary>
     /// Returns the number of members known to this Serf instance.
-    /// Thread-safe read operation using MemberManager transaction pattern.
+    /// Thread-safe read operation using the MemberManager transaction pattern.
     /// </summary>
-    public int NumMembers() => _memberManager.ExecuteUnderLock(accessor => accessor.GetMemberCount());
+    public int NumMembers() => MemberManager.ExecuteUnderLock(accessor => accessor.GetMemberCount());
 
     /// <summary>
-    /// Sets a member using MemberManager transaction pattern.
+    /// Sets a member using the MemberManager transaction pattern.
     /// </summary>
     private void SetMemberState(string name, MemberInfo memberInfo)
     {
-        _memberManager.ExecuteUnderLock(accessor =>
+        MemberManager.ExecuteUnderLock(accessor =>
         {
             accessor.AddMember(memberInfo);
         });
@@ -144,7 +143,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
     /// </summary>
     private void RemoveMemberState(string name)
     {
-        _memberManager.ExecuteUnderLock(accessor =>
+        MemberManager.ExecuteUnderLock(accessor =>
         {
             accessor.RemoveMember(name);
         });
@@ -153,31 +152,29 @@ public partial class Serf : IDisposable, IAsyncDisposable
     /// <summary>
     /// Returns all known members in the cluster, including failed and left nodes.
     /// Matches Go's behavior: returns from Serf's own tracking,
-    /// not from memberlist which filters out dead/left nodes.
-    /// Thread-safe read operation using MemberManager transaction pattern.
+    /// not from the memberlist which filters out dead/left nodes.
+    /// Thread-safe read operation using the MemberManager transaction pattern.
     /// </summary>
     public Member[] Members()
     {
-        return _memberManager.ExecuteUnderLock(accessor =>
+        return MemberManager.ExecuteUnderLock(accessor =>
         {
             return accessor.GetAllMembers()
-                .Where(mi => mi.Member != null)
-                .Select(mi => mi.Member!)
+                .Select(mi => mi.Member)
                 .ToArray();
         });
     }
 
     /// <summary>
     /// Returns members filtered by status.
-    /// Thread-safe read operation using MemberManager transaction pattern.
+    /// Thread-safe read operation using the MemberManager transaction pattern.
     /// </summary>
     public Member[] Members(MemberStatus statusFilter)
     {
-        return _memberManager.ExecuteUnderLock(accessor =>
+        return MemberManager.ExecuteUnderLock(accessor =>
         {
             return accessor.GetMembersByStatus(statusFilter)
-                .Where(mi => mi.Member != null)
-                .Select(mi => mi.Member!)
+                .Select(mi => mi.Member)
                 .ToArray();
         });
     }
@@ -187,15 +184,15 @@ public partial class Serf : IDisposable, IAsyncDisposable
     /// Emits an event through the event pipeline.
     /// Flow: EventManager → [Snapshotter] → [QueryHandler] → config.EventCh
     /// The snapshotter (if enabled) sits in the middle and persists events before forwarding.
-    /// Phase 16: Also sends to IPC channel for streaming to RPC clients.
+    /// Phase 16: Also sends it to an IPC channel for streaming to RPC clients.
     /// </summary>
     private void EmitEvent(IEvent evt)
     {
-        // Send to IPC channel first (drop-on-full, won't block)
+        // Send it to an IPC channel first (drop-on-full, won't block)
         _ipcEventWriter.TryWrite(evt);
 
-        // Send through the main event pipeline (includes snapshotter if enabled)
-        _eventManager?.EmitEvent(evt);
+        // Send it through the main event pipeline (includes snapshotter if enabled)
+        EventManager?.EmitEvent(evt);
     }
 
     /// <summary>
@@ -221,10 +218,9 @@ public partial class Serf : IDisposable, IAsyncDisposable
 
         // Event routing pipeline (matches Go's pattern):
         // Serf → EventManager → [Snapshotter] → [QueryHandler] → config.EventCh
-        // The snapshotter sits in the middle, tee-ing events to snapshot file and forwarding to outCh
+        // The snapshotter sits in the middle, teeing events to the snapshot file and forwarding to outCh
 
-        ChannelWriter<IEvent>? eventDestination = config.EventCh;
-        ChannelWriter<IEvent>? internalQueryInput = null;
+        var eventDestination = config.EventCh;
         List<PreviousNode>? previousNodes = null;
 
         // Step 1: Create snapshotter FIRST if enabled (Go pattern: conf.EventCh = snapshotter's inCh)
@@ -233,7 +229,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
             serf.Logger?.LogInformation("[Serf/Snapshot] Initializing snapshotter at path: {Path}", config.SnapshotPath);
 
             // Snapshotter tees to the original eventDestination (config.EventCh at this point)
-            var (InCh, Snap) = await Snapshotter.NewSnapshotterAsync(
+            var (inCh, snap) = await Snapshotter.NewSnapshotterAsync(
                 path: config.SnapshotPath,
                 minCompactSize: config.MinSnapshotSize,
                 rejoinAfterLeave: config.RejoinAfterLeave,
@@ -242,20 +238,19 @@ public partial class Serf : IDisposable, IAsyncDisposable
                 outCh: eventDestination,  // Tee to original destination
                 shutdownToken: serf._shutdownCts.Token);
 
-            var snapshotter = Snap;
-            serf.Snapshotter = snapshotter;
+            serf.Snapshotter = snap;
 
             // CRITICAL: Replace eventDestination with snapshotter's input channel
             // This ensures all events flow through the snapshotter
-            eventDestination = InCh;
+            eventDestination = inCh;
 
             serf.Logger?.LogInformation("[Serf/Snapshot] ✓ Snapshotter created, all events will flow through it");
-            serf.Clock.Witness(snapshotter.LastClock);
-            serf.EventClock.Witness(snapshotter.LastEventClock);
-            serf.QueryClock.Witness(snapshotter.LastQueryClock);
+            serf.Clock.Witness(snap.LastClock);
+            serf.EventClock.Witness(snap.LastEventClock);
+            serf.QueryClock.Witness(snap.LastQueryClock);
             serf.Logger?.LogInformation("[Serf/Snapshot] Clock restored - Clock: {Clock}, EventClock: {EventClock}, QueryClock: {QueryClock}",
-                snapshotter.LastClock, snapshotter.LastEventClock, snapshotter.LastQueryClock);
-            previousNodes = snapshotter.AliveNodes();
+                snap.LastClock, snap.LastEventClock, snap.LastQueryClock);
+            previousNodes = snap.AliveNodes();
             serf.Logger?.LogInformation("[Serf/Snapshot] Loaded {Count} previous nodes from snapshot", previousNodes.Count);
             foreach (var node in previousNodes)
             {
@@ -267,22 +262,21 @@ public partial class Serf : IDisposable, IAsyncDisposable
             serf.Logger?.LogInformation("[Serf/Snapshot] No snapshot path configured for node {NodeName}", config.NodeName);
         }
 
-        // Step 2: Always create query handler for internal queries (key management, conflict resolution, etc)
-        // It wraps current eventDestination (snapshotter or config.EventCh, can be null)
+        // Step 2: Always create a query handler for internal queries (key management, conflict resolution, etc.)
+        // It wraps current eventDestination (snapshotter or config.EventCh can be null)
         serf.Logger?.LogInformation("[Serf/InternalQuery] Setting up internal query handler");
         var (queryInputCh, queryHandler) = SerfQueries.Create(
             serf,
             eventDestination,  // Query handler wraps snapshotter or config.EventCh (can be null)
             serf._shutdownCts.Token);
 
-        internalQueryInput = queryInputCh;
         eventDestination = queryInputCh;
 
         serf.Logger?.LogInformation("[Serf/InternalQuery] ✓ Internal query handler created");
 
-        // Step 3: Create EventManager with final eventDestination
+        // Step 3: Create EventManager with the final eventDestination
         // Now eventDestination points to: snapshotter.InCh → QueryHandler → config.EventCh
-        serf._eventManager = new EventManager(
+        serf.EventManager = new EventManager(
             eventCh: eventDestination,
             eventBufferSize: config.EventBuffer,
             logger: serf.Logger);
@@ -323,7 +317,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
             {
                 var transportConfig = new NSerf.Memberlist.Transport.NetTransportConfig
                 {
-                    BindAddrs = new List<string> { config.MemberlistConfig.BindAddr },
+                    BindAddrs = [config.MemberlistConfig.BindAddr],
                     BindPort = config.MemberlistConfig.BindPort,
                     Logger = serf.Logger
                 };
@@ -362,7 +356,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
             var memberEvent = new MemberEvent
             {
                 Type = EventType.MemberJoin,
-                Members = new List<Member> { localMember.Member }
+                Members = [localMember.Member]
             };
             serf.EmitEvent(memberEvent);
             serf.Logger?.LogInformation("[Serf/LocalNode] Emitted initial MemberJoin event for local node");
@@ -398,7 +392,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
                     serf.Logger?.LogInformation("[Serf/AutoRejoin] Will attempt to join {Count} addresses: [{Addrs}]",
                         addrs.Length, string.Join(", ", addrs));
 
-                    var attempts = 15;
+                    const int attempts = 10;
                     for (int i = 1; i <= attempts; i++)
                     {
                         try
@@ -454,9 +448,9 @@ public partial class Serf : IDisposable, IAsyncDisposable
         if (Memberlist == null)
             throw new InvalidOperationException("Memberlist not initialized");
 
-        // Look up local member in members dictionary to get actual status
+        // Look up local member in the members dictionary to get actual status
         // This matches Go's implementation: s.members[s.config.NodeName].Member
-        return _memberManager.ExecuteUnderLock(accessor =>
+        return MemberManager.ExecuteUnderLock(accessor =>
         {
             var memberInfo = accessor.GetMember(Config.NodeName);
             if (memberInfo?.Member != null)
@@ -505,10 +499,10 @@ public partial class Serf : IDisposable, IAsyncDisposable
     /// <param name="name">Name of the user event</param>
     /// <param name="payload">Event payload data</param>
     /// <param name="coalesce">If true, allow event coalescing</param>
-    /// <returns>Task that completes when event is queued for broadcast</returns>
+    /// <returns>Task that completes when an event is queued for broadcast</returns>
     public Task UserEventAsync(string? name, byte[]? payload, bool coalesce)
     {
-        ArgumentNullException.ThrowIfNullOrEmpty(name);
+        ArgumentException.ThrowIfNullOrEmpty(name);
         ArgumentNullException.ThrowIfNull(payload);
 
         var payloadSizeBeforeEncoding = name.Length + payload.Length;
@@ -643,8 +637,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
             var encoded = EncodeMessage(MessageType.Leave, leaveMsg);
             if (encoded.Length > 0)
             {
-                //don't ue the async version here
-                Broadcasts.QueueBytes(encoded);
+                await Broadcasts.QueueBytesAsync(encoded);
                 Logger?.LogDebug("[Serf] Broadcasted leave intent for: {Node}", Config.NodeName);
             }
 
@@ -673,16 +666,14 @@ public partial class Serf : IDisposable, IAsyncDisposable
             _clusterCoordinator.TryTransitionToLeft();
 
             // Also transition local member status from Leaving to Left
-            _memberManager.ExecuteUnderLock(accessor =>
+            MemberManager.ExecuteUnderLock(accessor =>
             {
                 accessor.UpdateMember(Config.NodeName, m =>
                 {
                     var result = m.StateMachine.TransitionOnLeaveComplete();
-                    if (result.WasStateChanged && m.Member != null)
-                    {
-                        m.Member.Status = m.StateMachine.CurrentState;
-                        Logger?.LogDebug("[Serf] Local member transitioned to Left status");
-                    }
+                    if (!result.WasStateChanged) return;
+                    m.Member.Status = m.StateMachine.CurrentState;
+                    Logger?.LogDebug("[Serf] Local member transitioned to Left status");
                 });
             });
         }
@@ -777,8 +768,8 @@ public partial class Serf : IDisposable, IAsyncDisposable
     /// Maps to: Go's RemoveFailedNode() method
     /// </summary>
     /// <param name="nodeName">Name of the node to remove</param>
-    /// <param name="prune">If true, also prune from snapshot</param>
-    /// <returns>True if node was removed, false if not found</returns>
+    /// <param name="prune">If true, also prune from the snapshot</param>
+    /// <returns>True if a node was removed, false if not found</returns>
     public async Task<bool> RemoveFailedNodeAsync(string? nodeName, bool prune = false)
     {
         ArgumentException.ThrowIfNullOrEmpty(nodeName);
@@ -798,8 +789,8 @@ public partial class Serf : IDisposable, IAsyncDisposable
         if (Memberlist != null && Memberlist.NumMembers() > 1)
         {
             var encoded = EncodeMessage(MessageType.Leave, leaveMsg);
-            // Use QueueBytes (not QueueBytesAsync) - simple fire-and-forget broadcast
-            Broadcasts.QueueBytes(encoded);
+            // Use QueueBytes (not QueueBytesAsync) - a simple fire-and-forget broadcast
+            await Broadcasts.QueueBytesAsync(encoded);
             await Task.Delay(Config.BroadcastTimeout);
         }
 
@@ -818,16 +809,15 @@ public partial class Serf : IDisposable, IAsyncDisposable
 
     internal bool HandleNodeLeaveIntent(MessageLeave leave)
     {
-        var tempEvents = new List<Events.IEvent>();
+        var tempEvents = new List<IEvent>();
 
         var handler = new Handlers.IntentHandler(
-            _memberManager,
+            MemberManager,
             tempEvents,
             Clock,
             Logger,
             Config.NodeName,
-            () => _clusterCoordinator.GetCurrentState(),
-            null);
+            () => _clusterCoordinator.GetCurrentState());
 
         var result = handler.HandleLeaveIntent(leave);
 
@@ -839,40 +829,38 @@ public partial class Serf : IDisposable, IAsyncDisposable
     internal bool HandleNodeJoinIntent(MessageJoin join)
     {
         var handler = new Handlers.IntentHandler(
-            _memberManager,
+            MemberManager,
             [],
             Clock,
             Logger,
             Config.NodeName,
-            () => _clusterCoordinator.GetCurrentState(),
-            null);
+            () => _clusterCoordinator.GetCurrentState());
 
         return handler.HandleJoinIntent(join);
     }
 
     internal bool HandleUserEvent(MessageUserEvent userEvent)
     {
-        if (_eventManager == null)
+        if (EventManager == null)
         {
             Logger?.LogWarning("[Serf] EventManager not initialized");
             return false;
         }
 
-        var shouldRebroadcast = _eventManager.HandleUserEvent(userEvent);
-        if (shouldRebroadcast)
-        {
-            Config.Metrics.IncrCounter(["serf", "events"], 1, Config.MetricLabels);
-            Config.Metrics.IncrCounter(["serf", "events", userEvent.Name], 1, Config.MetricLabels);
-        }
+        var shouldRebroadcast = EventManager.HandleUserEvent(userEvent);
+        if (!shouldRebroadcast) return shouldRebroadcast;
+        
+        Config.Metrics.IncrCounter(["serf", "events"], 1, Config.MetricLabels);
+        Config.Metrics.IncrCounter(["serf", "events", userEvent.Name], 1, Config.MetricLabels);
 
         return shouldRebroadcast;
     }
 
     internal void HandleNodeJoin(Memberlist.State.Node? node)
     {
-        var tempEvents = new List<Events.IEvent>();
+        var tempEvents = new List<IEvent>();
         var handler = new Handlers.NodeEventHandler(
-            _memberManager,
+            MemberManager,
             tempEvents,
             Clock,
             Logger,
@@ -884,15 +872,13 @@ public partial class Serf : IDisposable, IAsyncDisposable
 
         if (node != null)
         {
-            _memberManager.ExecuteUnderLock(accessor =>
+            MemberManager.ExecuteUnderLock(accessor =>
             {
                 var memberInfo = accessor.GetMember(node.Name);
-                if (memberInfo != null)
-                {
-                    oldStatus = memberInfo.Status;
-                    leaveTime = memberInfo.LeaveTime;
-                    shouldCheckFlap = oldStatus == MemberStatus.Failed && leaveTime != default;
-                }
+                if (memberInfo == null) return;
+                oldStatus = memberInfo.Status;
+                leaveTime = memberInfo.LeaveTime;
+                shouldCheckFlap = oldStatus == MemberStatus.Failed && leaveTime != null;
             });
         }
 
@@ -917,10 +903,10 @@ public partial class Serf : IDisposable, IAsyncDisposable
     {
         if (node == null || _clusterCoordinator.IsShutdown()) return;
 
-        var tempEvents = new List<Events.IEvent>();
+        var tempEvents = new List<IEvent>();
 
         var handler = new Handlers.NodeEventHandler(
-            _memberManager,
+            MemberManager,
             tempEvents,
             Clock,
             Logger,
@@ -957,34 +943,28 @@ public partial class Serf : IDisposable, IAsyncDisposable
 
         Logger?.LogDebug("[Serf] HandleNodeUpdate: {Name}", node.Name);
 
-        Member? updatedMember = _memberManager.ExecuteUnderLock(accessor =>
+        var updatedMember = MemberManager.ExecuteUnderLock(accessor =>
         {
             var memberInfo = accessor.GetMember(node.Name);
             if (memberInfo != null)
             {
-                if (memberInfo.Member != null)
+                accessor.UpdateMember(node.Name, m =>
                 {
-                    accessor.UpdateMember(node.Name, m =>
-                    {
-                        if (m.Member != null)
-                        {
-                            m.Member.Addr = node.Addr;
-                            m.Member.Port = node.Port;
-                            m.Member.Tags = DecodeTags(node.Meta);
-                            m.Member.ProtocolMin = node.PMin;
-                            m.Member.ProtocolMax = node.PMax;
-                            m.Member.ProtocolCur = node.PCur;
-                            m.Member.DelegateMin = node.DMin;
-                            m.Member.DelegateMax = node.DMax;
-                            m.Member.DelegateCur = node.DCur;
-                        }
-                    });
+                    m.Member.Addr = node.Addr;
+                    m.Member.Port = node.Port;
+                    m.Member.Tags = DecodeTags(node.Meta);
+                    m.Member.ProtocolMin = node.PMin;
+                    m.Member.ProtocolMax = node.PMax;
+                    m.Member.ProtocolCur = node.PCur;
+                    m.Member.DelegateMin = node.DMin;
+                    m.Member.DelegateMax = node.DMax;
+                    m.Member.DelegateCur = node.DCur;
+                });
 
-                    Logger?.LogInformation("[Serf] Member updated: {Name}, Tags: {Tags}",
-                        node.Name, string.Join(", ", DecodeTags(node.Meta).Select(kvp => $"{kvp.Key}={kvp.Value}")));
+                Logger?.LogInformation("[Serf] Member updated: {Name}, Tags: {Tags}",
+                    node.Name, string.Join(", ", DecodeTags(node.Meta).Select(kvp => $"{kvp.Key}={kvp.Value}")));
 
-                    return memberInfo.Member;
-                }
+                return memberInfo.Member;
             }
             else
             {
@@ -998,16 +978,14 @@ public partial class Serf : IDisposable, IAsyncDisposable
         if (updatedMember != null)
             Config.Metrics.IncrCounter(["serf", "member", "update"], 1, Config.MetricLabels);
 
-        if (updatedMember != null)
+        if (updatedMember == null) return;
+        var memberEvent = new MemberEvent
         {
-            var memberEvent = new MemberEvent
-            {
-                Type = EventType.MemberUpdate,
-                Members = new List<Member> { updatedMember }
-            };
+            Type = EventType.MemberUpdate,
+            Members = [updatedMember]
+        };
 
-            EmitEvent(memberEvent);
-        }
+        EmitEvent(memberEvent);
     }
 
     internal void HandleNodeConflict(Memberlist.State.Node? existing, Memberlist.State.Node? other)
@@ -1048,7 +1026,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
                 return;
             }
 
-            var queryName = $"_serf_conflict";
+            const string queryName = $"_serf_conflict";
             var payload = System.Text.Encoding.UTF8.GetBytes(Config.NodeName);
 
             var queryParams = new QueryParam
@@ -1059,8 +1037,8 @@ public partial class Serf : IDisposable, IAsyncDisposable
             Logger?.LogInformation("[Serf] Starting conflict resolution query for '{NodeName}'", Config.NodeName);
 
             var resp = await QueryAsync(queryName, payload, queryParams);
-            int responses = 0;
-            int matching = 0;
+            var responses = 0;
+            var matching = 0;
 
             await foreach (var r in resp.ResponseCh.ReadAllAsync())
             {
@@ -1083,7 +1061,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
                 }
             }
 
-            int majority = (responses / 2) + 1;
+            var majority = (responses / 2) + 1;
             if (matching >= majority)
             {
                 Logger?.LogInformation("[Serf] majority in name conflict resolution [{Matching} / {Responses}]",
@@ -1136,9 +1114,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
         // For other nodes, check cache
         lock (_coordCacheLock)
         {
-            if (_coordCache.TryGetValue(nodeName, out var coord))
-                return coord;
-            return null;
+            return _coordCache.GetValueOrDefault(nodeName);
         }
     }
 
@@ -1162,11 +1138,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
         _coordCacheLock.EnterReadLock();
         try
         {
-            if (_coordCache.TryGetValue(nodeName, out var coordinate))
-            {
-                return coordinate;
-            }
-            return null;
+            return _coordCache.GetValueOrDefault(nodeName);
         }
         finally
         {
@@ -1258,7 +1230,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
 
     /// <summary>
     /// Executes an async action while holding a semaphore lock. Ensures lock is released.
-    /// Used for _joinLock to protect eventJoinIgnore during Join operation.
+    /// Used for _joinLock to protect the eventJoinIgnore during the Join operation.
     /// </summary>
     private static async Task WithLockAsync(SemaphoreSlim semaphore, Func<Task> action)
         => await LockHelper.WithLockAsync(semaphore, action);
@@ -1292,11 +1264,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
 
         // Get all keys and encode them to base64
         var keysRaw = keyring.GetKeys();
-        var keysEncoded = new List<string>();
-        foreach (var key in keysRaw)
-        {
-            keysEncoded.Add(Convert.ToBase64String(key));
-        }
+        var keysEncoded = keysRaw.Select(Convert.ToBase64String).ToList();
 
         // Serialize to JSON with indentation
         var json = System.Text.Json.JsonSerializer.Serialize(keysEncoded, new System.Text.Json.JsonSerializerOptions
@@ -1304,7 +1272,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
             WriteIndented = true
         });
 
-        // Write to file with restricted permissions (600 in Unix terms)
+        // Write to a file with restricted permissions (600 in Unix terms)
         // On Windows, this creates a file with default permissions
         await File.WriteAllTextAsync(Config.KeyringFile, json);
 
@@ -1316,7 +1284,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
     /// </summary>
     public void Dispose()
     {
-        if (_shutdownCts != null && !_shutdownCts.IsCancellationRequested)
+        if (!_shutdownCts.IsCancellationRequested)
         {
             _shutdownCts.Cancel();
         }
@@ -1333,13 +1301,13 @@ public partial class Serf : IDisposable, IAsyncDisposable
             }
         }
 
-        _eventManager?.Dispose();
-        _clusterCoordinator?.Dispose();
-        _queryLock?.Dispose();
-        _coordCacheLock?.Dispose();
-        _joinLock?.Dispose();
-        _shutdownCts?.Dispose();
-        System.GC.SuppressFinalize(this);
+        EventManager?.Dispose();
+        _clusterCoordinator.Dispose();
+        _queryLock.Dispose();
+        _coordCacheLock.Dispose();
+        _joinLock.Dispose();
+        _shutdownCts.Dispose();
+        GC.SuppressFinalize(this);
     }
 
     /// <summary>
@@ -1348,7 +1316,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
     public ValueTask DisposeAsync()
     {
         Dispose();
-        System.GC.SuppressFinalize(this);
+        GC.SuppressFinalize(this);
         return ValueTask.CompletedTask;
     }
 }

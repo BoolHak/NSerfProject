@@ -15,7 +15,7 @@ public class ChatHub : Hub, IEventHandler
     private readonly SerfAgent _agent;
     private readonly ILogger<ChatHub> _logger;
     private readonly IHubContext<ChatHub> _hubContext;
-    private static readonly object _initLock = new();
+    private static readonly object InitLock = new();
     private static bool _initialized;
 
     public ChatHub(SerfAgent agent, ILogger<ChatHub> logger, IHubContext<ChatHub> hubContext)
@@ -25,14 +25,12 @@ public class ChatHub : Hub, IEventHandler
         _hubContext = hubContext;
 
         // Register this hub as a Serf event handler (only once)
-        lock (_initLock)
+        lock (InitLock)
         {
-            if (!_initialized)
-            {
-                _agent.RegisterEventHandler(this);
-                _initialized = true;
-                _logger.LogInformation("[ChatHub] Registered as Serf event handler");
-            }
+            if (_initialized) return;
+            _agent.RegisterEventHandler(this);
+            _initialized = true;
+            _logger.LogInformation("[ChatHub] Registered as Serf event handler");
         }
     }
 
@@ -79,40 +77,46 @@ public class ChatHub : Hub, IEventHandler
     {
         try
         {
-            // Only process user events with name "chat-message"
-            if (@event is UserEvent userEvent && userEvent.Name == "chat-message")
+            switch (@event)
             {
-                var json = Encoding.UTF8.GetString(userEvent.Payload);
-                var chatMessage = JsonSerializer.Deserialize<ChatMessage>(json);
-
-                if (chatMessage != null)
+                // Only process user events with name "chat-message"
+                case UserEvent { Name: "chat-message" } userEvent:
                 {
-                    // Ignore messages from our own node (already displayed locally)
-                    if (chatMessage.SourceNode == _agent.NodeName)
-                        return;
+                    var json = Encoding.UTF8.GetString(userEvent.Payload);
+                    var chatMessage = JsonSerializer.Deserialize<ChatMessage>(json);
 
-                    _logger.LogInformation("[ChatHub] Received message from {Node}: {User}: {Message}",
-                        chatMessage.SourceNode, chatMessage.User, chatMessage.Message);
+                    if (chatMessage != null)
+                    {
+                        // Ignore messages from our own node (already displayed locally)
+                        if (chatMessage.SourceNode == _agent.NodeName)
+                            return;
 
-                    // Broadcast to all clients connected to THIS server
-                    _ = _hubContext.Clients.All.SendAsync(
-                        "ReceiveMessage",
-                        chatMessage.User,
-                        chatMessage.Message,
-                        chatMessage.SourceNode);
+                        _logger.LogInformation("[ChatHub] Received message from {Node}: {User}: {Message}",
+                            chatMessage.SourceNode, chatMessage.User, chatMessage.Message);
+
+                        // Broadcast to all clients connected to THIS server
+                        _ = _hubContext.Clients.All.SendAsync(
+                            "ReceiveMessage",
+                            chatMessage.User,
+                            chatMessage.Message,
+                            chatMessage.SourceNode);
+                    }
+
+                    break;
                 }
-            }
-            else if (@event is MemberEvent memberEvent)
-            {
-                // Notify clients about cluster membership changes
-                var eventType = memberEvent.Type.ToString().ToLower();
-                var members = string.Join(", ", memberEvent.Members.Select(m => m.Name));
+                case MemberEvent memberEvent:
+                {
+                    // Notify clients about cluster membership changes
+                    var eventType = memberEvent.Type.ToString().ToLower();
+                    var members = string.Join(", ", memberEvent.Members.Select(m => m.Name));
 
-                _ = _hubContext.Clients.All.SendAsync(
-                    "SystemMessage",
-                    $"[Cluster {eventType}] {members}");
+                    _ = _hubContext.Clients.All.SendAsync(
+                        "SystemMessage",
+                        $"[Cluster {eventType}] {members}");
 
-                _logger.LogInformation("[ChatHub] Member event: {Type} - {Members}", eventType, members);
+                    _logger.LogInformation("[ChatHub] Member event: {Type} - {Members}", eventType, members);
+                    break;
+                }
             }
         }
         catch (Exception ex)
@@ -126,12 +130,10 @@ public class ChatHub : Hub, IEventHandler
         _logger.LogInformation("[ChatHub] Client connected: {ConnectionId}", Context.ConnectionId);
 
         // Send cluster info to the new client
-        if (_agent.Serf != null)
-        {
-            var memberCount = _agent.Serf.Members().Length;
-            _ = Clients.Caller.SendAsync("SystemMessage",
-                $"Connected to {_agent.NodeName} (cluster size: {memberCount})");
-        }
+        if (_agent.Serf == null) return base.OnConnectedAsync();
+        var memberCount = _agent.Serf.Members().Length;
+        _ = Clients.Caller.SendAsync("SystemMessage",
+            $"Connected to {_agent.NodeName} (cluster size: {memberCount})");
 
         return base.OnConnectedAsync();
     }

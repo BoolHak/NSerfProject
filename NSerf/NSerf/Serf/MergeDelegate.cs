@@ -3,7 +3,6 @@
 // Ported from: github.com/hashicorp/serf/serf/merge_delegate.go
 
 using NSerf.Memberlist.State;
-using System.Net;
 
 namespace NSerf.Serf;
 
@@ -22,10 +21,10 @@ internal class MergeDelegate(Serf serf) : Memberlist.Delegates.IMergeDelegate
 
     /// <summary>
     /// Called by memberlist when a merge could take place.
-    /// Converts nodes to members and forwards to user's merge delegate.
+    /// Converts nodes to members and forwards to the user's merge delegate.
     /// </summary>
     /// <param name="peers">List of nodes from the remote peer</param>
-    /// <returns>Error message if merge should be canceled, null to allow</returns>
+    /// <returns>Error message if the merge should be canceled, null to allow</returns>
     public string? NotifyMerge(IReadOnlyList<Node> peers)
     {
         // Convert all nodes to members
@@ -41,15 +40,9 @@ internal class MergeDelegate(Serf serf) : Memberlist.Delegates.IMergeDelegate
             members.Add(member!);
         }
 
-        // Forward to user's merge delegate if configured
-        if (_serf.Config.Merge != null)
-        {
-            // Note: IMergeDelegate.NotifyMerge is async, but memberlist's IMergeDelegate is sync
-            // We need to block here (will be refactored in Phase 9)
-            return _serf.Config.Merge.NotifyMerge(members.ToArray()).GetAwaiter().GetResult();
-        }
-
-        return null;  // Allow merge by default
+        // Forward to the user's merge delegate if configured
+        // Allow merge by default
+        return _serf.Config.Merge?.NotifyMerge(members.ToArray()).GetAwaiter().GetResult(); 
     }
 
     /// <summary>
@@ -108,19 +101,16 @@ internal class MergeDelegate(Serf serf) : Memberlist.Delegates.IMergeDelegate
 
         // Validate IP address length
         var ipBytes = node.Addr.GetAddressBytes();
-        var ipError = ValidateIPLength(ipBytes);
+        var ipError = ValidateIpLength(ipBytes);
         if (ipError != null)
         {
             return ipError;
         }
 
         // Validate metadata size
-        if (node.Meta.Length > 512)  // memberlist.MetaMaxSize = 512
-        {
-            return $"Encoded length of tags exceeds limit of 512 bytes";
-        }
-
-        return null;
+        // memberlist.MetaMaxSize = 512
+        return node.Meta.Length > 512 ? 
+            $"Encoded length of tags exceeds limit of 512 bytes" : null;
     }
 
     /// <summary>
@@ -128,7 +118,7 @@ internal class MergeDelegate(Serf serf) : Memberlist.Delegates.IMergeDelegate
     /// </summary>
     /// <param name="ipBytes">The IP address bytes</param>
     /// <returns>Error message if invalid, null if valid</returns>
-    public static string? ValidateIPLength(byte[] ipBytes)
+    public static string? ValidateIpLength(byte[] ipBytes)
     {
         if (ipBytes.Length != 4 && ipBytes.Length != 16)
         {

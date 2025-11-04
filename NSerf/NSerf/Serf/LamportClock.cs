@@ -11,15 +11,10 @@ namespace NSerf.Serf;
 /// Represents a logical timestamp in a distributed system.
 /// </summary>
 [MessagePackObject(AllowPrivate = true)]
-public readonly partial struct LamportTime : IEquatable<LamportTime>, IComparable<LamportTime>
+public readonly partial struct LamportTime(ulong value) : IEquatable<LamportTime>, IComparable<LamportTime>
 {
     [Key(0)]
-    private readonly ulong _value;
-
-    public LamportTime(ulong value)
-    {
-        _value = value;
-    }
+    private readonly ulong _value = value;
 
     // Implicit conversion from ulong
     public static implicit operator LamportTime(ulong value) => new(value);
@@ -73,7 +68,7 @@ public class LamportClock
     /// Increments and returns the value of the Lamport clock.
     /// This operation is thread-safe and atomic.
     /// </summary>
-    /// <returns>The new logical timestamp after increment</returns>
+    /// <returns>The new logical timestamp after an increment</returns>
     public LamportTime Increment()
     {
         return Interlocked.Increment(ref _counter);

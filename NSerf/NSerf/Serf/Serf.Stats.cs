@@ -9,14 +9,14 @@ namespace NSerf.Serf;
 public partial class Serf
 {
     /// <summary>
-    /// Stats returns various statistics about the Serf agent.
+    /// Stats return various statistics about the Serf agent.
     /// Maps to: Go's Stats() method in serf.go
     /// </summary>
     /// <returns>Dictionary of statistics</returns>
     public Dictionary<string, string> Stats()
     {
         // Get member counts by status using ExecuteUnderLock
-        var (members, failed, left) = _memberManager.ExecuteUnderLock(accessor =>
+        var (members, failed, left) = MemberManager.ExecuteUnderLock(accessor =>
         {
             var aliveMembers = accessor.GetMembersByStatus(MemberStatus.Alive);
             var failedMembers = accessor.GetMembersByStatus(MemberStatus.Failed);
@@ -26,7 +26,7 @@ public partial class Serf
 
 
 
-        // Get health score from memberlist
+        // Get health score from the memberlist
         var healthScore = Memberlist?.GetHealthScore() ?? 0;
 
         var stats = new Dictionary<string, string>
@@ -45,11 +45,9 @@ public partial class Serf
         };
 
         // Add coordinate statistics if enabled
-        if (!Config.DisableCoordinates && _coordClient != null)
-        {
-            var coordStats = _coordClient.Stats();
-            stats["coordinate_resets"] = coordStats.Resets.ToString();
-        }
+        if (Config.DisableCoordinates || _coordClient == null) return stats;
+        var coordStats = _coordClient.Stats();
+        stats["coordinate_resets"] = coordStats.Resets.ToString();
 
         return stats;
     }

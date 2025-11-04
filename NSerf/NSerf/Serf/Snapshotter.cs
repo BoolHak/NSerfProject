@@ -34,9 +34,6 @@ public class Snapshotter : IDisposable, IAsyncDisposable
     private readonly ChannelReader<IEvent> _inCh;
     private readonly Channel<IEvent> _streamCh;
     private DateTime _lastFlush = DateTime.UtcNow;
-    private LamportTime _lastClock;
-    private LamportTime _lastEventClock;
-    private LamportTime _lastQueryClock;
     private readonly Channel<bool> _leaveCh = Channel.CreateUnbounded<bool>();
     private bool _leaving;
     private readonly ILogger? _logger;
@@ -60,7 +57,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
     /// max byte size before rotating the file. It can also be used to
     /// recover old state. Snapshotter works by reading an event channel it returns,
     /// passing through to an output channel, and persisting relevant events to disk.
-    /// Setting rejoinAfterLeave makes leave not clear the state, and can be used
+    /// Setting rejoinAfterLeave makes leave not clear the state and can be used
     /// if you intend to rejoin the same cluster after a leave.
     /// </summary>
     public static async Task<(ChannelWriter<IEvent> InCh, Snapshotter Snap)> NewSnapshotterAsync(
@@ -81,7 +78,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
 
         // Try to open the file with retry logic to handle file locks from previous instances
         FileStream fh;
-        int retries = 5;
+        var retries = 5;
         while (true)
         {
             try
@@ -102,7 +99,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
         }
 
         // Determine the offset
-        long offset = fh.Length;
+        var offset = fh.Length;
 
         // Create the snapshotter
         var snap = new Snapshotter(
@@ -169,9 +166,9 @@ public class Snapshotter : IDisposable, IAsyncDisposable
             SingleWriter = false,
             FullMode = BoundedChannelFullMode.Wait  // Apply backpressure when full
         });
-        _lastClock = lastClock;
-        _lastEventClock = lastEventClock;
-        _lastQueryClock = lastQueryClock;
+        LastClock = lastClock;
+        LastEventClock = lastEventClock;
+        LastQueryClock = lastQueryClock;
         _logger = logger;
         _minCompactSize = minCompactSize;
         _path = path;
@@ -186,17 +183,17 @@ public class Snapshotter : IDisposable, IAsyncDisposable
     /// <summary>
     /// Returns the last known clock time
     /// </summary>
-    public LamportTime LastClock => _lastClock;
+    public LamportTime LastClock { get; private set; }
 
     /// <summary>
     /// Returns the last known event clock time
     /// </summary>
-    public LamportTime LastEventClock => _lastEventClock;
+    public LamportTime LastEventClock { get; private set; }
 
     /// <summary>
     /// Returns the last known query clock time
     /// </summary>
-    public LamportTime LastQueryClock => _lastQueryClock;
+    public LamportTime LastQueryClock { get; private set; }
 
     /// <summary>
     /// Returns the last known alive nodes (in randomized order to prevent hot shards)
@@ -209,9 +206,9 @@ public class Snapshotter : IDisposable, IAsyncDisposable
 
             // Randomize the order (Fisher-Yates shuffle)
             var rng = new Random();
-            for (int i = previous.Count - 1; i > 0; i--)
+            for (var i = previous.Count - 1; i > 0; i--)
             {
-                int j = rng.Next(i + 1);
+                var j = rng.Next(i + 1);
                 (previous[i], previous[j]) = (previous[j], previous[i]);
             }
 
@@ -226,7 +223,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
 
     /// <summary>
     /// Leave is used to remove known nodes to prevent a restart from
-    /// causing a join. Otherwise nodes will re-join after leaving!
+    /// causing a join. Otherwise, nodes will re-join after leaving!
     /// </summary>
     public async Task LeaveAsync()
     {
@@ -269,7 +266,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
     }
 
     /// <summary>
-    /// teeStream is a long running routine that is used to copy events
+    /// teeStream is a long-running routine used to copy events
     /// to the output channel and the internal event handler.
     /// </summary>
     private async Task TeeStreamAsync()
@@ -282,7 +279,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
             {
                 _logger?.LogInformation("[Snapshotter/TeeStream] Received event: {Type}", evt.GetType().Name);
 
-                // Forward to stream channel (may block on backpressure)
+                // Forward to a stream channel (may block on backpressure)
                 try
                 {
                     await _streamCh.Writer.WriteAsync(evt, _shutdownToken);
@@ -293,17 +290,15 @@ public class Snapshotter : IDisposable, IAsyncDisposable
                     break;
                 }
 
-                // Forward to output channel if configured (non-blocking)
-                if (_outCh != null)
+                // Forward to the output channel if configured (non-blocking)
+                if (_outCh == null) continue;
+                try
                 {
-                    try
-                    {
-                        await _outCh.WriteAsync(evt, _shutdownToken);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        // Continue - outCh failure shouldn't stop snapshot writes
-                    }
+                    await _outCh.WriteAsync(evt, _shutdownToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    // Continue - outCh failure shouldn't stop snapshot writes
                 }
             }
         }
@@ -328,7 +323,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
     }
 
     /// <summary>
-    /// stream is a long running routine that is used to handle events
+    /// stream is a long-running routine that is used to handle events
     /// </summary>
     private async Task StreamAsync()
     {
@@ -398,7 +393,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
         UpdateClock();
 
         // Process any pending leave events FIRST
-        while (_leaveCh.Reader.TryRead(out var _))
+        while (_leaveCh.Reader.TryRead(out _))
         {
             await HandleLeaveAsync();
         }
@@ -443,12 +438,12 @@ public class Snapshotter : IDisposable, IAsyncDisposable
                 _aliveNodes.Clear();
             }
 
-            // Only write leave marker when NOT rejoining
-            // When rejoin-after-leave is enabled, snapshot is used to rejoin known peers
+            // Only write the leave marker when NOT rejoining
+            // When rejoin-after-leave is enabled, a snapshot is used to rejoin known peers
             TryAppend("leave\n");
         }
 
-        // Ensure leave marker is flushed to disk before returning (critical for durability)
+        // Ensure the leave marker is flushed to disk before returning (critical for durability)
         try
         {
             // Flush writer buffer
@@ -457,7 +452,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
                 _bufferedWriter?.Flush();
             }
 
-            // Force fsync to ensure data reaches disk (critical for leave marker)
+            // Force fsync to ensure data reaches the disk (critical for leave marker)
             _fileHandle?.Flush(true);
 
             _logger?.LogInformation("[Snapshotter] Leave marker successfully written and flushed");
@@ -528,7 +523,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
             _logger?.LogInformation("[Snapshotter] Total alive nodes in memory: {Count}", _aliveNodes.Count);
         }
         UpdateClock();
-        // Force an immediate flush to make snapshot visible promptly
+        // Force an immediate flush to make the snapshot visible promptly
         await ForceFlushAsync();
     }
 
@@ -564,22 +559,20 @@ public class Snapshotter : IDisposable, IAsyncDisposable
         if (now == 0) return;  // Guard against underflow
 
         var lastSeen = now - 1;
-        if (lastSeen > _lastClock)
-        {
-            _lastClock = lastSeen;
-            TryAppend($"clock: {(ulong)_lastClock}\n");
-        }
+        if (lastSeen <= LastClock) return;
+        LastClock = lastSeen;
+        TryAppend($"clock: {(ulong)LastClock}\n");
     }
 
     private void ProcessUserEvent(UserEvent e)
     {
         // Ignore old clocks
-        if (e.LTime <= _lastEventClock)
+        if (e.LTime <= LastEventClock)
         {
             return;
         }
 
-        _lastEventClock = e.LTime;
+        LastEventClock = e.LTime;
         TryAppend($"event-clock: {(ulong)e.LTime}\n");
         // Force immediate flush for reliability
         try
@@ -596,12 +589,12 @@ public class Snapshotter : IDisposable, IAsyncDisposable
     private void ProcessQuery(Query q)
     {
         // Ignore old clocks
-        if (q.LTime <= _lastQueryClock)
+        if (q.LTime <= LastQueryClock)
         {
             return;
         }
 
-        _lastQueryClock = q.LTime;
+        LastQueryClock = q.LTime;
         TryAppend($"query-clock: {(ulong)q.LTime}\n");
         // Force immediate flush for reliability
         try
@@ -681,10 +674,10 @@ public class Snapshotter : IDisposable, IAsyncDisposable
         lock (_lock)
         {
             long nodes = _aliveNodes.Count;
-            long estSize = nodes * SnapshotBytesPerNode;
-            long threshold = estSize * SnapshotCompactionThreshold;
+            var estSize = nodes * SnapshotBytesPerNode;
+            var threshold = estSize * SnapshotCompactionThreshold;
 
-            // Apply minimum threshold
+            // Apply a minimum threshold
             if (threshold < _minCompactSize)
             {
                 threshold = _minCompactSize;
@@ -708,7 +701,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
                 aliveSnapshot = new Dictionary<string, string>(_aliveNodes);
             }
 
-            // Write to new file (NO lock - this is the slow part)
+            // Write to a new file (NO lock - this is the slow part)
             long newOffset;
             using (var newFile = new FileStream(newPath, FileMode.Create, FileAccess.Write, FileShare.None))
             using (var writer = new StreamWriter(newFile, Encoding.UTF8))
@@ -724,21 +717,21 @@ public class Snapshotter : IDisposable, IAsyncDisposable
                 }
 
                 // Write out clocks as raw integers
-                var clockLine = $"clock: {(ulong)_lastClock}\n";
+                var clockLine = $"clock: {(ulong)LastClock}\n";
                 writer.Write(clockLine);
                 newOffset += Encoding.UTF8.GetByteCount(clockLine);
 
-                var eventClockLine = $"event-clock: {(ulong)_lastEventClock}\n";
+                var eventClockLine = $"event-clock: {(ulong)LastEventClock}\n";
                 writer.Write(eventClockLine);
                 newOffset += Encoding.UTF8.GetByteCount(eventClockLine);
 
-                var queryClockLine = $"query-clock: {(ulong)_lastQueryClock}\n";
+                var queryClockLine = $"query-clock: {(ulong)LastQueryClock}\n";
                 writer.Write(queryClockLine);
                 newOffset += Encoding.UTF8.GetByteCount(queryClockLine);
 
                 writer.Flush();
                 newFile.Flush(true);
-            } // Close and flush new file before swap
+            } // Close and flush a new file before swap
 
             // Atomic file swap (SHORT lock - just the swap operation)
             lock (_fileLock)
@@ -751,8 +744,13 @@ public class Snapshotter : IDisposable, IAsyncDisposable
                 }
                 catch { /* ignore */ }
 
-                // Replace old file with new file
-                try { File.Delete(_path); } catch { }
+                // Replace an old file with a new file
+                try { File.Delete(_path); }
+                catch
+                {
+                    // ignored
+                }
+
                 File.Move(newPath, _path);
 
                 // Reopen
@@ -775,7 +773,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
         }
     }
     /// <summary>
-    /// replay is used to reset our internal state by replaying
+    /// Replay is used to reset our internal state by replaying
     /// the snapshot file. It is used at initialization time to read old state.
     /// </summary>
     private async Task ReplayAsync()
@@ -786,8 +784,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
         // Read each line
         using var reader = new StreamReader(_fileHandle, Encoding.UTF8, detectEncodingFromByteOrderMarks: false, bufferSize: 4096, leaveOpen: true);
 
-        string? line;
-        while ((line = await reader.ReadLineAsync()) != null)
+        while (await reader.ReadLineAsync(_shutdownToken) is { } line)
         {
             if (line.StartsWith("alive: "))
             {
@@ -800,19 +797,25 @@ public class Snapshotter : IDisposable, IAsyncDisposable
                 }
                 var addr = info[(lastSpaceIdx + 1)..];
                 var name = info[..lastSpaceIdx];
-                _aliveNodes[name] = addr;
+                lock (_lock)
+                {
+                    _aliveNodes[name] = addr;
+                }
             }
             else if (line.StartsWith("not-alive: "))
             {
                 var name = line["not-alive: ".Length..];
-                _aliveNodes.Remove(name);
+                lock (_lock)
+                {
+                    _aliveNodes.Remove(name);
+                }
             }
             else if (line.StartsWith("clock: "))
             {
                 var timeStr = line["clock: ".Length..];
                 if (ulong.TryParse(timeStr, out var time))
                 {
-                    _lastClock = new LamportTime(time);
+                    LastClock = new LamportTime(time);
                 }
                 else
                 {
@@ -824,7 +827,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
                 var timeStr = line["event-clock: ".Length..];
                 if (ulong.TryParse(timeStr, out var time))
                 {
-                    _lastEventClock = new LamportTime(time);
+                    LastEventClock = new LamportTime(time);
                 }
                 else
                 {
@@ -836,7 +839,7 @@ public class Snapshotter : IDisposable, IAsyncDisposable
                 var timeStr = line["query-clock: ".Length..];
                 if (ulong.TryParse(timeStr, out var time))
                 {
-                    _lastQueryClock = new LamportTime(time);
+                    LastQueryClock = new LamportTime(time);
                 }
                 else
                 {
@@ -856,10 +859,13 @@ public class Snapshotter : IDisposable, IAsyncDisposable
                     _logger?.LogInformation("Ignoring previous leave in snapshot");
                     continue;
                 }
-                _aliveNodes.Clear();
-                _lastClock = new LamportTime(0);
-                _lastEventClock = new LamportTime(0);
-                _lastQueryClock = new LamportTime(0);
+                lock (_lock)
+                {
+                    _aliveNodes.Clear();
+                }
+                LastClock = new LamportTime(0);
+                LastEventClock = new LamportTime(0);
+                LastQueryClock = new LamportTime(0);
                 // Stop processing rest of file after leave marker
                 break;
             }
@@ -914,10 +920,10 @@ public class Snapshotter : IDisposable, IAsyncDisposable
             }
         }
 
-        // Dispose resources synchronously
+        // Dispose of resources synchronously
         Dispose();
 
-        // Suppress finalization to align with recommended dispose pattern.
+        // Suppress finalization to align with a recommended dispose pattern.
         // This ensures that derived types with finalizers don't need to re-implement
         // IDisposable/IAsyncDisposable solely to call SuppressFinalize.
         GC.SuppressFinalize(this);

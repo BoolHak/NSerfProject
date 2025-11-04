@@ -27,9 +27,9 @@ public class BroadcastQueue(TransmitLimitedQueue queue)
     /// </summary>
     public Task QueueBytesAsync(byte[] data)
     {
-        var tcs = new TaskCompletionSource();
-        _queue.QueueBroadcast(new NotifyingBroadcast(data, tcs));
-        return tcs.Task;
+        _queue.QueueBroadcast(new SimpleBroadcast(data));
+
+        return Task.CompletedTask;
     }
 
     /// <summary>

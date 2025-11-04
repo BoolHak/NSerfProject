@@ -6,7 +6,7 @@ namespace NSerf.Extensions;
 /// <summary>
 /// Configuration options for Serf agent when using dependency injection.
 /// </summary>
-public class SerfOptions
+public class NSerfOptions
 {
     /// <summary>
     /// The name of this node. Must be unique in the cluster.

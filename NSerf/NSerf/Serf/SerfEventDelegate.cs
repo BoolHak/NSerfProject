@@ -9,16 +9,11 @@ namespace NSerf.Serf;
 
 /// <summary>
 /// Event delegate that routes memberlist events to Serf's event handling logic.
-/// Implements IEventDelegate to receive notifications from memberlist.
+/// Implements IEventDelegate to receive notifications from the memberlist.
 /// </summary>
-internal class SerfEventDelegate : IEventDelegate
+internal class SerfEventDelegate(Serf serf) : IEventDelegate
 {
-    private readonly Serf _serf;
-
-    public SerfEventDelegate(Serf serf)
-    {
-        _serf = serf ?? throw new ArgumentNullException(nameof(serf));
-    }
+    private readonly Serf _serf = serf ?? throw new ArgumentNullException(nameof(serf));
 
     /// <summary>
     /// Called by memberlist when a node joins the cluster.

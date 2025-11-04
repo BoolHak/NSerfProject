@@ -20,9 +20,9 @@ public static class ServiceCollectionExtensions
     /// </summary>
     /// <param name="services">The service collection.</param>
     /// <returns>The service collection for chaining.</returns>
-    public static IServiceCollection AddSerf(this IServiceCollection services)
+    public static IServiceCollection AddNSerf(this IServiceCollection services)
     {
-        return services.AddSerf(_ => { });
+        return services.AddNSerf(_ => { });
     }
 
     /// <summary>
@@ -45,9 +45,9 @@ public static class ServiceCollectionExtensions
     /// });
     /// </code>
     /// </example>
-    public static IServiceCollection AddSerf(
+    public static IServiceCollection AddNSerf(
         this IServiceCollection services,
-        Action<SerfOptions> configureOptions)
+        Action<NSerfOptions> configureOptions)
     {
         // Register options
         services.Configure(configureOptions);
@@ -55,7 +55,7 @@ public static class ServiceCollectionExtensions
         // Register SerfAgent as singleton
         services.AddSingleton<Agent.SerfAgent>(sp =>
         {
-            var options = sp.GetRequiredService<IOptions<SerfOptions>>().Value;
+            var options = sp.GetRequiredService<IOptions<NSerfOptions>>().Value;
             var logger = sp.GetService<ILogger<Agent.SerfAgent>>();
             var agentConfig = options.ToAgentConfig();
 
@@ -106,7 +106,7 @@ public static class ServiceCollectionExtensions
     /// services.AddSerf(configuration, "Serf");
     /// </code>
     /// </example>
-    public static IServiceCollection AddSerf(
+    public static IServiceCollection AddNSerf(
         this IServiceCollection services,
         Microsoft.Extensions.Configuration.IConfiguration configuration,
         string configurationSectionPath = "Serf")
@@ -115,12 +115,12 @@ public static class ServiceCollectionExtensions
             throw new ArgumentException("Configuration section path cannot be empty", nameof(configurationSectionPath));
 
         // Bind configuration section to SerfOptions
-        services.Configure<SerfOptions>(configuration.GetSection(configurationSectionPath));
+        services.Configure<NSerfOptions>(configuration.GetSection(configurationSectionPath));
 
         // Register SerfAgent as singleton
         services.AddSingleton<Agent.SerfAgent>(sp =>
         {
-            var options = sp.GetRequiredService<IOptions<SerfOptions>>().Value;
+            var options = sp.GetRequiredService<IOptions<NSerfOptions>>().Value;
             var logger = sp.GetService<ILogger<Agent.SerfAgent>>();
             var agentConfig = options.ToAgentConfig();
 

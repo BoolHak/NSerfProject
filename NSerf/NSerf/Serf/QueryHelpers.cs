@@ -21,9 +21,9 @@ public static class QueryHelpers
 
         // Probe up to 3*n times, with large n this is not necessary
         // since k << n, but with small n we want search to be exhaustive
-        for (int i = 0; i < 3 * n && kMembers.Count < k; i++)
+        for (var i = 0; i < 3 * n && kMembers.Count < k; i++)
         {
-            // Get random member
+            // Get a random member
             var idx = random.Next(n);
             var member = members[idx];
 

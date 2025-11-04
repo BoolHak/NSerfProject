@@ -43,7 +43,7 @@ public partial class Serf
         // Encode the filters
         var filters = parameters.EncodeFilters();
 
-        // Setup the flags
+        // Set up the flags
         uint flags = 0;
         if (parameters.RequestAck)
         {
@@ -90,7 +90,7 @@ public partial class Serf
 
         // Start broadcasting the query
         Logger?.LogInformation("[Serf/Query] Queuing query '{Name}' for broadcast ({Size} bytes)", name, raw.Length);
-        QueryBroadcasts.QueueBytes(raw);
+        await QueryBroadcasts.QueueBytesAsync(raw);
 
         return await Task.FromResult(resp);
     }
@@ -107,7 +107,7 @@ public partial class Serf
             _queryResponses[resp.LTime] = resp;
         });
 
-        // Setup a timer to close the response and deregister after the timeout
+        // Set up a timer to close the response and deregister after the timeout
         _ = Task.Delay(timeout).ContinueWith(_ =>
         {
             WithWriteLock(_queryLock, () =>
@@ -160,7 +160,7 @@ public partial class Serf
             }
             else
             {
-                // Create new collection for this LTime
+                // Create a new collection for this LTime
                 seen = new QueryCollection { LTime = query.LTime };
                 seen.QueryIDs.Add(query.ID);
                 QueryBuffer[query.LTime] = seen;
@@ -191,13 +191,13 @@ public partial class Serf
                 };
                 var raw = EncodeMessage(MessageType.QueryResponse, ack);
 
-                // CRITICAL: Wrap QueryResponse in User message type for memberlist transport
-                // (same way Query messages are wrapped when broadcast)
+                // CRITICAL: Wrap QueryResponse in the User message type for memberlist transport
+                // (the same way Query messages are wrapped when broadcast)
                 var wrapped = new byte[1 + raw.Length];
                 wrapped[0] = (byte)NSerf.Memberlist.Messages.MessageType.User;
                 Array.Copy(raw, 0, wrapped, 1, raw.Length);
 
-                // Send directly to the query originator (matching Go implementation)
+                // Send it directly to the query originator (matching Go implementation)
                 var addrStr = System.Text.Encoding.UTF8.GetString(query.Addr);
                 var targetAddr = new Memberlist.Transport.Address
                 {
@@ -227,7 +227,7 @@ public partial class Serf
 
             try
             {
-                _eventManager?.EmitEvent(evt);
+                EventManager?.EmitEvent(evt);
                 Logger?.LogTrace("[Serf] Emitted Query: {Name} at LTime {LTime}", query.Name, query.LTime);
             }
             catch (Exception ex)
@@ -247,7 +247,7 @@ public partial class Serf
     {
         WithReadLock(_queryLock, () =>
         {
-            // Lookup the corresponding QueryResponse
+            // Look up the corresponding QueryResponse
             if (!_queryResponses.TryGetValue(response.LTime, out var query))
             {
                 Logger?.LogDebug("[Serf] Received response for unknown query at LTime {LTime}", response.LTime);
@@ -316,7 +316,7 @@ public partial class Serf
                         return false; // We don't have this tag
                     }
 
-                    // Check if tag value matches the regex
+                    // Check if the tag value matches the regex
                     try
                     {
                         var regex = new System.Text.RegularExpressions.Regex(tagFilter.Expr);

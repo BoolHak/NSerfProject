@@ -151,7 +151,7 @@ public class MergeDelegateTest
         var invalidAddr = new byte[] { 1, 2 };  // Only 2 bytes - invalid
 
         // Act - Test the internal validation logic directly
-        var result = MergeDelegate.ValidateIPLength(invalidAddr);
+        var result = MergeDelegate.ValidateIpLength(invalidAddr);
 
         // Assert
         result.Should().NotBeNull();

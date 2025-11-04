@@ -8,7 +8,7 @@ namespace NSerf.Serf;
 
 /// <summary>
 /// Member is a single member of the Serf cluster.
-/// Contains all information about a node in the cluster including its
+/// Contains all information about a node in the cluster, including its
 /// address, tags, protocol versions, and current status.
 /// </summary>
 public class Member

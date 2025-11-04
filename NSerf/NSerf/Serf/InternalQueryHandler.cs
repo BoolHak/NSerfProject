@@ -237,7 +237,7 @@ public class SerfQueries
             _logger?.LogDebug("[InternalQueryHandler] Got conflict resolution query for '{NodeName}'", nodeName);
 
             // Look for the member info from MemberManager
-            var member = _serf._memberManager.ExecuteUnderLock(accessor =>
+            var member = _serf.MemberManager.ExecuteUnderLock(accessor =>
             {
                 var memberInfo = accessor.GetMember(nodeName);
                 return memberInfo?.Member;

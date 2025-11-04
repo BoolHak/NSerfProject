@@ -249,12 +249,12 @@ internal class Delegate(Serf serf) : IDelegate
                 StatusLTimes = new Dictionary<string, LamportTime>(_serf.NumMembers()),
                 LeftMembers = [],
                 EventLTime = _serf.EventClock.Time(),
-                Events = _serf._eventManager?.GetEventCollectionsForPushPull() ?? [],
+                Events = _serf.EventManager?.GetEventCollectionsForPushPull() ?? [],
                 QueryLTime = _serf.QueryClock.Time()
             };
 
             // Add all the join LTimes from MemberManager
-            _serf._memberManager.ExecuteUnderLock(accessor =>
+            _serf.MemberManager.ExecuteUnderLock(accessor =>
             {
                 foreach (var memberInfo in accessor.GetAllMembers())
                 {
@@ -263,7 +263,7 @@ internal class Delegate(Serf serf) : IDelegate
             });
 
             // Add all the left nodes from MemberManager
-            var leftMembers = _serf._memberManager.ExecuteUnderLock(accessor => accessor.GetLeftMembers());
+            var leftMembers = _serf.MemberManager.ExecuteUnderLock(accessor => accessor.GetLeftMembers());
             foreach (var member in leftMembers)
             {
                 pushPull.LeftMembers.Add(member.Name);
@@ -352,12 +352,12 @@ internal class Delegate(Serf serf) : IDelegate
         }
 
         // Handle event join ignore
-        if (join && _serf is { EventJoinIgnore: true, _eventManager: not null })
+        if (join && _serf is { EventJoinIgnore: true, EventManager: not null })
         {
-            var currentMinTime = _serf._eventManager.GetEventMinTime();
+            var currentMinTime = _serf.EventManager.GetEventMinTime();
             if (pushPull.EventLTime > currentMinTime)
             {
-                _serf._eventManager.SetEventMinTime(pushPull.EventLTime);
+                _serf.EventManager.SetEventMinTime(pushPull.EventLTime);
             }
         }
 

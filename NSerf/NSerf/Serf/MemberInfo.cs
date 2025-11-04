@@ -19,7 +19,7 @@ internal class MemberInfo
     public MemberStatus Status => StateMachine.CurrentState;
 
     /// <summary>
-    /// Lamport time of last status update - delegates to StateMachine.
+    /// Lamport time of the last status update-delegates to StateMachine.
     /// </summary>
     public LamportTime StatusLTime => StateMachine.StatusLTime;
 

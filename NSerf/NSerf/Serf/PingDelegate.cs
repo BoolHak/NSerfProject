@@ -23,27 +23,27 @@ internal class PingDelegate(Serf serf) : IPingDelegate
     private readonly Serf _serf = serf ?? throw new ArgumentNullException(nameof(serf));
 
     /// <summary>
-    /// Internal version for the ping message, above the normal versioning from protocol version.
+    /// Internal version for the ping message, above the normal versioning from a protocol version.
     /// Enables small updates to the ping message without a full protocol bump.
     /// </summary>
     internal const byte PingVersion = 1;
 
     /// <summary>
     /// Called to produce a payload to send back in response to a ping request.
-    /// Returns the node's current coordinate for network coordinate system.
+    /// Returns the node's current coordinate for a network coordinate system.
     /// </summary>
     /// <returns>Payload containing version byte + serialized coordinate</returns>
     public byte[] AckPayload()
     {
-        // If coordinates are disabled, return empty payload
+        // If coordinates are disabled, return an empty payload
         if (_serf.Config.DisableCoordinates)
         {
-            return Array.Empty<byte>();
+            return [];
         }
 
         try
         {
-            // Get current coordinate from coordinate client
+            // Get current coordinate from a coordinate client
             var coordinate = _serf.GetCoordinate();
 
             // Serialize: [version byte][msgpack coordinate]
@@ -57,7 +57,7 @@ internal class PingDelegate(Serf serf) : IPingDelegate
         catch (Exception ex)
         {
             _serf.Logger?.LogError(ex, "[Serf] Failed to encode coordinate for ack payload");
-            return new byte[] { PingVersion }; // Return just version byte on error
+            return [PingVersion]; // Return just version byte on error
         }
     }
 
@@ -76,7 +76,7 @@ internal class PingDelegate(Serf serf) : IPingDelegate
             return;
         }
 
-        // Verify ping version in the header
+        // Verify the ping version in the header
         var version = payload[0];
         if (version != PingVersion)
         {

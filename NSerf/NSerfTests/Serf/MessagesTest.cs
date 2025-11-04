@@ -201,7 +201,7 @@ public class MessagesTest
         header.DestName.Should().Be(nodeName);
         
         // Verify ToIPEndPoint works correctly
-        var reconstructed = header.ToIPEndPoint();
+        var reconstructed = header.ToIpEndPoint();
         reconstructed.Address.Should().Be(destAddr.Address);
         reconstructed.Port.Should().Be(destAddr.Port);
 

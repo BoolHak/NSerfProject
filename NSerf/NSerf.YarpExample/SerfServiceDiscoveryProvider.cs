@@ -29,7 +29,7 @@ public class SerfServiceDiscoveryProvider : IProxyConfigProvider, IEventHandler,
     {
         _agent = agent ?? throw new ArgumentNullException(nameof(agent));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _config = new InMemoryConfig(Array.Empty<RouteConfig>(), Array.Empty<ClusterConfig>());
+        _config = new InMemoryConfig([], []);
 
         // Register event handler for immediate updates
         _agent.RegisterEventHandler(this);
@@ -52,24 +52,20 @@ public class SerfServiceDiscoveryProvider : IProxyConfigProvider, IEventHandler,
             return;
 
         // Only care about member events that affect backend availability
-        if (@event is MemberEvent memberEvent)
-        {
-            var eventType = memberEvent.Type;
+        if (@event is not MemberEvent memberEvent) return;
+        var eventType = memberEvent.Type;
 
-            // Log event for visibility
-            var memberNames = string.Join(", ", memberEvent.Members.Select(m => m.Name));
-            _logger.LogDebug("Received {EventType} for members: {Members}", eventType.String(), memberNames);
+        // Log event for visibility
+        var memberNames = string.Join(", ", memberEvent.Members.Select(m => m.Name));
+        _logger.LogDebug("Received {EventType} for members: {Members}", eventType.String(), memberNames);
 
-            // Check if any affected members are backends
-            var hasBackendMembers = memberEvent.Members.Any(m =>
-                m.Tags.TryGetValue("service", out var svc) && svc == "backend");
+        // Check if any affected members are backends
+        var hasBackendMembers = memberEvent.Members.Any(m =>
+            m.Tags.TryGetValue("service", out var svc) && svc == "backend");
 
-            if (hasBackendMembers)
-            {
-                _logger.LogInformation("Backend member {EventType} detected - updating configuration", eventType.String());
-                UpdateConfiguration(null);
-            }
-        }
+        if (!hasBackendMembers) return;
+        _logger.LogInformation("Backend member {EventType} detected - updating configuration", eventType.String());
+        UpdateConfiguration(null);
     }
     private static string BuildAddress(IPAddress ip, string port, string scheme = "http")
     {
@@ -102,8 +98,8 @@ public class SerfServiceDiscoveryProvider : IProxyConfigProvider, IEventHandler,
 
             var newDestInfos = members.Select(m =>
             {
-                var scheme = m.Tags.TryGetValue("scheme", out var sch) ? sch : "http";
-                var port = m.Tags.TryGetValue("http-port", out var p) ? p : "5000";
+                var scheme = m.Tags.GetValueOrDefault("scheme", "http");
+                var port = m.Tags.GetValueOrDefault("http-port", "5000");
                 var address = BuildAddress(m.Addr, port, scheme);
                 // Stable key from identity; fallback to address
                 var key = m.Tags.TryGetValue("instance", out var inst) && !string.IsNullOrWhiteSpace(inst)
@@ -133,7 +129,7 @@ public class SerfServiceDiscoveryProvider : IProxyConfigProvider, IEventHandler,
                 if (currentAddresses.Count == 0)
                     return; // already empty, nothing to do
 
-                PushConfig(Array.Empty<(string key, string addr)>());
+                PushConfig([]);
                 return;
             }
 
@@ -157,7 +153,8 @@ public class SerfServiceDiscoveryProvider : IProxyConfigProvider, IEventHandler,
 
     private void PushConfig(IEnumerable<(string key, string addr)> destinationsInfo)
     {
-        var destinations = destinationsInfo
+        var valueTuples = destinationsInfo.ToList();
+        var destinations = valueTuples
             .ToDictionary(x => x.key, x => new DestinationConfig { Address = x.addr });
 
         var cluster = new ClusterConfig
@@ -184,11 +181,11 @@ public class SerfServiceDiscoveryProvider : IProxyConfigProvider, IEventHandler,
             Match = new RouteMatch { Path = "/{**catch-all}" }
         };
 
-        var newConfig = new InMemoryConfig(new[] { route }, new[] { cluster });
+        var newConfig = new InMemoryConfig([route], [cluster]);
         var oldConfig = Interlocked.Exchange(ref _config, newConfig);
         oldConfig?.SignalChange();
 
-        foreach (var (_, addr) in destinationsInfo)
+        foreach (var (_, addr) in valueTuples)
             _logger.LogInformation("  → Backend: {Address}", addr);
 
         _ = Task.Delay(1000).ContinueWith(_ => oldConfig?.Dispose());

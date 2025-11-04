@@ -16,7 +16,7 @@ internal static class SerfTestExtensions
     /// </summary>
     internal static MemberInfo? GetMember(this NSerf.Serf.Serf serf, string name)
     {
-        return serf._memberManager.ExecuteUnderLock(accessor => accessor.GetMember(name));
+        return serf.MemberManager.ExecuteUnderLock(accessor => accessor.GetMember(name));
     }
     
     /// <summary>
@@ -24,7 +24,7 @@ internal static class SerfTestExtensions
     /// </summary>
     internal static bool HasMember(this NSerf.Serf.Serf serf, string name)
     {
-        return serf._memberManager.ExecuteUnderLock(accessor => accessor.GetMember(name)) != null;
+        return serf.MemberManager.ExecuteUnderLock(accessor => accessor.GetMember(name)) != null;
     }
     
     /// <summary>
@@ -32,7 +32,7 @@ internal static class SerfTestExtensions
     /// </summary>
     internal static void AddMember(this NSerf.Serf.Serf serf, MemberInfo memberInfo)
     {
-        serf._memberManager.ExecuteUnderLock(accessor => accessor.AddMember(memberInfo));
+        serf.MemberManager.ExecuteUnderLock(accessor => accessor.AddMember(memberInfo));
     }
     
     /// <summary>
@@ -40,7 +40,7 @@ internal static class SerfTestExtensions
     /// </summary>
     internal static List<MemberInfo> FailedMembers(this NSerf.Serf.Serf serf)
     {
-        return serf._memberManager.ExecuteUnderLock(accessor => accessor.GetFailedMembers());
+        return serf.MemberManager.ExecuteUnderLock(accessor => accessor.GetFailedMembers());
     }
     
     /// <summary>
@@ -48,6 +48,6 @@ internal static class SerfTestExtensions
     /// </summary>
     internal static List<MemberInfo> LeftMembers(this NSerf.Serf.Serf serf)
     {
-        return serf._memberManager.ExecuteUnderLock(accessor => accessor.GetLeftMembers());
+        return serf.MemberManager.ExecuteUnderLock(accessor => accessor.GetLeftMembers());
     }
 }

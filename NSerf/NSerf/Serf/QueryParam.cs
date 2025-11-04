@@ -27,7 +27,7 @@ public class QueryParam
     /// <summary>
     /// If true, we are requesting a delivery acknowledgement from
     /// every node that meets the filter requirement. This means nodes
-    /// that receive the message but do not pass the filters, will not
+    /// that receive the message but do not pass the filters will not
     /// send an ack.
     /// </summary>
     public bool RequestAck { get; set; }
@@ -53,22 +53,20 @@ public class QueryParam
         var filters = new List<byte[]>();
 
         // Add the node filter
-        if (FilterNodes != null && FilterNodes.Length > 0)
+        if (FilterNodes is { Length: > 0 })
         {
             var buf = EncodeFilter(FilterType.Node, FilterNodes);
             filters.Add(buf);
         }
 
         // Add the tag filters
-        if (FilterTags != null)
+        if (FilterTags == null) return filters;
+
+        foreach (var (tag, expr) in FilterTags)
         {
-            foreach (var (tag, expr) in FilterTags)
-            {
-                var filt = new FilterTag { Tag = tag, Expr = expr };
-                var buf = EncodeFilter(FilterType.Tag, filt);
-                filters.Add(buf);
-            }
+            filters.Add(EncodeFilter(FilterType.Tag, new FilterTag { Tag = tag, Expr = expr }));
         }
+
 
         return filters;
     }

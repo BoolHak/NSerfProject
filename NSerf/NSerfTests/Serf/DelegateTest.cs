@@ -263,7 +263,7 @@ public class DelegateTest
 
         // Verify Events were queued to EventManager
         // Event with LTime=45 should be added to EventManager's buffer
-        var events = serf._eventManager?.GetEventCollectionsForPushPull() ?? new List<UserEventCollection>();
+        var events = serf.EventManager?.GetEventCollectionsForPushPull() ?? new List<UserEventCollection>();
         events.Should().Contain(e => e.LTime == 45, "Event should be queued to EventManager");
         var queuedEvent = events.First(e => e.LTime == 45);
         queuedEvent.Events.Should().ContainSingle("should have one event");

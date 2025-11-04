@@ -32,8 +32,7 @@ public class UserEventData
     public bool Equals(UserEventData? other)
     {
         if (other == null) return false;
-        if (Name != other.Name) return false;
-        return Payload.SequenceEqual(other.Payload);
+        return Name == other.Name && Payload.SequenceEqual(other.Payload);
     }
 
     /// <summary>

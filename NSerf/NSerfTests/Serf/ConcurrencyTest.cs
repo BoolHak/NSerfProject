@@ -144,7 +144,7 @@ public class ConcurrencyTest
                     for (int j = 0; j < iterations && !cts.Token.IsCancellationRequested; j++)
                     {
                         // Test MemberManager's internal locking through its API
-                        serf._memberManager.ExecuteUnderLock(accessor =>
+                        serf.MemberManager.ExecuteUnderLock(accessor =>
                         {
                             lockAcquisitions.Add(("member", DateTime.UtcNow));
                             Thread.Sleep(1); // Hold lock briefly
@@ -153,7 +153,7 @@ public class ConcurrencyTest
 
                         // Event lock is now encapsulated in EventManager
                         // Test event manager operation instead
-                        var eventTime = serf._eventManager?.GetEventClockTime() ?? 0;
+                        var eventTime = serf.EventManager?.GetEventClockTime() ?? 0;
                         lockAcquisitions.Add(("event", DateTime.UtcNow));
                     }
                 }

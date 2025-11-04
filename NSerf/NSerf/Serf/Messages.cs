@@ -76,7 +76,7 @@ public enum QueryFlags : uint
     None = 0,
 
     /// <summary>
-    /// Ack flag is used to force receiver to send an ack back.
+    /// Ack flag is used to force the receiver to send an ack back.
     /// </summary>
     Ack = 1 << 0,  // 1
 
@@ -158,7 +158,7 @@ public class MessagePushPull
     public List<string> LeftMembers { get; set; } = [];
 
     /// <summary>
-    /// Lamport time for event clock.
+    /// Lamport time for an event clock.
     /// </summary>
     [Key(3)]
     public LamportTime EventLTime { get; set; }
@@ -170,7 +170,7 @@ public class MessagePushPull
     public List<UserEventCollection> Events { get; set; } = [];
 
     /// <summary>
-    /// Lamport time for query clock.
+    /// Lamport time for a query clock.
     /// </summary>
     [Key(5)]
     public LamportTime QueryLTime { get; set; }
@@ -367,7 +367,7 @@ public class RelayHeader
     /// <summary>
     /// Converts to IPEndPoint for convenience.
     /// </summary>
-    public IPEndPoint ToIPEndPoint()
+    public IPEndPoint ToIpEndPoint()
     {
         var ip = new IPAddress(DestAddr.IP);
         return new IPEndPoint(ip, DestAddr.Port);
@@ -376,7 +376,7 @@ public class RelayHeader
     /// <summary>
     /// Creates RelayHeader from IPEndPoint.
     /// </summary>
-    public static RelayHeader FromIPEndPoint(IPEndPoint endpoint, string destName)
+    public static RelayHeader FromIpEndPoint(IPEndPoint endpoint, string destName)
     {
         return new RelayHeader
         {
@@ -411,14 +411,14 @@ public class UdpAddr
 /// </summary>
 public static class MessageCodec
 {
-    private static readonly MessagePackSerializerOptions _standardOptions = MessagePackSerializerOptions.Standard;
+    private static readonly MessagePackSerializerOptions StandardOptions = MessagePackSerializerOptions.Standard;
 
     /// <summary>
     /// Decodes a message from bytes into the specified type.
     /// </summary>
     public static T DecodeMessage<T>(byte[] buffer)
     {
-        return MessagePackSerializer.Deserialize<T>(buffer, _standardOptions);
+        return MessagePackSerializer.Deserialize<T>(buffer, StandardOptions);
     }
 
     /// <summary>
@@ -432,7 +432,7 @@ public static class MessageCodec
         ms.WriteByte((byte)messageType);
 
         // Serialize message
-        MessagePackSerializer.Serialize(ms, message, _standardOptions);
+        MessagePackSerializer.Serialize(ms, message, StandardOptions);
 
         return ms.ToArray();
     }
@@ -444,18 +444,18 @@ public static class MessageCodec
     {
         using var ms = new MemoryStream();
 
-        // Write relay type header
+        // Write a relay type header
         ms.WriteByte((byte)MessageType.Relay);
 
         // Serialize relay header
-        var header = RelayHeader.FromIPEndPoint(destAddr, nodeName);
-        MessagePackSerializer.Serialize(ms, header, _standardOptions);
+        var header = RelayHeader.FromIpEndPoint(destAddr, nodeName);
+        MessagePackSerializer.Serialize(ms, header, StandardOptions);
 
-        // Write actual message type
+        // Write an actual message type
         ms.WriteByte((byte)messageType);
 
         // Serialize actual message
-        MessagePackSerializer.Serialize(ms, message, _standardOptions);
+        MessagePackSerializer.Serialize(ms, message, StandardOptions);
 
         return ms.ToArray();
     }
@@ -474,11 +474,11 @@ public static class MessageCodec
         if (filterType == FilterType.Node && filter is List<string> nodes)
         {
             // For node filters, serialize the list directly
-            MessagePackSerializer.Serialize(ms, nodes, _standardOptions);
+            MessagePackSerializer.Serialize(ms, nodes, StandardOptions);
         }
         else
         {
-            MessagePackSerializer.Serialize(ms, filter, _standardOptions);
+            MessagePackSerializer.Serialize(ms, filter, StandardOptions);
         }
 
         return ms.ToArray();

@@ -3,20 +3,20 @@ using NSerf.Extensions;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Get configuration from command line or use defaults
+// Get configuration from the command line or use defaults
 var nodeName = args.Length > 0 ? args[0] : $"backend-{Environment.MachineName}-{Random.Shared.Next(1000, 9999)}";
 var httpPort = args.Length > 1 ? int.Parse(args[1]) : 5000;
 var serfPort = args.Length > 2 ? int.Parse(args[2]) : 7946;
 var joinNode = args.Length > 3 ? args[3] : null;
 
-// Get encryption key from environment
+// Get encryption key from the environment
 var encryptKey = Environment.GetEnvironmentVariable("SERF_ENCRYPT_KEY");
 
 // Configure web host
 builder.WebHost.UseUrls($"http://0.0.0.0:{httpPort}");
 
 // Add Serf for service registration
-builder.Services.AddSerf(options =>
+builder.Services.AddNSerf(options =>
 {
     options.NodeName = nodeName;
     options.BindAddr = $"0.0.0.0:{serfPort}";
@@ -36,11 +36,10 @@ builder.Services.AddSerf(options =>
         Console.WriteLine($"[Security] Encryption enabled");
     }
 
-    if (!string.IsNullOrEmpty(joinNode))
-    {
-        options.StartJoin = [joinNode];
-        options.RetryJoin = [joinNode];
-    }
+    if (string.IsNullOrEmpty(joinNode)) return;
+    
+    options.StartJoin = [joinNode];
+    options.RetryJoin = [joinNode];
 });
 
 var app = builder.Build();

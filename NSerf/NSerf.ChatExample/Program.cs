@@ -16,7 +16,7 @@ builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
 builder.Services.AddSignalR();
 
 // Add Serf for cluster membership and message broadcasting
-builder.Services.AddSerf(options =>
+builder.Services.AddNSerf(options =>
 {
     options.NodeName = instanceName;
     options.BindAddr = $"0.0.0.0:{serfPort}";
@@ -26,8 +26,8 @@ builder.Services.AddSerf(options =>
     
     if (!string.IsNullOrEmpty(joinNode))
     {
-        options.StartJoin = new[] { joinNode };
-        options.RetryJoin = new[] { joinNode };
+        options.StartJoin = [joinNode];
+        options.RetryJoin = [joinNode];
     }
     
     // Register event handler for Serf events

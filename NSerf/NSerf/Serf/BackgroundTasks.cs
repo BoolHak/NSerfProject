@@ -44,8 +44,8 @@ public partial class Serf
                 var now = DateTimeOffset.UtcNow;
 
                 // Get failed and left members from MemberManager and reap them
-                var failedMembers = _memberManager.ExecuteUnderLock(accessor => accessor.GetFailedMembers());
-                var leftMembers = _memberManager.ExecuteUnderLock(accessor => accessor.GetLeftMembers());
+                var failedMembers = MemberManager.ExecuteUnderLock(accessor => accessor.GetFailedMembers());
+                var leftMembers = MemberManager.ExecuteUnderLock(accessor => accessor.GetLeftMembers());
 
                 Reap(failedMembers, now, Config.ReconnectTimeout);
                 Reap(leftMembers, now, Config.TombstoneTimeout);
@@ -224,7 +224,7 @@ public partial class Serf
         MemberInfo? selectedMember = null;
 
         // Get failed members from the MemberManager
-        var failedMembers = _memberManager.ExecuteUnderLock(accessor => accessor.GetFailedMembers());
+        var failedMembers = MemberManager.ExecuteUnderLock(accessor => accessor.GetFailedMembers());
         numFailed = failedMembers.Count;
 
         if (numFailed == 0)
@@ -234,7 +234,7 @@ public partial class Serf
 
         // Calculate probability of attempting reconnect
         // prob = numFailed / (total - numFailed - numLeft)
-        var numLeft = _memberManager.ExecuteUnderLock(accessor => accessor.GetLeftMembers().Count);
+        var numLeft = MemberManager.ExecuteUnderLock(accessor => accessor.GetLeftMembers().Count);
         numAlive = NumMembers() - numFailed - numLeft;
         if (numAlive == 0)
         {

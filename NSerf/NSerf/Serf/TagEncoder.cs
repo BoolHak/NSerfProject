@@ -21,7 +21,7 @@ public static class TagEncoder
 
     /// <summary>
     /// Minimum protocol version that supports full tag encoding.
-    /// Protocol version 2 and below only support a single "role" tag.
+    /// Protocol versions 2 and below only support a single "role" tag.
     /// </summary>
     public const int MinTagProtocolVersion = 3;
 
@@ -31,22 +31,15 @@ public static class TagEncoder
     /// <param name="tags">Dictionary of tags to encode</param>
     /// <param name="protocolVersion">Serf protocol version (for backwards compatibility)</param>
     /// <returns>Encoded byte array</returns>
-    public static byte[] EncodeTags(Dictionary<string, string> tags, int protocolVersion)
+    public static byte[] EncodeTags(Dictionary<string, string>? tags, int protocolVersion)
     {
-        if (tags == null)
-        {
-            tags = new Dictionary<string, string>();
-        }
+        tags ??= new Dictionary<string, string>();
 
         // Support role-only backwards compatibility for protocol version < 3
         if (protocolVersion < MinTagProtocolVersion)
         {
             // Extract role tag and encode as raw string
-            if (tags.TryGetValue("role", out var role))
-            {
-                return System.Text.Encoding.UTF8.GetBytes(role);
-            }
-            return Array.Empty<byte>();
+            return tags.TryGetValue("role", out var role) ? System.Text.Encoding.UTF8.GetBytes(role) : [];
         }
 
         // Protocol version >= 3: Use magic byte prefix and MessagePack encoding
@@ -74,18 +67,18 @@ public static class TagEncoder
     /// </summary>
     /// <param name="buffer">Encoded tag data</param>
     /// <returns>Dictionary of decoded tags</returns>
-    public static Dictionary<string, string> DecodeTags(byte[] buffer)
+    public static Dictionary<string, string> DecodeTags(byte[]? buffer)
     {
         if (buffer == null || buffer.Length == 0)
         {
-            // Empty buffer means no tags, but backwards compatibility: treat as empty role
+            // Empty buffer means no tags, but backwards compatibility: treat as an empty role
             return new Dictionary<string, string>();
         }
 
         // Check for magic byte (protocol version >= 3)
         if (buffer[0] != TagMagicByte)
         {
-            // Backwards compatibility mode: treat entire buffer as a "role" string
+            // Backwards compatibility mode: treat the entire buffer as a "role" string
             var role = System.Text.Encoding.UTF8.GetString(buffer);
             return new Dictionary<string, string> { ["role"] = role };
         }
@@ -101,7 +94,7 @@ public static class TagEncoder
         }
         catch (Exception ex)
         {
-            // On decode error, return empty tags (logging would happen in Serf class)
+            // On decoded error, return empty tags (logging would happen in Serf class)
             System.Diagnostics.Debug.WriteLine($"Failed to decode tags: {ex.Message}");
             return new Dictionary<string, string>();
         }
@@ -111,9 +104,9 @@ public static class TagEncoder
     /// Checks if the buffer contains tag-encoded data (has magic byte prefix).
     /// </summary>
     /// <param name="buffer">Buffer to check</param>
-    /// <returns>True if buffer starts with magic byte, false otherwise</returns>
-    public static bool IsTagEncoded(byte[] buffer)
+    /// <returns>True if the buffer starts with magic byte, false otherwise</returns>
+    public static bool IsTagEncoded(byte[]? buffer)
     {
-        return buffer != null && buffer.Length > 0 && buffer[0] == TagMagicByte;
+        return buffer is { Length: > 0 } && buffer[0] == TagMagicByte;
     }
 }
