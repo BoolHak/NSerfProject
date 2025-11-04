@@ -5,7 +5,7 @@ namespace NSerf.Serf.Handlers;
 
 /// <summary>
 /// Handles join and leave intent messages.
-/// STATELESS - all state is managed through MemberManager.
+/// STATELESS - all states are managed through MemberManager.
 /// Phase 3: Extracted from Serf.cs for better composition and testability.
 /// </summary>
 internal interface IIntentHandler

@@ -17,8 +17,9 @@ public class MemberStateMachine(
 {
     private readonly string _nodeName = nodeName ?? throw new ArgumentNullException(nameof(nodeName));
 
-    public MemberStatus CurrentState => initialState;
-    public LamportTime StatusLTime => initialTime;
+    public MemberStatus CurrentState { get; private set; } = initialState;
+
+    public LamportTime StatusLTime { get; private set; } = initialTime;
 
     // ========== INTENT-BASED TRANSITIONS (Limited Authority) ==========
 
@@ -30,58 +31,55 @@ public class MemberStateMachine(
     public TransitionResult TryTransitionOnJoinIntent(LamportTime intentTime)
     {
         // Guard: Lamport time must be newer
-        if (intentTime <= initialTime)
+        if (intentTime <= StatusLTime)
         {
             return TransitionResult.Rejected(
-                $"Stale join intent (LTime {intentTime} <= {initialTime})");
+                $"Stale join intent (LTime {intentTime} <= {StatusLTime})");
         }
 
         // Update LTime regardless of state change
-        var oldLTime = initialTime;
-        initialTime = intentTime;
+        var oldLTime = StatusLTime;
+        StatusLTime = intentTime;
 
-        // CRITICAL: Left/Failed cannot transition to Alive via join intent
-        if (initialState == MemberStatus.Left)
+        switch (CurrentState)
         {
-            logger?.LogDebug(
-                "[StateMachine] {Node}: Join intent blocked - member is Left (LTime updated {Old} → {New})",
-                _nodeName, oldLTime, intentTime);
+            // CRITICAL: Left/Failed cannot transition to Alive via join intent
+            case MemberStatus.Left:
+                logger?.LogDebug(
+                    "[StateMachine] {Node}: Join intent blocked - member is Left (LTime updated {Old} → {New})",
+                    _nodeName, oldLTime, intentTime);
 
-            return TransitionResult.LTimeUpdated(
-                initialState, initialState, intentTime,
-                "Cannot resurrect Left member via join intent (LTime updated)");
+                return TransitionResult.LTimeUpdated(
+                    CurrentState, CurrentState, intentTime,
+                    "Cannot resurrect Left member via join intent (LTime updated)");
+            case MemberStatus.Failed:
+                logger?.LogDebug(
+                    "[StateMachine] {Node}: Join intent blocked - member is Failed (LTime updated {Old} → {New})",
+                    _nodeName, oldLTime, intentTime);
+
+                return TransitionResult.LTimeUpdated(
+                    CurrentState, CurrentState, intentTime,
+                    "Cannot resurrect Failed member via join intent (LTime updated)");
+            // Valid transition: Leaving → Alive (refutation)
+            case MemberStatus.Leaving:
+            {
+                var oldState = CurrentState;
+                CurrentState = MemberStatus.Alive;
+
+                logger?.LogInformation(
+                    "[StateMachine] {Node}: {Old} → {New} (refutation via join intent, LTime {LTime})",
+                    _nodeName, oldState, CurrentState, intentTime);
+
+                return TransitionResult.StateChanged(
+                    oldState, MemberStatus.Alive, intentTime,
+                    "Refutation: Leaving → Alive via join intent");
+            }
+            default:
+                // Already Alive or None - just LTime update
+                return TransitionResult.LTimeUpdated(
+                    CurrentState, CurrentState, intentTime,
+                    $"Already {CurrentState}, LTime updated");
         }
-
-        if (initialState == MemberStatus.Failed)
-        {
-            logger?.LogDebug(
-                "[StateMachine] {Node}: Join intent blocked - member is Failed (LTime updated {Old} → {New})",
-                _nodeName, oldLTime, intentTime);
-
-            return TransitionResult.LTimeUpdated(
-                initialState, initialState, intentTime,
-                "Cannot resurrect Failed member via join intent (LTime updated)");
-        }
-
-        // Valid transition: Leaving → Alive (refutation)
-        if (initialState == MemberStatus.Leaving)
-        {
-            var oldState = initialState;
-            initialState = MemberStatus.Alive;
-
-            logger?.LogInformation(
-                "[StateMachine] {Node}: {Old} → {New} (refutation via join intent, LTime {LTime})",
-                _nodeName, oldState, initialState, intentTime);
-
-            return TransitionResult.StateChanged(
-                oldState, MemberStatus.Alive, intentTime,
-                "Refutation: Leaving → Alive via join intent");
-        }
-
-        // Already Alive or None - just LTime update
-        return TransitionResult.LTimeUpdated(
-            initialState, initialState, intentTime,
-            $"Already {initialState}, LTime updated");
     }
 
     /// <summary>
@@ -90,18 +88,18 @@ public class MemberStateMachine(
     public TransitionResult TryTransitionOnLeaveIntent(LamportTime intentTime)
     {
         // Guard: Lamport time must be newer
-        if (intentTime <= initialTime)
+        if (intentTime <= StatusLTime)
         {
             return TransitionResult.Rejected(
-                $"Stale leave intent (LTime {intentTime} <= {initialTime})");
+                $"Stale leave intent (LTime {intentTime} <= {StatusLTime})");
         }
 
-        initialTime = intentTime;
+        StatusLTime = intentTime;
 
-        switch (initialState)
+        switch (CurrentState)
         {
             case MemberStatus.Alive:
-                initialState = MemberStatus.Leaving;
+                CurrentState = MemberStatus.Leaving;
                 logger?.LogInformation(
                     "[StateMachine] {Node}: Alive → Leaving (graceful leave, LTime {LTime})",
                     _nodeName, intentTime);
@@ -110,7 +108,7 @@ public class MemberStateMachine(
                     "Graceful leave initiated");
 
             case MemberStatus.Failed:
-                initialState = MemberStatus.Left;
+                CurrentState = MemberStatus.Left;
                 logger?.LogInformation(
                     "[StateMachine] {Node}: Failed → Left (RemoveFailedNode, LTime {LTime})",
                     _nodeName, intentTime);
@@ -129,7 +127,7 @@ public class MemberStateMachine(
                     "Already Leaving, LTime updated");
 
             default:
-                return TransitionResult.NoChange($"No valid transition from {initialState}");
+                return TransitionResult.NoChange($"No valid transition from {CurrentState}");
         }
     }
 
@@ -141,67 +139,67 @@ public class MemberStateMachine(
     /// </summary>
     public TransitionResult TransitionOnMemberlistJoin()
     {
-        var oldState = initialState;
+        var oldState = CurrentState;
 
-        if (initialState == MemberStatus.Alive)
+        if (CurrentState == MemberStatus.Alive)
         {
             return TransitionResult.NoChange("Already Alive (memberlist join)");
         }
 
-        initialState = MemberStatus.Alive;
+        CurrentState = MemberStatus.Alive;
 
         logger?.LogInformation(
             "[StateMachine] {Node}: {Old} → Alive (AUTHORITATIVE memberlist join)",
             _nodeName, oldState);
 
         return TransitionResult.StateChanged(
-            oldState, MemberStatus.Alive, initialTime,
+            oldState, MemberStatus.Alive, StatusLTime,
             $"Authoritative transition: {oldState} → Alive (memberlist join)");
     }
 
     /// <summary>
-    /// Transition based on memberlist NotifyLeave/NotifyUpdate.
+    /// Transition based on the memberlist NotifyLeave/NotifyUpdate.
     /// AUTHORITATIVE - always succeeds.
     /// </summary>
     public TransitionResult TransitionOnMemberlistLeave(bool isDead)
     {
-        var oldState = initialState;
+        var oldState = CurrentState;
         var newState = isDead ? MemberStatus.Failed : MemberStatus.Left;
 
-        if (initialState == newState)
+        if (CurrentState == newState)
         {
             return TransitionResult.NoChange($"Already {newState} (memberlist leave)");
         }
 
-        initialState = newState;
+        CurrentState = newState;
 
         logger?.LogInformation(
             "[StateMachine] {Node}: {Old} → {New} (AUTHORITATIVE memberlist {Type})",
             _nodeName, oldState, newState, isDead ? "failure" : "leave");
 
         return TransitionResult.StateChanged(
-            oldState, newState, initialTime,
+            oldState, newState, StatusLTime,
             $"Authoritative: {oldState} → {newState} (memberlist {(isDead ? "failure" : "leave")})");
     }
 
     /// <summary>
-    /// Transition when leave process completes (Leaving → Left).
+    /// Transition when the leave process completes (Leaving → Left).
     /// </summary>
     public TransitionResult TransitionOnLeaveComplete()
     {
-        if (initialState != MemberStatus.Leaving)
+        if (CurrentState != MemberStatus.Leaving)
         {
-            return TransitionResult.NoChange($"Not in Leaving state (current: {initialState})");
+            return TransitionResult.NoChange($"Not in Leaving state (current: {CurrentState})");
         }
 
-        initialState = MemberStatus.Left;
+        CurrentState = MemberStatus.Left;
 
         logger?.LogInformation(
             "[StateMachine] {Node}: Leaving → Left (leave complete)",
             _nodeName);
 
         return TransitionResult.StateChanged(
-            MemberStatus.Leaving, MemberStatus.Left, initialTime,
+            MemberStatus.Leaving, MemberStatus.Left, StatusLTime,
             "Leave process completed");
     }
 }

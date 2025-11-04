@@ -23,7 +23,6 @@ namespace NSerf.Serf.Managers;
 /// </remarks>
 public class ClusterCoordinator(ILogger? logger) : IDisposable
 {
-    private readonly ILogger? _logger = logger;
     private readonly SemaphoreSlim _stateLock = new(1, 1);
     private SerfState _currentState = SerfState.SerfAlive;
     private volatile bool _disposed;
@@ -65,12 +64,12 @@ public class ClusterCoordinator(ILogger? logger) : IDisposable
         {
             if (_currentState != SerfState.SerfAlive)
             {
-                _logger?.LogWarning("[ClusterCoordinator] Cannot transition to Leaving from {CurrentState}", _currentState);
+                logger?.LogWarning("[ClusterCoordinator] Cannot transition to Leaving from {CurrentState}", _currentState);
                 return false;
             }
 
             _currentState = SerfState.SerfLeaving;
-            _logger?.LogInformation("[ClusterCoordinator] Transitioned to Leaving");
+            logger?.LogInformation("[ClusterCoordinator] Transitioned to Leaving");
             return true;
         });
         }
@@ -97,12 +96,12 @@ public class ClusterCoordinator(ILogger? logger) : IDisposable
         {
             if (_currentState != SerfState.SerfLeaving)
             {
-                _logger?.LogWarning("[ClusterCoordinator] Cannot transition to Left from {CurrentState}", _currentState);
+                logger?.LogWarning("[ClusterCoordinator] Cannot transition to Left from {CurrentState}", _currentState);
                 return false;
             }
 
             _currentState = SerfState.SerfLeft;
-            _logger?.LogInformation("[ClusterCoordinator] Transitioned to Left");
+            logger?.LogInformation("[ClusterCoordinator] Transitioned to Left");
             return true;
         });
         }
@@ -113,7 +112,7 @@ public class ClusterCoordinator(ILogger? logger) : IDisposable
     }
 
     /// <summary>
-    /// Transitions to Shutdown state from any state.
+    /// Transitions to the Shutdown state from any state.
     /// Shutdown is terminal - no transitions allowed after this.
     /// Reference: Go serf.go Shutdown() method
     /// </summary>
@@ -129,13 +128,13 @@ public class ClusterCoordinator(ILogger? logger) : IDisposable
         {
             if (_currentState == SerfState.SerfShutdown)
             {
-                _logger?.LogDebug("[ClusterCoordinator] Already in Shutdown state");
+                logger?.LogDebug("[ClusterCoordinator] Already in Shutdown state");
                 return false;
             }
 
             var previousState = _currentState;
             _currentState = SerfState.SerfShutdown;
-            _logger?.LogInformation("[ClusterCoordinator] Transitioned to Shutdown from {PreviousState}", previousState);
+            logger?.LogInformation("[ClusterCoordinator] Transitioned to Shutdown from {PreviousState}", previousState);
             return true;
         });
         }
@@ -166,7 +165,7 @@ public class ClusterCoordinator(ILogger? logger) : IDisposable
     }
 
     /// <summary>
-    /// Checks if the instance is in Leaving state.
+    /// Checks if the instance is in the Leaving state.
     /// Thread-safe operation.
     /// Returns false if disposed.
     /// </summary>
@@ -189,7 +188,7 @@ public class ClusterCoordinator(ILogger? logger) : IDisposable
     /// Executes an action only if currently in Leaving state.
     /// Used for leave-specific cleanup operations.
     /// Thread-safe operation.
-    /// Does nothing if disposed.
+    /// Does nothing if disposed of.
     /// </summary>
     public void ExecuteInLeavingState(Action action)
     {
@@ -291,18 +290,18 @@ public class ClusterCoordinator(ILogger? logger) : IDisposable
         // Mark as disposed BEFORE disposing lock to prevent new operations
         _disposed = true;
 
-        // Transition to shutdown first (needs lock)
+        // Transition to the shutdown first (needs lock)
         try
         {
-            // Directly set state without lock since we're disposing
+            // Directly set state without the lock since we're disposing
             _currentState = SerfState.SerfShutdown;
-            _logger?.LogInformation("[ClusterCoordinator] Disposed - set to Shutdown state");
+            logger?.LogInformation("[ClusterCoordinator] Disposed - set to Shutdown state");
         }
         finally
         {
-            // Then dispose the lock
+            // Then dispose of the lock
             _stateLock?.Dispose();
-            System.GC.SuppressFinalize(this);
+            GC.SuppressFinalize(this);
         }
     }
 }

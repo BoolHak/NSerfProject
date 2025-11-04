@@ -133,68 +133,67 @@ internal class NodeEventHandler(
 
         _logger?.LogDebug("[NodeEventHandler] HandleNodeLeave: {Name}, NodeState={State}", node.Name, node.State);
 
-        // Determine event type based on memberlist's determination
+        // Determine an event type based on memberlist's determination
         // Memberlist sets State to Left for graceful leave, Dead for actual failure
         var eventType = EventType.MemberLeave;
         var memberStatus = MemberStatus.Left;
 
-        if (node.State == NodeStateType.Dead)
+        switch (node.State)
         {
-            // This is an actual failure, not a graceful leave
-            eventType = EventType.MemberFailed;
-            memberStatus = MemberStatus.Failed;
-        }
-        else if (node.State == NodeStateType.Left)
-        {
-            // This is a graceful leave
-            eventType = EventType.MemberLeave;
-            memberStatus = MemberStatus.Left;
+            case NodeStateType.Dead:
+                // This is an actual failure, not a graceful leave
+                eventType = EventType.MemberFailed;
+                memberStatus = MemberStatus.Failed;
+                break;
+            case NodeStateType.Left:
+                // This is a graceful leave
+                eventType = EventType.MemberLeave;
+                memberStatus = MemberStatus.Left;
+                break;
         }
 
         _memberManager.ExecuteUnderLock(accessor =>
         {
-            // Update member state if it exists
+            // Update a member state if it exists
             var memberInfo = accessor.GetMember(node.Name);
-            if (memberInfo != null)
+            if (memberInfo == null) return;
+            // Store the full member info for reaper and reconnect
+            var member = new Member
             {
-                // Store the full member info for reaper and reconnect
-                var member = new Member
-                {
-                    Name = node.Name,
-                    Addr = node.Addr,
-                    Port = node.Port,
-                    Tags = _decodeTags?.Invoke() ?? [],
-                    Status = memberStatus,
-                    ProtocolMin = node.PMin,
-                    ProtocolMax = node.PMax,
-                    ProtocolCur = node.PCur,
-                    DelegateMin = node.DMin,
-                    DelegateMax = node.DMax,
-                    DelegateCur = node.DCur
-                };
+                Name = node.Name,
+                Addr = node.Addr,
+                Port = node.Port,
+                Tags = _decodeTags?.Invoke() ?? [],
+                Status = memberStatus,
+                ProtocolMin = node.PMin,
+                ProtocolMax = node.PMax,
+                ProtocolCur = node.PCur,
+                DelegateMin = node.DMin,
+                DelegateMax = node.DMax,
+                DelegateCur = node.DCur
+            };
 
-                accessor.UpdateMember(node.Name, m =>
-                {
-                    var isDead = (memberStatus == MemberStatus.Failed);
-                    var result = m.StateMachine.TransitionOnMemberlistLeave(isDead);
-                    m.LeaveTime = DateTimeOffset.UtcNow;
-                    m.Member = member;
+            accessor.UpdateMember(node.Name, m =>
+            {
+                var isDead = (memberStatus == MemberStatus.Failed);
+                var result = m.StateMachine.TransitionOnMemberlistLeave(isDead);
+                m.LeaveTime = DateTimeOffset.UtcNow;
+                m.Member = member;
 
-                    _logger?.LogDebug("[NodeEventHandler] {Reason}", result.Reason);
-                });
+                _logger?.LogDebug("[NodeEventHandler] {Reason}", result.Reason);
+            });
 
-                _logger?.LogInformation("[NodeEventHandler] Member {Status}: {Name}",
-                    eventType == EventType.MemberFailed ? "failed" : "left", node.Name);
+            _logger?.LogInformation("[NodeEventHandler] Member {Status}: {Name}",
+                eventType == EventType.MemberFailed ? "failed" : "left", node.Name);
 
-                // Emit event
-                var memberEvent = new MemberEvent
-                {
-                    Type = eventType,
-                    Members = [member]
-                };
+            // Emit event
+            var memberEvent = new MemberEvent
+            {
+                Type = eventType,
+                Members = [member]
+            };
 
-                _eventLog.Add(memberEvent);
-            }
+            _eventLog.Add(memberEvent);
         });
     }
 }

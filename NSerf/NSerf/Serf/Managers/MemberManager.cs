@@ -56,13 +56,13 @@ internal class MemberManager : IMemberManager, IDisposable
 
     /// <summary>
     /// Internal accessor implementation - provides direct access to member state.
-    /// Assumes caller already holds the lock.
+    /// Assumes the caller already holds the lock.
     /// </summary>
     private class MemberStateAccessor(MemberManager manager) : IMemberStateAccessor
     {
         public MemberInfo? GetMember(string name)
         {
-            return manager._members.TryGetValue(name, out var member) ? member : null;
+            return manager._members.GetValueOrDefault(name);
         }
 
         public List<MemberInfo> GetAllMembers()

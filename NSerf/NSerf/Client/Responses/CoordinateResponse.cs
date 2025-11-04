@@ -19,7 +19,7 @@ public class CoordinateResponse
 public class Coordinate
 {
     [Key(0)]
-    public float[] Vec { get; set; } = Array.Empty<float>();
+    public float[] Vec { get; set; } = [];
     
     [Key(1)]
     public float Error { get; set; }

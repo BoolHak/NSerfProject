@@ -15,7 +15,7 @@ namespace NSerf.Extensions;
 public static class ServiceCollectionExtensions
 {
     /// <summary>
-    /// Adds Serf agent services to the service collection with default configuration.
+    /// Adds Serf agent services to the service collection with the default configuration.
     /// The agent will use the machine name as the node name and bind to 0.0.0.0:7946.
     /// </summary>
     /// <param name="services">The service collection.</param>
@@ -70,7 +70,7 @@ public static class ServiceCollectionExtensions
                 "Serf instance not available. Ensure the SerfAgent has been started.");
         });
 
-        // Register hosted service for lifecycle management (only if not already registered)
+        // Register a hosted service for lifecycle management (only if not already registered)
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, SerfHostedService>());
 
         return services;
@@ -81,7 +81,7 @@ public static class ServiceCollectionExtensions
     /// </summary>
     /// <param name="services">The service collection.</param>
     /// <param name="configuration">The application configuration.</param>
-    /// <param name="configurationSectionPath">Path to configuration section (e.g., "Serf").</param>
+    /// <param name="configurationSectionPath">Path to the configuration section (e.g., "Serf").</param>
     /// <returns>The service collection for chaining.</returns>
     /// <example>
     /// appsettings.json:
@@ -135,7 +135,7 @@ public static class ServiceCollectionExtensions
                 "Serf instance not available. Ensure the SerfAgent has been started.");
         });
 
-        // Register hosted service for lifecycle management (only if not already registered)
+        // Register a hosted service for lifecycle management (only if not already registered)
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, SerfHostedService>());
 
         return services;

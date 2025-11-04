@@ -38,11 +38,11 @@ public static class SerfMessageEncoder
     }
 
     /// <summary>
-    /// Encodes tags dictionary into byte array using protocol-specific encoding.
+    /// Encodes tag dictionary into the byte array using protocol-specific encoding.
     /// </summary>
     /// <param name="tags">Dictionary of tags to encode</param>
     /// <param name="protocolVersion">Serf protocol version</param>
-    /// <returns>Encoded tags as byte array</returns>
+    /// <returns>Encoded tags as a byte array</returns>
     public static byte[] EncodeTags(Dictionary<string, string> tags, byte protocolVersion)
     {
         return TagEncoder.EncodeTags(tags, protocolVersion);

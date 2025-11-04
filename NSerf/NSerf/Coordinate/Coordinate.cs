@@ -19,7 +19,7 @@ public class Coordinate
     /// units here are seconds.
     /// </summary>
     [Key(0)]
-    public double[] Vec { get; set; } = Array.Empty<double>();
+    public double[] Vec { get; set; } = [];
 
     /// <summary>
     /// Error reflects the confidence in the given coordinate and is updated

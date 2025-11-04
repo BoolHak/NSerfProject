@@ -13,7 +13,7 @@ public class Member
     public string Name { get; set; } = string.Empty;
     
     [Key(1)]
-    public byte[] Addr { get; set; } = Array.Empty<byte>();
+    public byte[] Addr { get; set; } = [];
     
     [Key(2)]
     public ushort Port { get; set; }

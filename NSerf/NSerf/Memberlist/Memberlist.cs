@@ -16,7 +16,7 @@ namespace NSerf.Memberlist;
 
 /// <summary>
 /// Memberlist manages cluster membership and member failure detection using a gossip-based protocol.
-/// It is eventually consistent but converges quickly. Node failures are detected and network partitions
+/// It is eventually consistent but converges quickly. Node failures are detected, and network partitions
 /// are partially tolerated by attempting to communicate with potentially dead nodes through multiple routes.
 /// </summary>
 public partial class Memberlist : IDisposable, IAsyncDisposable
@@ -66,7 +66,6 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
 
     // Logging
     private readonly ILogger? _logger;
-    internal ILogger? Logger => _logger;
 
     // Local node cache
     private Node? _localNode;
@@ -94,22 +93,22 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
     }
 
     /// <summary>
-    /// Join variant that accepts explicit node names with addresses.
+    /// Join a variant that accepts explicit node names with addresses.
     /// Use this when RequireNodeNames is true so the remote can validate our identity.
     /// </summary>
     public async Task<(int NumJoined, Exception? Error)> JoinWithNamedAddressesAsync(IEnumerable<(string Name, string Addr)> existing, CancellationToken cancellationToken = default)
     {
-        int numSuccess = 0;
+        var numSuccess = 0;
         var errors = new List<Exception>();
 
-        foreach (var (Name, Addr) in existing)
+        foreach (var (name, addr) in existing)
         {
             try
             {
                 var address = new Address
                 {
-                    Addr = Addr,
-                    Name = Name
+                    Addr = addr,
+                    Name = name
                 };
 
                 try
@@ -128,7 +127,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
             catch (Exception ex)
             {
                 errors.Add(ex);
-                _logger?.LogWarning(ex, "Failed to join {Address}", $"{Name}@{Addr}");
+                _logger?.LogWarning(ex, "Failed to join {Address}", $"{name}@{addr}");
             }
         }
 
@@ -172,15 +171,15 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
         // Secret key and keyring are handled through config.Keyring
         // Encryption is applied in RawSendMsgStream when config.EncryptionEnabled() returns true
 
-        // Ensure we have a transport
+        // Ensure we have transport
         if (config.Transport == null)
         {
             throw new ArgumentException("Transport is required", nameof(config));
         }
 
         // Wrap transport if needed
-        INodeAwareTransport transport = config.Transport as INodeAwareTransport ??
-            throw new ArgumentException("Transport must implement INodeAwareTransport", nameof(config));
+        var transport = config.Transport as INodeAwareTransport ??
+                        throw new ArgumentException("Transport must implement INodeAwareTransport", nameof(config));
 
         // Create memberlist
         var memberlist = new Memberlist(config, transport);
@@ -188,7 +187,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
         // Initialize local node
         memberlist.InitializeLocalNode();
 
-        //Update config with actual bound port if it was 0
+        //Update config with the actual bound port if it was 0
         if (config.BindPort == 0 && transport is NetTransport netTransport)
         {
             config.BindPort = netTransport.GetAutoBindPort();
@@ -203,17 +202,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
     /// <summary>
     /// Gets the local node information.
     /// </summary>
-    public Node LocalNode
-    {
-        get
-        {
-            if (_localNode == null)
-            {
-                throw new InvalidOperationException("Local node not initialized");
-            }
-            return _localNode;
-        }
-    }
+    public Node LocalNode => _localNode ?? throw new InvalidOperationException("Local node not initialized");
 
     /// <summary>
     /// Returns the number of members in the cluster from this node's perspective.
@@ -388,7 +377,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
                         if (!await reader.WaitToReadAsync(_shutdownCts.Token)) break;
                         while (reader.TryRead(out var stream))
                         {
-                            // Handle stream connection in background
+                            // Handle stream connection in the background
                             _ = Task.Run(async () =>
                             {
                                 try
@@ -401,7 +390,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
                                 }
                                 finally
                                 {
-                                    stream?.Dispose();
+                                    await stream.DisposeAsync();
                                 }
                             }, _shutdownCts.Token);
                         }
@@ -551,11 +540,6 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
             nodeState = _nodes[index];
         }
 
-        if (nodeState == null)
-        {
-            return;
-        }
-
         var addr = new Address
         {
             Addr = $"{nodeState.Node.Addr}:{nodeState.Node.Port}",
@@ -586,7 +570,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
             return;
         }
 
-        int numCheck = 0;
+        var numCheck = 0;
         int maxChecks;
 
         lock (_nodeLock)
@@ -600,11 +584,11 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
 
         while (numCheck < maxChecks)
         {
-            NodeState? nodeToProbe = null;
+            NodeState? nodeToProbe;
 
             lock (_nodeLock)
             {
-                // Recheck node count in case it changed
+                // Recheck the node count in case it changed
                 if (_nodes.Count == 0)
                 {
                     return; // No nodes to probe
@@ -628,7 +612,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
                 }
 
                 // Skip dead or left nodes
-                if (node.State == NodeStateType.Dead || node.State == NodeStateType.Left)
+                if (node.State is NodeStateType.Dead or NodeStateType.Left)
                 {
                     continue;
                 }
@@ -637,11 +621,8 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
             }
 
             // Found a node to probe
-            if (nodeToProbe != null)
-            {
-                await ProbeNodeAsync(nodeToProbe);
-                return;
-            }
+            await ProbeNodeAsync(nodeToProbe);
+            return;
         }
 
         // No suitable nodes found after checking all
@@ -655,11 +636,11 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
     {
         _logger?.LogDebug("Probing node: {Node}", node.Name);
 
-        // Get sequence number for this probe
+        // Get a sequence number for this probe
         var seqNo = NextSequenceNum();
 
-        // Create ping message
-        var ping = new Messages.PingMessage
+        // Create a ping message
+        var ping = new PingMessage
         {
             SeqNo = seqNo,
             Node = node.Name
@@ -671,7 +652,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
 
         handler.SetAckHandler(
             seqNo,
-            (payload, timestamp) =>
+            (_, _) =>
             {
                 ackReceived.TrySetResult(true); // Success
             },
@@ -688,7 +669,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
         {
             // Encode ping using MessagePack like Go implementation
             var (advertiseAddr, advertisePort) = GetAdvertiseAddr();
-            var pingMsg = new Messages.PingMessage
+            var pingMsg = new PingMessage
             {
                 SeqNo = seqNo,
                 Node = node.Name,  // Target node name for verification
@@ -697,7 +678,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
                 SourceNode = _config.Name
             };
 
-            var pingBytes = Messages.MessageEncoder.Encode(Messages.MessageType.Ping, pingMsg);
+            var pingBytes = Messages.MessageEncoder.Encode(MessageType.Ping, pingMsg);
             var addr = new Address
             {
                 Addr = $"{node.Node.Addr}:{node.Node.Port}",
@@ -707,7 +688,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
             await SendPacketAsync(pingBytes, addr, _shutdownCts.Token);
 
             // Start TCP fallback in parallel if enabled and node supports it
-            // Go implementation does this for protocol version >= 3
+            // Go implementation does this for a protocol version >= 3
             var tcpFallbackTask = Task.FromResult(false);
             var disableTcpPings = _config.DisableTcpPings ||
                 (_config.DisableTcpPingsForNode != null && _config.DisableTcpPingsForNode(node.Name));
@@ -738,44 +719,36 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
                 _logger?.LogDebug("Probe successful for node: {Node}", node.Name);
 
                 // Cancel any suspicion timer since the node responded successfully
-                if (_nodeTimers.TryRemove(node.Name, out var timerObj))
+                if (!_nodeTimers.TryRemove(node.Name, out var timerObj) || timerObj is not Suspicion suspicion) return;
+                
+                try
                 {
-                    if (timerObj is Suspicion suspicion)
-                    {
-                        try
-                        {
-                            suspicion.Dispose();
-                        }
-                        catch (ObjectDisposedException)
-                        {
-                            // Timer already disposed, safe to ignore
-                        }
-                    }
+                    suspicion.Dispose();
+                }
+                catch (ObjectDisposedException)
+                {
+                    // Timer already disposed, safe to ignore
                 }
                 return;
             }
 
-            // UDP failed, check TCP fallback result
+            // UDP failed, check a TCP fallback result
             var tcpSuccess = await tcpFallbackTask;
             if (tcpSuccess)
             {
                 _logger?.LogWarning("Was able to connect to {Node} over TCP but UDP probes failed, network may be misconfigured", node.Name);
 
                 // Cancel any suspicion timer
-                if (_nodeTimers.TryRemove(node.Name, out var timerObj))
+                if (!_nodeTimers.TryRemove(node.Name, out var timerObj) || timerObj is not Suspicion suspicion) return;
+                try
                 {
-                    if (timerObj is Suspicion suspicion)
-                    {
-                        try
-                        {
-                            suspicion.Dispose();
-                        }
-                        catch (ObjectDisposedException)
-                        {
-                            // Timer already disposed, safe to ignore
-                        }
-                    }
+                    suspicion.Dispose();
                 }
+                catch (ObjectDisposedException)
+                {
+                    // Timer already disposed, safe to ignore
+                }
+
                 return;
             }
 
@@ -788,7 +761,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
 
             _logger?.LogWarning("Probe failed for node: {Node}, marking as suspect", node.Name);
 
-            // Mark node as suspect
+            // Mark the node as suspect
             var suspect = new Messages.Suspect
             {
                 Incarnation = node.Incarnation,
@@ -832,34 +805,28 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
 
         // Check if the user has a delegate with broadcasts
         var d = _config.Delegate;
-        if (d != null)
+        if (d == null) return toSend;
+        // Determine the bytes used already
+        var bytesUsed = toSend.Sum(msg => msg.Length + overhead);
+
+        // Check space remaining for user messages
+        var avail = limit - bytesUsed;
+        const int userMsgOverhead = 1; // Frame overhead for user messages
+        if (avail <= overhead + userMsgOverhead) return toSend;
+
+        var userMsgs = d.GetBroadcasts(overhead + userMsgOverhead, avail);
+
+        // Frame each user message with User type byte
+        foreach (var msg in userMsgs)
         {
-            // Determine the bytes used already
-            int bytesUsed = 0;
-            foreach (var msg in toSend)
-            {
-                bytesUsed += msg.Length + overhead;
-            }
-
-            // Check space remaining for user messages
-            int avail = limit - bytesUsed;
-            const int userMsgOverhead = 1; // Frame overhead for user messages
-            if (avail > overhead + userMsgOverhead)
-            {
-                var userMsgs = d.GetBroadcasts(overhead + userMsgOverhead, avail);
-
-                // Frame each user message with User type byte
-                foreach (var msg in userMsgs)
-                {
-                    var buf = new byte[1 + msg.Length];
-                    buf[0] = (byte)Messages.MessageType.User; // Frame with User message type
-                    Array.Copy(msg, 0, buf, 1, msg.Length);
-                    toSend.Add(buf);
-                }
-
-                _logger?.LogDebug("[MEMBERLIST] Added {Count} user delegate broadcasts", userMsgs.Count);
-            }
+            var buf = new byte[1 + msg.Length];
+            buf[0] = (byte)Messages.MessageType.User; // Frame with a User message type
+            Array.Copy(msg, 0, buf, 1, msg.Length);
+            toSend.Add(buf);
         }
+
+        _logger?.LogDebug("[MEMBERLIST] Added {Count} user delegate broadcasts", userMsgs.Count);
+
 
         return toSend;
     }
@@ -881,7 +848,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
                 if (node.Name == _config.Name)
                     return true;
 
-                // Include alive and suspect nodes
+                // Include live and suspect nodes
                 return node.State switch
                 {
                     NodeStateType.Alive or NodeStateType.Suspect => false,
@@ -897,7 +864,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
         }
 
         // Calculate bytes available for broadcasts
-        int bytesAvail = _config.UDPBufferSize - Messages.MessageConstants.CompoundHeaderOverhead;
+        var bytesAvail = _config.UDPBufferSize - Messages.MessageConstants.CompoundHeaderOverhead;
 
         _logger?.LogDebug("[GOSSIP] Starting gossip round to {Count} nodes, {Queued} broadcasts queued", kNodes.Count, _broadcasts.NumQueued());
 
@@ -923,17 +890,8 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
 
             try
             {
-                byte[] packet;
-                if (msgs.Count == 1)
-                {
-                    // Send single message as-is
-                    packet = msgs[0];
-                }
-                else
-                {
-                    // Create compound message
-                    packet = Messages.CompoundMessage.MakeCompoundMessage(msgs);
-                }
+                // Send a single message as-is
+                var packet = msgs.Count == 1 ? msgs[0] : CompoundMessage.MakeCompoundMessage(msgs);
 
                 // Encrypt if enabled (BEFORE adding label header, matching SendPacketAsync)
                 if (_config.EncryptionEnabled() && _config.GossipVerifyOutgoing)
@@ -951,14 +909,14 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
                     }
                 }
 
-                // Add label header if configured (AFTER encryption, matching SendPacketAsync)
+                // Add a label header if configured (AFTER encryption, matching SendPacketAsync)
                 if (!string.IsNullOrEmpty(_config.Label))
                 {
                     packet = LabelHandler.AddLabelHeaderToPacket(packet, _config.Label);
                 }
 
-                // Use provided token (not shutdown token) to allow leave messages during shutdown
-                var tokenToUse = cancellationToken == default ? _shutdownCts.Token : cancellationToken;
+                // Use the provided token (not shutdown token) to allow leave messages during shutdown
+                var tokenToUse = cancellationToken == CancellationToken.None ? _shutdownCts.Token : cancellationToken;
                 await _transport.WriteToAddressAsync(packet, addr, tokenToUse);
 
                 _logger?.LogDebug("[GOSSIP] Successfully sent {Count} messages to {Node} at {Addr}", msgs.Count, node.Name, addr.Addr);

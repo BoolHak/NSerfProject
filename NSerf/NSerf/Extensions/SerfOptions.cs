@@ -29,7 +29,7 @@ public class SerfOptions
     public string? EncryptKey { get; set; }
 
     /// <summary>
-    /// Path to keyring file for encryption (optional).
+    /// Path to a keyring file for encryption (optional).
     /// </summary>
     public string? KeyringFile { get; set; }
 
@@ -49,7 +49,7 @@ public class SerfOptions
     public Dictionary<string, string> Tags { get; set; } = [];
 
     /// <summary>
-    /// Path to tags file (optional).
+    /// Path to the tag file (optional).
     /// </summary>
     public string? TagsFile { get; set; }
 
@@ -59,7 +59,7 @@ public class SerfOptions
     public string Profile { get; set; } = "lan";
 
     /// <summary>
-    /// Path to snapshot file for state persistence (optional).
+    /// Path to the snapshot file for state persistence (optional).
     /// </summary>
     public string? SnapshotPath { get; set; }
 
@@ -84,7 +84,7 @@ public class SerfOptions
     public string[] StartJoin { get; set; } = [];
 
     /// <summary>
-    /// Nodes to retry joining in background.
+    /// Nodes to retry joining in the background.
     /// </summary>
     public string[] RetryJoin { get; set; } = [];
 

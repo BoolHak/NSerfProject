@@ -73,15 +73,12 @@ internal class UserEventCoalescer : ICoalescer
 
     public void Flush(ChannelWriter<IEvent> outChan)
     {
-        foreach (var latest in _events.Values)
+        foreach (var e in _events.Values.SelectMany(latest => latest.Events))
         {
-            foreach (var e in latest.Events)
-            {
-                outChan.TryWrite(e);
-            }
+            outChan.TryWrite(e);
         }
 
-        // Clear for next cycle
+        // Clear for the next cycle
         _events.Clear();
     }
 }

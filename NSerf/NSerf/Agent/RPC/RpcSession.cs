@@ -193,7 +193,7 @@ public class RpcSession : IAsyncDisposable
         var response = new ResponseHeader
         {
             Seq = header.Seq,
-            Error = request.Version > RpcConstants.MaxIPCVersion
+            Error = request.Version > RpcConstants.MaxIpcVersion
                 ? $"Unsupported version: {request.Version}"
                 : string.Empty
         };

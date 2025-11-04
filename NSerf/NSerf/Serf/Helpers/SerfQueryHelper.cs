@@ -10,7 +10,7 @@ namespace NSerf.Serf.Helpers;
 /// <remarks>
 /// Creates a new SerfQueryHelper with the specified configuration.
 /// </remarks>
-/// <param name="getMemberCount">Function to get current cluster member count</param>
+/// <param name="getMemberCount">Function to get the current cluster member count</param>
 /// <param name="getGossipInterval">Function to get gossip interval</param>
 /// <param name="queryTimeoutMult">Query timeout multiplier</param>
 public class SerfQueryHelper(
@@ -31,19 +31,19 @@ public class SerfQueryHelper(
     public TimeSpan CalculateDefaultQueryTimeout()
     {
         // Determine current cluster size N
-        int n = _getMemberCount();
+        var n = _getMemberCount();
         if (n < 1) n = 1; // Minimum of 1
 
         // Base gossip interval and multiplier
         var gossip = _getGossipInterval();
-        int mult = _queryTimeoutMult;
+        var mult = _queryTimeoutMult;
 
         // Factor = ceil(log10(N+1)), minimum 1
-        int factor = (int)Math.Ceiling(Math.Log10(n + 1));
+        var factor = (int)Math.Ceiling(Math.Log10(n + 1));
         if (factor <= 0) factor = 1;
 
         // Compute as ticks to avoid TimeSpan arithmetic limitations
-        long ticks = gossip.Ticks * mult * factor;
+        var ticks = gossip.Ticks * mult * factor;
         return new TimeSpan(ticks);
     }
 
@@ -74,15 +74,15 @@ public class SerfQueryHelper(
         TimeSpan gossipInterval,
         int queryTimeoutMult)
     {
-        // Ensure minimum of 1 member
+        // Ensure a minimum of 1 member
         if (memberCount < 1) memberCount = 1;
 
         // Factor = ceil(log10(N+1)), minimum 1
-        int factor = (int)Math.Ceiling(Math.Log10(memberCount + 1));
+        var factor = (int)Math.Ceiling(Math.Log10(memberCount + 1));
         if (factor <= 0) factor = 1;
 
         // Compute as ticks to avoid TimeSpan arithmetic limitations
-        long ticks = gossipInterval.Ticks * queryTimeoutMult * factor;
+        var ticks = gossipInterval.Ticks * queryTimeoutMult * factor;
         return new TimeSpan(ticks);
     }
 }

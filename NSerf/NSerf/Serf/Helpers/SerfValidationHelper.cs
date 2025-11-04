@@ -40,22 +40,19 @@ public static class SerfValidationHelper
         }
 
         // Check length limit (max 128 characters)
-        if (nodeName.Length > 128)
-        {
-            return $"Node name is {nodeName.Length} characters. Node name must be 128 characters or less";
-        }
-
-        return null;
+        return nodeName.Length > 128 ? 
+            $"Node name is {nodeName.Length} characters. Node name must be 128 characters or less" : 
+            null;
     }
 
     /// <summary>
-    /// Validates the protocol version is within acceptable range.
+    /// Validates the protocol version is within an acceptable range.
     /// Throws ArgumentException if invalid.
     /// </summary>
     /// <param name="version">Protocol version to validate</param>
     /// <param name="minVersion">Minimum acceptable version</param>
     /// <param name="maxVersion">Maximum acceptable version</param>
-    /// <exception cref="ArgumentException">Thrown when version is outside acceptable range</exception>
+    /// <exception cref="ArgumentException">Thrown when the version is outside the acceptable range</exception>
     public static void ValidateProtocolVersion(byte version, byte minVersion, byte maxVersion)
     {
         if (version < minVersion)

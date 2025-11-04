@@ -9,7 +9,7 @@ namespace NSerf.Client.Requests;
 public class JoinRequest
 {
     [Key(0)]
-    public string[] Existing { get; set; } = Array.Empty<string>();
+    public string[] Existing { get; set; } = [];
     
     [Key(1)]
     public bool Replay { get; set; }

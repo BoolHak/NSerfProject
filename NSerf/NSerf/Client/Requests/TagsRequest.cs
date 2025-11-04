@@ -12,5 +12,5 @@ public class TagsRequest
     public Dictionary<string, string> Tags { get; set; } = new();
     
     [Key(1)]
-    public string[] DeleteTags { get; set; } = Array.Empty<string>();
+    public string[] DeleteTags { get; set; } = [];
 }

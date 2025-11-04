@@ -9,5 +9,5 @@ namespace NSerf.Client.Responses;
 public class MembersResponse
 {
     [Key(0)]
-    public Member[] Members { get; set; } = Array.Empty<Member>();
+    public Member[] Members { get; set; } = [];
 }

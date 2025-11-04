@@ -89,7 +89,7 @@ internal class MemberEventCoalescer : ICoalescer
             outChan.TryWrite(evt);
         }
 
-        // Clear for next cycle (not needed in Go because of garbage collection)
+        // Clear for the next cycle (not needed in Go because of garbage collection)
         _latestEvents.Clear();
     }
 }

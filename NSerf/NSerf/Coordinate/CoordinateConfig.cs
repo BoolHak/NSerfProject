@@ -58,7 +58,7 @@ public class CoordinateConfig
 
     /// <summary>
     /// LatencyFilterSize is the maximum number of samples that are retained
-    /// per node, in order to compute a median. The intent is to ride out blips
+    /// per node, to compute a median. The intent is to ride out blips
     /// but still keep the delay low. See [2] for more details.
     /// </summary>
     public uint LatencyFilterSize { get; set; } = 3;
@@ -71,7 +71,7 @@ public class CoordinateConfig
 
     /// <summary>
     /// Returns a CoordinateConfig that has some default values suitable for
-    /// basic testing of the algorithm, but not tuned to any particular type of cluster.
+    /// basic testing of the algorithm but not tuned to any particular type of cluster.
     /// </summary>
     public static CoordinateConfig DefaultConfig()
     {

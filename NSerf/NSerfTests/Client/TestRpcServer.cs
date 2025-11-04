@@ -70,7 +70,7 @@ public class TestRpcServer : IDisposable
                 var handshakeResp = new ResponseHeader
                 {
                     Seq = handshakeHeader.Seq,
-                    Error = handshakeReq.Version > RpcConstants.MaxIPCVersion ? "Unsupported version" : string.Empty
+                    Error = handshakeReq.Version > RpcConstants.MaxIpcVersion ? "Unsupported version" : string.Empty
                 };
                 
                 var responseBytes = MessagePackSerializer.Serialize(handshakeResp);

@@ -19,7 +19,7 @@ public class QueryRecord
     public string From { get; set; } = string.Empty;
 
     [Key(2)]
-    public byte[] Payload { get; set; } = Array.Empty<byte>();
+    public byte[] Payload { get; set; } = [];
 }
 
 /// <summary>
@@ -38,5 +38,5 @@ public static class QueryRecordType
 public class NodeResponse
 {
     public string From { get; set; } = string.Empty;
-    public byte[] Payload { get; set; } = Array.Empty<byte>();
+    public byte[] Payload { get; set; } = [];
 }

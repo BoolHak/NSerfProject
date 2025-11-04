@@ -23,9 +23,6 @@ public class EventManager(
     int eventBufferSize,
     ILogger? logger = null)
 {
-    private readonly ChannelWriter<IEvent>? _eventCh = eventCh;
-    private readonly int _eventBufferSize = eventBufferSize;
-    private readonly ILogger? _logger = logger;
 
     // Event buffer for deduplication (circular buffer indexed by LTime % bufferSize)
     private readonly Dictionary<LamportTime, UserEventCollection> _eventBuffer = [];
@@ -36,7 +33,7 @@ public class EventManager(
     // Minimum event time (events below this are ignored)
     private LamportTime _eventMinTime = 0;
 
-    // Lock for thread-safe access to event state
+    // Lock for thread-safe access to the event state
     private readonly ReaderWriterLockSlim _eventLock = new();
 
     /// <summary>
@@ -54,17 +51,17 @@ public class EventManager(
             // Ignore if it is before our minimum event time
             if (userEvent.LTime < _eventMinTime)
             {
-                _logger?.LogTrace("[EventManager] Ignoring event {Name} at LTime {LTime} (below minTime {MinTime})",
+                logger?.LogTrace("[EventManager] Ignoring event {Name} at LTime {LTime} (below minTime {MinTime})",
                     userEvent.Name, userEvent.LTime, _eventMinTime);
                 return false;
             }
 
             // Check if this message is too old
             var curTime = _eventClockTime;
-            var bufferSize = (ulong)_eventBufferSize;
+            var bufferSize = (ulong) eventBufferSize;
             if (curTime > bufferSize && userEvent.LTime < (curTime - bufferSize))
             {
-                _logger?.LogWarning(
+                logger?.LogWarning(
                     "[EventManager] Received old event {Name} from time {LTime} (current: {CurTime})",
                     userEvent.Name, userEvent.LTime, curTime);
                 return false;
@@ -80,7 +77,7 @@ public class EventManager(
                         previous.Payload.SequenceEqual(userEvent.Payload))
                     {
                         // Already seen this event
-                        _logger?.LogTrace("[EventManager] Duplicate event {Name} at LTime {LTime}",
+                        logger?.LogTrace("[EventManager] Duplicate event {Name} at LTime {LTime}",
                             userEvent.Name, userEvent.LTime);
                         return false;
                     }
@@ -88,7 +85,7 @@ public class EventManager(
             }
             else
             {
-                // Create new collection for this LTime
+                // Create a new collection for this LTime
                 seen = new UserEventCollection { LTime = userEvent.LTime };
                 _eventBuffer[userEvent.LTime] = seen;
             }
@@ -100,30 +97,30 @@ public class EventManager(
                 Payload = userEvent.Payload
             });
 
-            _logger?.LogDebug("[EventManager] Processing new event {Name} at LTime {LTime}",
+            logger?.LogDebug("[EventManager] Processing new event {Name} at LTime {LTime}",
                 userEvent.Name, userEvent.LTime);
 
             // Send to EventCh if configured
-            if (_eventCh != null)
+            if (eventCh == null) return true; 
+            
+            // Rebroadcast this event
+            var evt = new UserEvent
             {
-                var evt = new Events.UserEvent
-                {
-                    LTime = userEvent.LTime,
-                    Name = userEvent.Name,
-                    Payload = userEvent.Payload,
-                    Coalesce = userEvent.CC
-                };
+                LTime = userEvent.LTime,
+                Name = userEvent.Name,
+                Payload = userEvent.Payload,
+                Coalesce = userEvent.CC
+            };
 
-                try
-                {
-                    _eventCh.TryWrite(evt);
-                    _logger?.LogTrace("[EventManager] Emitted UserEvent: {Name} at LTime {LTime}",
-                        userEvent.Name, userEvent.LTime);
-                }
-                catch (Exception ex)
-                {
-                    _logger?.LogError(ex, "[EventManager] Failed to emit UserEvent: {Name}", userEvent.Name);
-                }
+            try
+            {
+                eventCh.TryWrite(evt);
+                logger?.LogTrace("[EventManager] Emitted UserEvent: {Name} at LTime {LTime}",
+                    userEvent.Name, userEvent.LTime);
+            }
+            catch (Exception ex)
+            {
+                logger?.LogError(ex, "[EventManager] Failed to emit UserEvent: {Name}", userEvent.Name);
             }
 
             return true; // Rebroadcast this event
@@ -136,20 +133,19 @@ public class EventManager(
     /// </summary>
     public void EmitEvent(IEvent evt)
     {
-        _logger?.LogDebug("[EventManager] Emitting {EventType}", evt.GetType().Name);
+        logger?.LogDebug("[EventManager] Emitting {EventType}", evt.GetType().Name);
 
-        // Send to event channel if configured
-        if (_eventCh != null)
+        // Send it to the event channel if configured
+        if (eventCh == null) return;
+        
+        try
         {
-            try
-            {
-                _eventCh.TryWrite(evt);
-                _logger?.LogTrace("[EventManager] Emitted event to EventCh: {Type}", evt.GetType().Name);
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogError(ex, "[EventManager] Failed to emit event to EventCh");
-            }
+            eventCh.TryWrite(evt);
+            logger?.LogTrace("[EventManager] Emitted event to EventCh: {Type}", evt.GetType().Name);
+        }
+        catch (Exception ex)
+        {
+            logger?.LogError(ex, "[EventManager] Failed to emit event to EventCh");
         }
     }
 
@@ -187,7 +183,7 @@ public class EventManager(
         LockHelper.WithWriteLock(_eventLock, () =>
         {
             _eventMinTime = minTime;
-            _logger?.LogDebug("[EventManager] Set eventMinTime to {MinTime}", minTime);
+            logger?.LogDebug("[EventManager] Set eventMinTime to {MinTime}", minTime);
         });
     }
 

@@ -56,7 +56,7 @@ public class TransitionResult
     }
     
     /// <summary>
-    /// Creates a result indicating state was changed.
+    /// Creates a result indicating the state was changed.
     /// </summary>
     public static TransitionResult StateChanged(
         MemberStatus oldState,
@@ -82,20 +82,20 @@ public class TransitionResult
         => new(ResultType.NoChange, null, null, null, reason);
     
     /// <summary>
-    /// Creates a result indicating transition was rejected.
+    /// Creates a result indicating the transition was rejected.
     /// </summary>
     public static TransitionResult Rejected(string reason)
         => new(ResultType.Rejected, null, null, null, reason);
     
     /// <summary>
-    /// True if state actually changed.
+    /// True if the state actually changed.
     /// </summary>
     public bool WasStateChanged => Type == ResultType.StateChanged;
     
     /// <summary>
     /// True if LTime was updated (either with or without state change).
     /// </summary>
-    public bool WasLTimeUpdated => Type == ResultType.LTimeUpdated || Type == ResultType.StateChanged;
+    public bool WasLTimeUpdated => Type is ResultType.LTimeUpdated or ResultType.StateChanged;
     
     /// <summary>
     /// True if transition was rejected.

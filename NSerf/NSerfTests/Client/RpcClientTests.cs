@@ -194,7 +194,7 @@ public class RpcClientTests
         // Arrange
         var request = new HandshakeRequest
         {
-            Version = RpcConstants.MaxIPCVersion
+            Version = RpcConstants.MaxIpcVersion
         };
 
         // Act
@@ -202,7 +202,7 @@ public class RpcClientTests
         var decoded = MessagePack.MessagePackSerializer.Deserialize<HandshakeRequest>(encoded);
 
         // Assert
-        Assert.Equal(RpcConstants.MaxIPCVersion, decoded.Version);
+        Assert.Equal(RpcConstants.MaxIpcVersion, decoded.Version);
     }
 
     /// <summary>

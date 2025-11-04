@@ -11,7 +11,7 @@ namespace NSerf.Client;
 /// </summary>
 public static class RpcConstants
 {
-    public const int MaxIPCVersion = 1;
+    public const int MaxIpcVersion = 1;
 }
 
 /// <summary>

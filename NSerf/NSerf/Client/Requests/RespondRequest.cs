@@ -12,5 +12,5 @@ public class RespondRequest
     public ulong ID { get; set; }
     
     [Key(1)]
-    public byte[] Payload { get; set; } = Array.Empty<byte>();
+    public byte[] Payload { get; set; } = [];
 }

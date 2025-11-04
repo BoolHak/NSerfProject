@@ -21,7 +21,7 @@ public class KeyResponse
     public Dictionary<string, int> Keys { get; set; } = new();
     
     [Key(4)]
-    public string[] Messages { get; set; } = Array.Empty<string>();
+    public string[] Messages { get; set; } = [];
     
     [Key(5)]
     public string PrimaryKey { get; set; } = string.Empty;

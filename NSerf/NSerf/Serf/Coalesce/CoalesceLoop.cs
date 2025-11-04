@@ -96,7 +96,7 @@ internal static class CoalesceLoop
                     var shutdownTask = Task.Delay(Timeout.Infinite, shutdownToken);
                     waitTasks.Add(shutdownTask);
 
-                    // Wait for first task to complete (simulates select)
+                    // Wait for the first task to complete (simulates select)
                     var completed = await Task.WhenAny(waitTasks);
 
                     // Check shutdown - but first drain any pending events before flushing
@@ -126,41 +126,38 @@ internal static class CoalesceLoop
                         break; // FLUSH
                     }
 
-                    // Check if quiescent timer was cancelled (fired)
+                    // Check if the quiescent timer was canceled (fired)
                     if (quiescentTask != null && completed == quiescentTask)
                     {
                         break; // FLUSH
                     }
 
                     // Must be event available
-                    if (completed == eventTask && !shutdownToken.IsCancellationRequested)
+                    if (completed != eventTask || shutdownToken.IsCancellationRequested ||
+                        !inCh.TryRead(out var e)) continue;
+                    
+                    // Check if the coalescer handles this event
+                    if (!coalescer.Handle(e))
                     {
-                        if (inCh.TryRead(out var e))
-                        {
-                            // Check if coalescer handles this event
-                            if (!coalescer.Handle(e))
-                            {
-                                // Pass through immediately
-                                await outCh.WriteAsync(e, shutdownToken);
-                                continue;
-                            }
-
-                            // Start quantum timer if first event
-                            if (quantumCts == null)
-                            {
-                                quantumCts = new CancellationTokenSource();
-                                quantumCts.CancelAfter(coalescePeriod);
-                            }
-
-                            // Always restart quiescent timer
-                            quiescentCts?.Dispose();
-                            quiescentCts = new CancellationTokenSource();
-                            quiescentCts.CancelAfter(quiescentPeriod);
-
-                            // Coalesce the event
-                            coalescer.Coalesce(e);
-                        }
+                        // Pass through immediately
+                        await outCh.WriteAsync(e, shutdownToken);
+                        continue;
                     }
+
+                    // Start quantum timer if the first event
+                    if (quantumCts == null)
+                    {
+                        quantumCts = new CancellationTokenSource();
+                        quantumCts.CancelAfter(coalescePeriod);
+                    }
+
+                    // Always restart quiescent timer
+                    quiescentCts?.Dispose();
+                    quiescentCts = new CancellationTokenSource();
+                    quiescentCts.CancelAfter(quiescentPeriod);
+
+                    // Coalesce the event
+                    coalescer.Coalesce(e);
                 }
 
                 // FLUSH: Flush the coalesced events (including on shutdown)

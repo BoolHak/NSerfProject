@@ -71,7 +71,7 @@ public class Query : IEvent
             throw new InvalidOperationException("Cannot respond to query without Serf instance");
         }
 
-        // Create response message
+        // Create a response message
         var resp = new MessageQueryResponse
         {
             LTime = LTime,
@@ -90,8 +90,8 @@ public class Query : IEvent
                 $"Response exceeds limit of {SerfInstance.Config.QueryResponseSizeLimit} bytes");
         }
 
-        // CRITICAL: Wrap QueryResponse in User message type for memberlist transport
-        // (same way Query messages are wrapped when broadcast)
+        // CRITICAL: Wrap QueryResponse in the User message type for memberlist transport
+        // (the same way Query messages are wrapped when broadcast)
         var wrapped = new byte[1 + raw.Length];
         wrapped[0] = (byte)NSerf.Memberlist.Messages.MessageType.User;
         Array.Copy(raw, 0, wrapped, 1, raw.Length);
@@ -164,7 +164,7 @@ public class Query : IEvent
                 relayPacket[0] = (byte)NSerf.Memberlist.Messages.MessageType.User;
                 Array.Copy(relayPayload, 0, relayPacket, 1, relayPayload.Length);
 
-                // Choose up to RelayFactor alive peers excluding local node
+                // Choose up to RelayFactor live peers excluding the local node
                 var localName = SerfInstance.Config.NodeName;
                 var candidates = SerfInstance.Members()
                     .Where(m => m.Status == MemberStatus.Alive && m.Name != localName)

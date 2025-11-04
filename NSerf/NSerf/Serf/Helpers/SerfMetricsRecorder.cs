@@ -23,7 +23,6 @@ public class SerfMetricsRecorder(
 {
     private readonly IMetrics _metrics = metrics ?? throw new ArgumentNullException(nameof(metrics));
     private readonly MetricLabel[] _labels = labels ?? throw new ArgumentNullException(nameof(labels));
-    private readonly ILogger? _logger = logger;
 
     /// <summary>
     /// Records that a message was received.
@@ -34,7 +33,7 @@ public class SerfMetricsRecorder(
     public void RecordMessageReceived(int size)
     {
         _metrics.AddSample(["serf", "msgs", "received"], size, _labels);
-        _logger?.LogTrace("[SerfMetrics] Message received: {Size} bytes", size);
+        logger?.LogTrace("[SerfMetrics] Message received: {Size} bytes", size);
     }
 
     /// <summary>
@@ -46,7 +45,7 @@ public class SerfMetricsRecorder(
     public void RecordMessageSent(int size)
     {
         _metrics.AddSample(["serf", "msgs", "sent"], size, _labels);
-        _logger?.LogTrace("[SerfMetrics] Message sent: {Size} bytes", size);
+        logger?.LogTrace("[SerfMetrics] Message sent: {Size} bytes", size);
     }
 
     /// <summary>

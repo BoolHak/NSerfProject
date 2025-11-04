@@ -9,7 +9,7 @@ using NSerf.Serf.StateMachine;
 namespace NSerf.Serf.Handlers;
 
 /// <summary>
-/// Handles join and leave intent messages using StateMachine pattern.
+/// Handles join and leave intent messages using the StateMachine pattern.
 /// STATELESS - delegates all state management to MemberManager.
 /// </summary>
 internal class IntentHandler(
@@ -24,7 +24,6 @@ internal class IntentHandler(
     private readonly IMemberManager _memberManager = memberManager ?? throw new ArgumentNullException(nameof(memberManager));
     private readonly List<IEvent> _eventLog = eventLog ?? throw new ArgumentNullException(nameof(eventLog));
     private readonly LamportClock _clock = clock ?? throw new ArgumentNullException(nameof(clock));
-    private readonly ILogger? _logger = logger;
     private readonly string _localNodeName = localNodeName ?? string.Empty;
     private readonly Func<SerfState> _getSerfState = getSerfState ?? (() => SerfState.SerfAlive);
     private readonly Action<byte[]>? _broadcastJoinIntent = broadcastJoinIntent;
@@ -36,7 +35,7 @@ internal class IntentHandler(
     /// </summary>
     public bool HandleJoinIntent(MessageJoin joinIntent)
     {
-        _logger?.LogDebug("[IntentHandler] HandleJoinIntent: {Node} at LTime {LTime}",
+        logger?.LogDebug("[IntentHandler] HandleJoinIntent: {Node} at LTime {LTime}",
             joinIntent.Node, joinIntent.LTime);
 
         // Witness the Lamport time
@@ -56,17 +55,17 @@ internal class IntentHandler(
                         joinIntent.Node,
                         MemberStatus.Alive,
                         joinIntent.LTime,
-                        _logger)
+                        logger)
                 });
 
-                _logger?.LogDebug("[IntentHandler] Created placeholder for {Node}", joinIntent.Node);
+                logger?.LogDebug("[IntentHandler] Created placeholder for {Node}", joinIntent.Node);
                 return true; // Rebroadcast new information
             }
 
-            // Check if message is stale
+            // Check if a message is stale
             if (joinIntent.LTime <= memberInfo.StatusLTime)
             {
-                _logger?.LogDebug("[IntentHandler] Ignoring stale join intent for {Node}", joinIntent.Node);
+                logger?.LogDebug("[IntentHandler] Ignoring stale join intent for {Node}", joinIntent.Node);
                 return false;
             }
 
@@ -85,11 +84,11 @@ internal class IntentHandler(
 
                 if (transitionResult.WasStateChanged)
                 {
-                    _logger?.LogInformation("[IntentHandler] {Reason}", transitionResult.Reason);
+                    logger?.LogInformation("[IntentHandler] {Reason}", transitionResult.Reason);
                 }
                 else if (transitionResult.WasLTimeUpdated)
                 {
-                    _logger?.LogDebug("[IntentHandler] {Reason}", transitionResult.Reason);
+                    logger?.LogDebug("[IntentHandler] {Reason}", transitionResult.Reason);
                 }
             });
 
@@ -101,15 +100,12 @@ internal class IntentHandler(
             {
                 return true; // Rebroadcast state changes
             }
-            else if (transitionResult?.WasLTimeUpdated == true &&
-                     (memberInfo.Status == MemberStatus.Left || memberInfo.Status == MemberStatus.Failed))
-            {
-                // Left/Failed members had LTime updated but no state change - don't rebroadcast stale intents
-                return false;
-            }
-
+            
+            // Left/Failed members had LTime updated but no state change - don't rebroadcast stale intents
             // For all other cases, rebroadcast
-            return true;
+            return transitionResult?.WasLTimeUpdated != true ||
+                   memberInfo.Status is not (MemberStatus.Left or MemberStatus.Failed);
+            
         });
     }
 
@@ -120,20 +116,20 @@ internal class IntentHandler(
     /// </summary>
     public bool HandleLeaveIntent(MessageLeave leaveIntent)
     {
-        _logger?.LogDebug("[IntentHandler] HandleLeaveIntent: {Node} at LTime {LTime}",
+        logger?.LogDebug("[IntentHandler] HandleLeaveIntent: {Node} at LTime {LTime}",
             leaveIntent.Node, leaveIntent.LTime);
 
         // Witness the Lamport time
         _clock.Witness(leaveIntent.LTime);
 
-        // Local node refutation: If this is a stale leave intent for the local node while we're alive,
+        // Local node refutation: If this is stale, leave intent for the local node while we're alive,
         // broadcast a join intent to refute it
         if (!string.IsNullOrEmpty(_localNodeName) &&
             leaveIntent.Node == _localNodeName &&
             _getSerfState() == SerfState.SerfAlive)
         {
-            _logger?.LogInformation("[IntentHandler] Refuting stale leave intent for local node");
-            // Broadcast will be handled by Serf - we just return false to not rebroadcast the stale leave
+            logger?.LogInformation("[IntentHandler] Refuting stale leave intent for local node");
+            // Serf will handle broadcast - we just return false to not rebroadcast the stale leave
             return false;
         }
 
@@ -146,7 +142,7 @@ internal class IntentHandler(
                 // Don't downgrade Left back to Leaving
                 if (memberInfo.Status == MemberStatus.Left)
                 {
-                    _logger?.LogDebug("[IntentHandler] Ignoring leave intent for already-left member {Node}",
+                    logger?.LogDebug("[IntentHandler] Ignoring leave intent for already-left member {Node}",
                         leaveIntent.Node);
                     return;
                 }
@@ -160,31 +156,30 @@ internal class IntentHandler(
                     var result = m.StateMachine.TryTransitionOnLeaveIntent(leaveIntent.LTime);
 
                     // Update Member.Status to match for backward compatibility
-                    if (result.WasStateChanged && m.Member != null)
+                    if (result.WasStateChanged)
                     {
                         m.Member.Status = m.StateMachine.CurrentState;
                     }
 
                     if (result.WasStateChanged)
                     {
-                        _logger?.LogInformation("[IntentHandler] {Reason}", result.Reason);
+                        logger?.LogInformation("[IntentHandler] {Reason}", result.Reason);
 
+                        if (oldStatus != MemberStatus.Failed || m.Status != MemberStatus.Left) return;
+                        
                         // Emit EventMemberLeave when Failed→Left (per Go implementation)
                         // Note: Alive→Leaving does NOT emit events - events are emitted by NodeEventHandler
                         // when the final Left state is reached via memberlist callback
-                        if (oldStatus == MemberStatus.Failed && m.Status == MemberStatus.Left && m.Member != null)
+                        var memberEvent = new MemberEvent
                         {
-                            var memberEvent = new MemberEvent
-                            {
-                                Type = EventType.MemberLeave,
-                                Members = [m.Member]
-                            };
-                            _eventLog.Add(memberEvent);
-                        }
+                            Type = EventType.MemberLeave,
+                            Members = [m.Member]
+                        };
+                        _eventLog.Add(memberEvent);
                     }
                     else if (result.WasLTimeUpdated)
                     {
-                        _logger?.LogDebug("[IntentHandler] {Reason}", result.Reason);
+                        logger?.LogDebug("[IntentHandler] {Reason}", result.Reason);
                     }
                 });
             }
@@ -198,9 +193,9 @@ internal class IntentHandler(
                         leaveIntent.Node,
                         MemberStatus.Leaving,
                         leaveIntent.LTime,
-                        _logger)
+                        logger)
                 });
-                _logger?.LogDebug("[IntentHandler] Stored leave intent for unknown member: {Node}", leaveIntent.Node);
+                logger?.LogDebug("[IntentHandler] Stored leave intent for unknown member: {Node}", leaveIntent.Node);
             }
         });
 

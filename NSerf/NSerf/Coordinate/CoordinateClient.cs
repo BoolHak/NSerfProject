@@ -204,11 +204,11 @@ public class CoordinateClient
             CheckCoordinate(other);
 
             // Validate RTT
-            var maxRTT = TimeSpan.FromSeconds(10);
-            if (rtt < TimeSpan.Zero || rtt > maxRTT)
+            var maxRtt = TimeSpan.FromSeconds(10);
+            if (rtt < TimeSpan.Zero || rtt > maxRtt)
             {
                 throw new ArgumentException(
-                    $"round trip time not in valid range, duration {rtt} is not a positive value less than {maxRTT}");
+                    $"round trip time not in valid range, duration {rtt} is not a positive value less than {maxRtt}");
             }
 
             // Note: In Go they track zero RTTs with metrics, we'll skip that for now
@@ -218,11 +218,9 @@ public class CoordinateClient
             UpdateAdjustment(other, rttSeconds);
             UpdateGravity();
 
-            if (!_coord.IsValid())
-            {
-                _stats.Resets++;
-                _coord = Coordinate.NewCoordinate(_config);
-            }
+            if (_coord.IsValid()) return _coord.Clone();
+            _stats.Resets++;
+            _coord = Coordinate.NewCoordinate(_config);
 
             return _coord.Clone();
         }

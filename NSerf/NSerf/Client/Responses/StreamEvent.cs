@@ -18,10 +18,10 @@ public class StreamEvent
     public string Name { get; set; } = string.Empty;
     
     [Key(3)]
-    public byte[] Payload { get; set; } = Array.Empty<byte>();
+    public byte[] Payload { get; set; } = [];
     
     [Key(4)]
-    public Member[] Members { get; set; } = Array.Empty<Member>();
+    public Member[] Members { get; set; } = [];
     
     [Key(5)]
     public string Type { get; set; } = string.Empty;

@@ -12,7 +12,7 @@ public class EventRequest
     public string Name { get; set; } = string.Empty;
     
     [Key(1)]
-    public byte[] Payload { get; set; } = Array.Empty<byte>();
+    public byte[] Payload { get; set; } = [];
     
     [Key(2)]
     public bool Coalesce { get; set; }
