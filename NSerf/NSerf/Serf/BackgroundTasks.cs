@@ -62,7 +62,7 @@ public partial class Serf
     }
 
     /// <summary>
-    /// Periodically attempts to reconnect to recently failed nodes.
+    /// Periodical attempts to reconnect to recently failed nodes.
     /// Runs on ReconnectInterval until shutdown.
     /// </summary>
     private async Task HandleReconnectAsync()
@@ -141,7 +141,7 @@ public partial class Serf
     private void Reap(List<MemberInfo> members, DateTimeOffset now, TimeSpan timeout)
     {
         // Iterate in reverse to safely remove items
-        for (int i = members.Count - 1; i >= 0; i--)
+        for (var i = members.Count - 1; i >= 0; i--)
         {
             var member = members[i];
             var memberTimeout = timeout;
@@ -174,7 +174,7 @@ public partial class Serf
     /// </remarks>
     private void EraseNode(MemberInfo member)
     {
-        // Delete from members map (using helper to synchronize both structures)
+        // Delete it from the member's map (using helper to synchronize both structures)
         RemoveMemberState(member.Name);
 
         // Coordinate client cleanup (matches Go eraseNode)
@@ -202,29 +202,28 @@ public partial class Serf
         }
 
         // Emit EventMemberReap
-        if (Config.EventCh != null)
+        if (Config.EventCh == null) return;
+        
+        var reapEvent = new MemberEvent
         {
-            var reapEvent = new MemberEvent
-            {
-                Type = EventType.MemberReap,
-                Members = [member.Member]
-            };
+            Type = EventType.MemberReap,
+            Members = [member.Member]
+        };
 
-            Config.EventCh.TryWrite(reapEvent);
-        }
+        Config.EventCh.TryWrite(reapEvent);
     }
 
     /// <summary>
     /// Attempts to reconnect to a randomly selected failed node.
-    /// Uses probabilistic selection based on failed vs alive member ratio.
+    /// Uses probabilistic selection based on a failed vs. alive member ratio.
     /// </summary>
     private async Task ReconnectAsync()
     {
-        int numFailed = 0;
-        int numAlive = 0;
+        var numFailed = 0;
+        var numAlive = 0;
         MemberInfo? selectedMember = null;
 
-        // Get failed members from MemberManager
+        // Get failed members from the MemberManager
         var failedMembers = _memberManager.ExecuteUnderLock(accessor => accessor.GetFailedMembers());
         numFailed = failedMembers.Count;
 
@@ -253,11 +252,6 @@ public partial class Serf
         var idx = Random.Shared.Next(numFailed);
         selectedMember = failedMembers[idx];
 
-        if (selectedMember == null)
-        {
-            return;
-        }
-
         // Attempt to reconnect
         var addr = $"{selectedMember.Member.Addr}:{selectedMember.Member.Port}";
         Logger?.LogInformation("[Serf] Attempting reconnect to {Name} {Addr}", selectedMember.Name, addr);
@@ -268,7 +262,7 @@ public partial class Serf
 
         try
         {
-            // Attempt to join at memberlist level
+            // Attempt to join at the memberlist level
             if (Memberlist != null)
             {
                 await Memberlist.JoinAsync([joinAddr], _shutdownCts.Token);

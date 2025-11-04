@@ -32,7 +32,7 @@ public class KeyManager(Serf serf)
     /// <summary>
     /// InstallKey with optional parameters.
     /// </summary>
-    public async Task<KeyResponse> InstallKeyWithOptions(string key, KeyRequestOptions? opts)
+    private async Task<KeyResponse> InstallKeyWithOptions(string key, KeyRequestOptions? opts)
     {
         await _lock.WaitAsync();
         try
@@ -47,7 +47,7 @@ public class KeyManager(Serf serf)
 
     /// <summary>
     /// UseKey handles broadcasting a primary key change to all members in the
-    /// cluster, and gathering any response messages.
+    /// cluster and gathering any response messages.
     /// </summary>
     public async Task<KeyResponse> UseKey(string key)
     {
@@ -57,7 +57,7 @@ public class KeyManager(Serf serf)
     /// <summary>
     /// UseKey with optional parameters.
     /// </summary>
-    public async Task<KeyResponse> UseKeyWithOptions(string key, KeyRequestOptions? opts)
+    private async Task<KeyResponse> UseKeyWithOptions(string key, KeyRequestOptions? opts)
     {
         await _lock.WaitAsync();
         try
@@ -81,7 +81,7 @@ public class KeyManager(Serf serf)
     /// <summary>
     /// RemoveKey with optional parameters.
     /// </summary>
-    public async Task<KeyResponse> RemoveKeyWithOptions(string key, KeyRequestOptions? opts)
+    private async Task<KeyResponse> RemoveKeyWithOptions(string key, KeyRequestOptions? opts)
     {
         await _lock.WaitAsync();
         try
@@ -106,7 +106,7 @@ public class KeyManager(Serf serf)
     /// <summary>
     /// ListKeys with optional parameters.
     /// </summary>
-    public async Task<KeyResponse> ListKeysWithOptions(KeyRequestOptions? opts)
+    private async Task<KeyResponse> ListKeysWithOptions(KeyRequestOptions? opts)
     {
         await _lock.WaitAsync();
         try
@@ -157,7 +157,7 @@ public class KeyManager(Serf serf)
         // Broadcast the query
         var queryResp = await _serf.QueryAsync(queryName, payload, queryParams);
 
-        // Set NumNodes from member count
+        // Set NumNodes from the member count
         resp.NumNodes = _serf.NumMembers();
 
         // Stream and process responses
@@ -197,7 +197,7 @@ public class KeyManager(Serf serf)
                     // Aggregate keys - count how many nodes have each key
                     foreach (var key in keyResp.Keys)
                     {
-                        if (resp.Keys.TryGetValue(key, out int value))
+                        if (resp.Keys.TryGetValue(key, out var value))
                         {
                             resp.Keys[key] = ++value;
                         }
@@ -210,7 +210,7 @@ public class KeyManager(Serf serf)
                     // Track primary key - count how many nodes have each primary key
                     if (!string.IsNullOrEmpty(keyResp.PrimaryKey))
                     {
-                        if (resp.PrimaryKeys.TryGetValue(keyResp.PrimaryKey, out int value))
+                        if (resp.PrimaryKeys.TryGetValue(keyResp.PrimaryKey, out var value))
                         {
                             resp.PrimaryKeys[keyResp.PrimaryKey] = ++value;
                         }
@@ -243,7 +243,7 @@ public class KeyManager(Serf serf)
 public class KeyResponse
 {
     /// <summary>
-    /// Map of node name to response message.
+    /// Map of node name to a response message.
     /// </summary>
     public Dictionary<string, string> Messages { get; set; } = new();
 

@@ -8,18 +8,18 @@ using NSerf.Memberlist;
 namespace NSerf.Serf;
 
 /// <summary>
-/// Broadcast is an implementation of IBroadcast from memberlist and is used
+/// Broadcast is an implementation of IBroadcast from the memberlist and is used
 /// to manage broadcasts across the memberlist channel that are related
 /// only to Serf.
 /// 
-/// This class implements IUniqueBroadcast which means broadcasts are not
+/// This class implements IUniqueBroadcast, which means broadcasts are not
 /// deduplicated - each broadcast is treated as unique.
 /// </summary>
 /// <remarks>
 /// Creates a new broadcast with the specified message and notification channel.
 /// </remarks>
 /// <param name="msg">Message bytes to broadcast</param>
-/// <param name="notifyWriter">Optional channel writer to notify when broadcast completes</param>
+/// <param name="notifyWriter">Optional channel writer to notify when the broadcast completes</param>
 internal class Broadcast(byte[] msg, ChannelWriter<bool>? notifyWriter) : IUniqueBroadcast
 {
     private readonly byte[] _msg = msg ?? throw new ArgumentNullException(nameof(msg));
@@ -36,7 +36,7 @@ internal class Broadcast(byte[] msg, ChannelWriter<bool>? notifyWriter) : IUniqu
     /// <summary>
     /// Invalidates checks if this broadcast invalidates another broadcast.
     /// For Serf broadcasts implementing IUniqueBroadcast, this always returns false,
-    /// meaning broadcasts are never invalidated by newer ones.
+    /// meaning newer ones never invalidate broadcasts.
     /// </summary>
     /// <param name="other">The other broadcast to check against</param>
     /// <returns>Always false for unique broadcasts</returns>
@@ -61,21 +61,19 @@ internal class Broadcast(byte[] msg, ChannelWriter<bool>? notifyWriter) : IUniqu
     /// </summary>
     public void Finished()
     {
-        if (_notifyWriter != null)
-        {
-            // Try to write completion signal (non-blocking)
-            _notifyWriter.TryWrite(true);
+        if (_notifyWriter == null) return;
+        // Try to write a completion signal (non-blocking)
+        _notifyWriter.TryWrite(true);
 
-            // Complete the channel to signal no more writes
-            // Using try/catch to handle multiple Complete() calls safely
-            try
-            {
-                _notifyWriter.Complete();
-            }
-            catch (ChannelClosedException)
-            {
-                // Channel already closed, ignore
-            }
+        // Complete the channel to signal no more writes
+        // Using try/catch to handle multiple Complete() calls safely
+        try
+        {
+            _notifyWriter.Complete();
+        }
+        catch (ChannelClosedException)
+        {
+            // Channel already closed, ignore
         }
     }
 }

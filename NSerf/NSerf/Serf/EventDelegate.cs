@@ -8,7 +8,7 @@ using NSerf.Memberlist.State;
 namespace NSerf.Serf;
 
 /// <summary>
-/// EventDelegate is the Serf implementation of IEventDelegate from Memberlist.
+/// EventDelegate is the Serf implementation of IEventDelegate from the Memberlist.
 /// It bridges Memberlist node events (join, leave, update) to Serf's internal handlers.
 /// </summary>
 /// <remarks>

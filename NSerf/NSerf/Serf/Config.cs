@@ -44,14 +44,14 @@ public class Config
     /// <summary>
     /// The tags for this role, if any. This is used to provide arbitrary
     /// key/value metadata per-node. For example, a "role" tag may be used to
-    /// differentiate "load-balancer" from a "web" role as parts of the same cluster.
+    /// differentiate "load-balancer" from a "web" role as part of the same cluster.
     /// </summary>
     public Dictionary<string, string> Tags { get; set; } = new();
 
     /// <summary>
     /// EventCh is a channel that receives all the Serf events. The events
     /// are sent on this channel in proper ordering. Care must be taken that
-    /// this channel doesn't block, either by processing the events quick
+    /// this channel doesn't block, either by processing the events quickly
     /// enough or buffering the channel, otherwise it can block state updates
     /// within Serf itself.
     /// </summary>
@@ -87,7 +87,7 @@ public class Config
     public TimeSpan CoalescePeriod { get; set; } = TimeSpan.Zero;
 
     /// <summary>
-    /// QuiescentPeriod specifies the duration of time where if no events
+    /// QuiescentPeriod specifies the duration of time when if no events
     /// are received, coalescence immediately happens.
     /// </summary>
     public TimeSpan QuiescentPeriod { get; set; } = TimeSpan.Zero;
@@ -141,7 +141,7 @@ public class Config
     public TimeSpan QueueCheckInterval { get; set; } = TimeSpan.FromSeconds(30);
 
     /// <summary>
-    /// QueueDepthWarning is used to generate warning message if the
+    /// QueueDepthWarning is used to generate a warning message if the
     /// number of queued messages to broadcast exceeds this number.
     /// </summary>
     public int QueueDepthWarning { get; set; } = 128;
@@ -209,13 +209,13 @@ public class Config
     public MemberlistConfig? MemberlistConfig { get; set; }
 
     /// <summary>
-    /// Logger is a custom logger which you provide.
+    /// Logger is a custom logger that you provide.
     /// If not set, NullLogger will be used.
     /// </summary>
     public ILogger Logger { get; set; } = NullLogger.Instance;
 
     /// <summary>
-    /// SnapshotPath if provided is used to snapshot live nodes as well
+    /// SnapshotPath if provided, is used to snapshot live nodes as well
     /// as lamport clock values. When Serf is started with a snapshot,
     /// it will attempt to join all the previously known nodes until one
     /// succeeds and will also avoid replaying old user events.
@@ -229,20 +229,20 @@ public class Config
     public int MinSnapshotSize { get; set; } = 128 * 1024;
 
     /// <summary>
-    /// RejoinAfterLeave controls if Serf will ignore a previous leave and
-    /// rejoin the cluster. By default this is false, preventing nodes from
+    /// RejoinAfterLeave controls if Serf ignores a previous leave and
+    /// rejoins the cluster. By default, this is false, preventing nodes from
     /// rejoining after leaving.
     /// </summary>
     public bool RejoinAfterLeave { get; set; } = false;
 
     /// <summary>
-    /// EnableNameConflictResolution controls if Serf will actively attempt
+    /// EnableNameConflictResolution controls if Serf actively attempts
     /// to resolve a name conflict.
     /// </summary>
     public bool EnableNameConflictResolution { get; set; } = true;
 
     /// <summary>
-    /// DisableCoordinates controls if Serf will maintain an estimate of this
+    /// DisableCoordinates controls if Serf maintains an estimate of this
     /// node's network coordinate internally.
     /// </summary>
     public bool DisableCoordinates { get; set; } = false;
@@ -275,7 +275,7 @@ public class Config
     }
 
     /// <summary>
-    /// ReconnectTimeoutOverride is an optional interface which when present allows
+    /// ReconnectTimeoutOverride is an optional interface that when present allows
     /// the application to cause reaping of a node to happen when it otherwise wouldn't.
     /// </summary>
     public IReconnectTimeoutOverrider? ReconnectTimeoutOverride { get; set; }
@@ -283,7 +283,7 @@ public class Config
     /// <summary>
     /// ValidateNodeNames controls whether nodenames only
     /// contain alphanumeric, dashes and '.' characters
-    /// and sets maximum length to 128 characters.
+    /// and sets the maximum length to 128 characters.
     /// </summary>
     public bool ValidateNodeNames { get; set; } = false;
 
@@ -301,7 +301,7 @@ public class Config
 
     /// <summary>
     /// MetricLabels is an optional array of labels to apply to all emitted metrics.
-    /// For example: [new MetricLabel("datacenter", "us-west"), new MetricLabel("env", "prod")]
+    /// For example, [new MetricLabel("datacenter", "us-west"), new MetricLabel("env", "prod")]
     /// Reference: Go implementation uses []metrics.Label
     /// </summary>
     public MetricLabel[] MetricLabels { get; set; } = [];
@@ -356,7 +356,7 @@ public class Config
 }
 
 /// <summary>
-/// Interface for merge delegate that can conditionally abort cluster merges.
+/// Interface for a merge delegate that can conditionally abort cluster merges.
 /// Will be fully implemented in Phase 6+ when core Serf functionality is ported.
 /// </summary>
 public interface IMergeDelegate

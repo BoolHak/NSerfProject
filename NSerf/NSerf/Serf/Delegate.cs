@@ -38,11 +38,11 @@ internal class Delegate(Serf serf) : IDelegate
 
     /// <summary>
     /// Called when a user-data message is received from the network.
-    /// Routes messages to appropriate handlers based on message type.
+    /// Routes messages to appropriate handlers based on a message type.
     /// </summary>
     public void NotifyMsg(ReadOnlySpan<byte> message)
     {
-        // If we didn't actually receive any data, then ignore it.
+        // If we didn't receive any data, then ignore it.
         if (message.Length == 0)
         {
             return;
@@ -51,13 +51,13 @@ internal class Delegate(Serf serf) : IDelegate
         // Record metrics
         _serf.RecordMessageReceived(message.Length);
 
-        bool rebroadcast = false;
-        BroadcastQueue? rebroadcastQueue = _serf.Broadcasts;
+        var rebroadcast = false;
+        var rebroadcastQueue = _serf.Broadcasts;
         var messageType = (MessageType)message[0];
 
         _serf.Logger?.LogInformation("[Serf.Delegate] *** Received message type: {Type}, length: {Length} ***", messageType, message.Length);
 
-        // Check if message should be dropped (for testing)
+        // Check if a message should be dropped (for testing)
         if (_serf.Config.ShouldDropMessage(messageType))
         {
             return;
@@ -124,12 +124,10 @@ internal class Delegate(Serf serf) : IDelegate
         }
 
         // Rebroadcast if needed
-        if (rebroadcast && rebroadcastQueue != null)
-        {
-            // Copy the buffer since we cannot rely on the slice not changing
-            var newBuf = message.ToArray();
-            rebroadcastQueue.QueueBytes(newBuf);
-        }
+        if (!rebroadcast) return;
+        // Copy the buffer since we cannot rely on the slice not changing
+        var newBuf = message.ToArray();
+        rebroadcastQueue.QueueBytes(newBuf);
     }
 
     /// <summary>
@@ -146,7 +144,7 @@ internal class Delegate(Serf serf) : IDelegate
             var headerSize = MessagePackSerializer.Serialize(header).Length;
             var inner = payload[headerSize..].ToArray();
 
-            // Sanity: need at least 1 byte for Serf message type
+            // Sanity: need at least 1 byte for a Serf message type
             if (inner.Length == 0)
             {
                 _serf.Logger?.LogWarning("[Serf] Relay payload missing inner message type");
@@ -158,7 +156,7 @@ internal class Delegate(Serf serf) : IDelegate
             forwardBuf[0] = (byte)NSerf.Memberlist.Messages.MessageType.User;
             Array.Copy(inner, 0, forwardBuf, 1, inner.Length);
 
-            // Build destination Address from relay header
+            // Build destination Address from the relay header
             var destIp = new System.Net.IPAddress(header.DestAddr.IP);
             var dest = new Address
             {
@@ -186,14 +184,13 @@ internal class Delegate(Serf serf) : IDelegate
         _serf.Logger?.LogInformation("[Serf.Delegate] *** GetBroadcasts called with overhead={Overhead}, limit={Limit} ***", overhead, limit);
 
         // Get regular broadcasts
-        var msgs = _serf.Broadcasts.GetBroadcasts(overhead, limit);
-        _serf.Logger?.LogInformation("[Serf.Delegate] Regular broadcasts: {Count}", msgs.Count);
+        var messages = _serf.Broadcasts.GetBroadcasts(overhead, limit);
+        _serf.Logger?.LogInformation("[Serf.Delegate] Regular broadcasts: {Count}", messages.Count);
 
         // Determine the bytes used already
-        int bytesUsed = 0;
-        foreach (var msg in msgs)
+        var bytesUsed = 0;
+        foreach (var msgLen in messages.Select(msg => msg.Length))
         {
-            int msgLen = msg.Length;
             bytesUsed += msgLen + overhead;
             _serf.RecordMessageSent(msgLen);
         }
@@ -203,18 +200,18 @@ internal class Delegate(Serf serf) : IDelegate
         var queryQueueCount = _serf.QueryBroadcasts.Count;
         _serf.Logger?.LogInformation("[Serf.Delegate] *** Calling QueryBroadcasts.GetBroadcasts(overhead={OH}, limit={LIM}), queue has {QCount} items ***", overhead, availForQueries, queryQueueCount);
 
-        var queryMsgs = _serf.QueryBroadcasts.GetBroadcasts(overhead, availForQueries);
-        _serf.Logger?.LogInformation("[Serf.Delegate] *** QueryBroadcasts returned {Count} messages (had {QCount} queued, {Avail} bytes available) ***", queryMsgs.Count, queryQueueCount, availForQueries);
+        var queryMessages = _serf.QueryBroadcasts.GetBroadcasts(overhead, availForQueries);
+        _serf.Logger?.LogInformation("[Serf.Delegate] *** QueryBroadcasts returned {Count} messages (had {QCount} queued, {Avail} bytes available) ***", queryMessages.Count, queryQueueCount, availForQueries);
 
-        if (queryMsgs.Count > 0)
+        if (queryMessages.Count > 0)
         {
-            _serf.Logger?.LogInformation("[Serf.Delegate] *** Adding {Count} query broadcasts to send ***", queryMsgs.Count);
-            foreach (var m in queryMsgs)
+            _serf.Logger?.LogInformation("[Serf.Delegate] *** Adding {Count} query broadcasts to send ***", queryMessages.Count);
+            foreach (var m in queryMessages)
             {
                 bytesUsed += m.Length + overhead;
                 _serf.RecordMessageSent(m.Length);
             }
-            msgs.AddRange(queryMsgs);
+            messages.AddRange(queryMessages);
         }
         else if (queryQueueCount > 0)
         {
@@ -222,24 +219,24 @@ internal class Delegate(Serf serf) : IDelegate
         }
 
         // Get event broadcasts
-        var eventMsgs = _serf.EventBroadcasts.GetBroadcasts(overhead, limit - bytesUsed);
-        if (eventMsgs.Count > 0)
+        var eventMessages = _serf.EventBroadcasts.GetBroadcasts(overhead, limit - bytesUsed);
+        if (eventMessages.Count > 0)
         {
-            _serf.Logger?.LogInformation("[Serf.Delegate] *** Retrieved {Count} event broadcasts ***", eventMsgs.Count);
-            foreach (var m in eventMsgs)
+            _serf.Logger?.LogInformation("[Serf.Delegate] *** Retrieved {Count} event broadcasts ***", eventMessages.Count);
+            foreach (var m in eventMessages)
             {
                 bytesUsed += m.Length + overhead;
                 _serf.RecordMessageSent(m.Length);
             }
-            msgs.AddRange(eventMsgs);
+            messages.AddRange(eventMessages);
         }
 
-        _serf.Logger?.LogTrace("[Serf.Delegate] GetBroadcasts returning {Count} total messages", msgs.Count);
-        return msgs;
+        _serf.Logger?.LogTrace("[Serf.Delegate] GetBroadcasts returning {Count} total messages", messages.Count);
+        return messages;
     }
 
     /// <summary>
-    /// Used for a TCP Push/Pull. Creates a snapshot of local state to send to remote node.
+    /// Used for a TCP Push/Pull. Creates a snapshot of the local state to send to the remote node.
     /// </summary>
     public byte[] LocalState(bool join)
     {
@@ -272,7 +269,7 @@ internal class Delegate(Serf serf) : IDelegate
                 pushPull.LeftMembers.Add(member.Name);
             }
 
-            // Encode the push pull state
+            // Encode the push-pull state
             return _serf.EncodeMessage(MessageType.PushPull, pushPull);
         }
         catch (Exception ex)
@@ -335,12 +332,10 @@ internal class Delegate(Serf serf) : IDelegate
 
         foreach (var name in pushPull.LeftMembers)
         {
-            if (pushPull.StatusLTimes.TryGetValue(name, out var statusLTime))
-            {
-                leave.LTime = statusLTime + 1;
-                leave.Node = name;
-                _serf.HandleNodeLeaveIntent(leave);
-            }
+            if (!pushPull.StatusLTimes.TryGetValue(name, out var statusLTime)) continue;
+            leave.LTime = statusLTime + 1;
+            leave.Node = name;
+            _serf.HandleNodeLeaveIntent(leave);
         }
 
         // Update any other LTimes
@@ -348,10 +343,7 @@ internal class Delegate(Serf serf) : IDelegate
         foreach (var (name, statusLTime) in pushPull.StatusLTimes)
         {
             // Skip the left nodes
-            if (leftMap.Contains(name))
-            {
-                continue;
-            }
+            if (leftMap.Contains(name)) continue;
 
             // Create an artificial join message
             joinMsg.LTime = statusLTime;
@@ -360,24 +352,19 @@ internal class Delegate(Serf serf) : IDelegate
         }
 
         // Handle event join ignore
-        if (join && _serf.EventJoinIgnore)
+        if (join && _serf is { EventJoinIgnore: true, _eventManager: not null })
         {
-            if (_serf._eventManager != null)
+            var currentMinTime = _serf._eventManager.GetEventMinTime();
+            if (pushPull.EventLTime > currentMinTime)
             {
-                var currentMinTime = _serf._eventManager.GetEventMinTime();
-                if (pushPull.EventLTime > currentMinTime)
-                {
-                    _serf._eventManager.SetEventMinTime(pushPull.EventLTime);
-                }
+                _serf._eventManager.SetEventMinTime(pushPull.EventLTime);
             }
         }
 
         // Process all the events
         var userEvent = new MessageUserEvent();
-        foreach (var events in pushPull.Events)
+        foreach (var events in pushPull.Events.OfType<UserEventCollection>())
         {
-            if (events == null) continue;
-
             userEvent.LTime = events.LTime;
             foreach (var e in events.Events)
             {

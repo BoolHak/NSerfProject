@@ -3,11 +3,7 @@
 // Internal Query Handler - Intercepts and handles _serf_* queries
 // Ported from: github.com/hashicorp/serf/serf/internal_query.go
 
-using System;
-using System.Collections.Generic;
-using System.Threading;
 using System.Threading.Channels;
-using System.Threading.Tasks;
 using MessagePack;
 using Microsoft.Extensions.Logging;
 using NSerf.Serf.Events;
@@ -70,9 +66,9 @@ public static class InternalQueryConstants
     public const int MinEncodedKeyLength = 25;
 
     /// <summary>
-    /// Generates the full internal query name with prefix.
+    /// Generates the full internal query name with a prefix.
     /// </summary>
-    /// <param name="name">The query name without prefix (e.g., "ping")</param>
+    /// <param name="name">The query name without a prefix (e.g., "ping")</param>
     /// <returns>The full internal query name (e.g., "_serf_ping")</returns>
     public static string InternalQueryName(string name) => InternalQueryPrefix + name;
 }
@@ -105,7 +101,7 @@ public class SerfQueries
         ChannelWriter<IEvent>? outCh,
         CancellationToken shutdownToken)
     {
-        // Create unbounded channel for event ingestion
+        // Create an unbounded channel for event ingestion
         var channel = Channel.CreateUnbounded<IEvent>(new UnboundedChannelOptions
         {
             SingleReader = true,
@@ -145,7 +141,7 @@ public class SerfQueries
     /// Internal queries are handled, others are forwarded.
     /// Maps to: Go's stream() method
     /// </summary>
-    internal async Task StreamAsync()
+    private async Task StreamAsync()
     {
         try
         {
@@ -154,7 +150,7 @@ public class SerfQueries
                 // Check if this is an internal query
                 if (evt is Query query && query.Name.StartsWith(InternalQueryConstants.InternalQueryPrefix))
                 {
-                    // Handle internal query in background (don't block the stream)
+                    // Handle internal query in the background (don't block the stream)
                     _ = Task.Run(() => HandleQueryAsync(query), _shutdownToken);
                 }
                 else if (_outCh != null)
@@ -183,12 +179,12 @@ public class SerfQueries
         try
         {
             // Extract query name after the prefix
-            var queryName = query.Name.Substring(InternalQueryConstants.InternalQueryPrefix.Length);
+            var queryName = query.Name[InternalQueryConstants.InternalQueryPrefix.Length..];
 
             switch (queryName)
             {
                 case InternalQueryConstants.PingQuery:
-                    // Nothing to do for ping - the query ACK is sufficient
+                    // Nothing to do for ping - the query ACK is enough
                     _logger?.LogDebug("[InternalQueryHandler] Received ping query");
                     break;
 
@@ -236,15 +232,12 @@ public class SerfQueries
             var nodeName = System.Text.Encoding.UTF8.GetString(query.Payload);
 
             // Do not respond to queries about ourselves
-            if (nodeName == _serf.Config.NodeName)
-            {
-                return;
-            }
+            if (nodeName == _serf.Config.NodeName) return;
 
             _logger?.LogDebug("[InternalQueryHandler] Got conflict resolution query for '{NodeName}'", nodeName);
 
             // Look for the member info from MemberManager
-            Member? member = _serf._memberManager.ExecuteUnderLock(accessor =>
+            var member = _serf._memberManager.ExecuteUnderLock(accessor =>
             {
                 var memberInfo = accessor.GetMember(nodeName);
                 return memberInfo?.Member;
@@ -253,7 +246,7 @@ public class SerfQueries
             // Encode the response (null if we don't know the node)
             var buf = member != null
                 ? _serf.EncodeMessage(MessageType.ConflictResponse, member)
-                : Array.Empty<byte>();
+                : [];
 
             // Send the response
             await query.RespondAsync(buf);
@@ -279,7 +272,7 @@ public class SerfQueries
             {
                 response.Message = "Keyring is empty (encryption not enabled)";
                 _logger?.LogError("[InternalQueryHandler] Keyring is empty (encryption not enabled)");
-                goto SEND;
+                return;
             }
 
             _logger?.LogInformation("[InternalQueryHandler] Received list-keys query");
@@ -288,13 +281,12 @@ public class SerfQueries
             if (keyring == null)
             {
                 response.Message = "Keyring not available";
-                goto SEND;
+                return;
             }
 
             // Get all keys and encode them to base64
-            foreach (var keyBytes in keyring.GetKeys())
+            foreach (var key in keyring.GetKeys().Select(Convert.ToBase64String))
             {
-                var key = Convert.ToBase64String(keyBytes);
                 response.Keys.Add(key);
             }
 
@@ -312,9 +304,11 @@ public class SerfQueries
             response.Message = ex.Message;
             _logger?.LogError(ex, "[InternalQueryHandler] Failed to list keys");
         }
-
-    SEND:
-        await SendKeyResponseAsync(query, response);
+        finally
+        {
+            await SendKeyResponseAsync(query, response);
+        }
+        
     }
 
     /// <summary>
@@ -328,14 +322,14 @@ public class SerfQueries
 
         try
         {
-            // Decode the key request (skip first byte which is message type)
+            // Decode the key request (skip the first byte which is a message type)
             var req = MessagePackSerializer.Deserialize<KeyRequest>(query.Payload.AsMemory(1));
 
             if (!_serf.EncryptionEnabled())
             {
                 response.Message = "No keyring to modify (encryption not enabled)";
                 _logger?.LogError("[InternalQueryHandler] No keyring to modify (encryption not enabled)");
-                goto SEND;
+                return;
             }
 
             _logger?.LogInformation("[InternalQueryHandler] Received install-key query");
@@ -344,13 +338,13 @@ public class SerfQueries
             if (keyring == null)
             {
                 response.Message = "Keyring not available";
-                goto SEND;
+                return;
             }
 
             // Install the key
             keyring.AddKey(req.Key);
 
-            // Write keyring file if configured
+            // Write a keyring file if configured
             if (!string.IsNullOrEmpty(_serf.Config.KeyringFile))
             {
                 await _serf.WriteKeyringFileAsync();
@@ -363,9 +357,12 @@ public class SerfQueries
             response.Message = ex.Message;
             _logger?.LogError(ex, "[InternalQueryHandler] Failed to install key");
         }
+        finally
+        {
+            await SendKeyResponseAsync(query, response);
+        }
 
-    SEND:
-        await SendKeyResponseAsync(query, response);
+        
     }
 
     /// <summary>
@@ -379,14 +376,14 @@ public class SerfQueries
 
         try
         {
-            // Decode the key request (skip first byte which is message type)
+            // Decode the key request (skip the first byte which is a message type)
             var req = MessagePackSerializer.Deserialize<KeyRequest>(query.Payload.AsMemory(1));
 
             if (!_serf.EncryptionEnabled())
             {
                 response.Message = "No keyring to modify (encryption not enabled)";
                 _logger?.LogError("[InternalQueryHandler] No keyring to modify (encryption not enabled)");
-                goto SEND;
+                return;
             }
 
             _logger?.LogInformation("[InternalQueryHandler] Received use-key query");
@@ -395,13 +392,13 @@ public class SerfQueries
             if (keyring == null)
             {
                 response.Message = "Keyring not available";
-                goto SEND;
+                return;
             }
 
             // Change primary key
             keyring.UseKey(req.Key);
 
-            // Write keyring file if configured
+            // Write a keyring file if configured
             if (!string.IsNullOrEmpty(_serf.Config.KeyringFile))
             {
                 await _serf.WriteKeyringFileAsync();
@@ -414,14 +411,16 @@ public class SerfQueries
             response.Message = ex.Message;
             _logger?.LogError(ex, "[InternalQueryHandler] Failed to change primary key");
         }
-
-    SEND:
-        await SendKeyResponseAsync(query, response);
+        finally
+        {
+            await SendKeyResponseAsync(query, response);
+        }
+        
     }
 
     /// <summary>
     /// Handles remove-key queries.
-    /// Removes a key from the keyring (cannot remove primary key).
+    /// Removes a key from the keyring (cannot remove the primary key).
     /// Maps to: Go's handleRemoveKey() method
     /// </summary>
     private async Task HandleRemoveKeyAsync(Query query)
@@ -430,14 +429,14 @@ public class SerfQueries
 
         try
         {
-            // Decode the key request (skip first byte which is message type)
+            // Decode the key request (skip the first byte which is a message type)
             var req = MessagePackSerializer.Deserialize<KeyRequest>(query.Payload.AsMemory(1));
 
             if (!_serf.EncryptionEnabled())
             {
                 response.Message = "No keyring to modify (encryption not enabled)";
                 _logger?.LogError("[InternalQueryHandler] No keyring to modify (encryption not enabled)");
-                goto SEND;
+                return;
             }
 
             _logger?.LogInformation("[InternalQueryHandler] Received remove-key query");
@@ -446,13 +445,13 @@ public class SerfQueries
             if (keyring == null)
             {
                 response.Message = "Keyring not available";
-                goto SEND;
+                return;
             }
 
             // Remove the key
             keyring.RemoveKey(req.Key);
 
-            // Write keyring file if configured
+            // Write a keyring file if configured
             if (!string.IsNullOrEmpty(_serf.Config.KeyringFile))
             {
                 await _serf.WriteKeyringFileAsync();
@@ -465,9 +464,10 @@ public class SerfQueries
             response.Message = ex.Message;
             _logger?.LogError(ex, "[InternalQueryHandler] Failed to remove key");
         }
-
-    SEND:
-        await SendKeyResponseAsync(query, response);
+        finally
+        {
+            await SendKeyResponseAsync(query, response);
+        }
     }
 
     /// <summary>
@@ -511,8 +511,8 @@ public class SerfQueries
             maxListKeys = actual;
         }
 
-        // Try to send with progressively fewer keys until it fits
-        for (int i = maxListKeys; i >= 0; i--)
+        // Try to send it with progressively fewer keys until it fits
+        for (var i = maxListKeys; i >= 0; i--)
         {
             try
             {
