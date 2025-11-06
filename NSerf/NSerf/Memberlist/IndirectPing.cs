@@ -14,9 +14,6 @@ namespace NSerf.Memberlist;
 /// </summary>
 public class IndirectPing(Memberlist memberlist, ILogger? logger = null)
 {
-    private readonly Memberlist _memberlist = memberlist;
-    private readonly ILogger? _logger = logger;
-
     /// <summary>
     /// Sends indirect ping requests to intermediary nodes.
     /// </summary>
@@ -31,8 +28,8 @@ public class IndirectPing(Memberlist memberlist, ILogger? logger = null)
             return false;
         }
 
-        var seqNo = _memberlist.NextSequenceNum();
-        _logger?.LogDebug("Indirect ping {SeqNo} to {Target} via {Count} nodes",
+        var seqNo = memberlist.NextSequenceNum();
+        logger?.LogDebug("Indirect ping {SeqNo} to {Target} via {Count} nodes",
             seqNo, target.Name, intermediaries.Count);
 
         var tasks = intermediaries.Select(node =>
@@ -52,8 +49,8 @@ public class IndirectPing(Memberlist memberlist, ILogger? logger = null)
     {
         try
         {
-            // Create indirect ping message
-            var (addr, port) = _memberlist.GetAdvertiseAddr();
+            // Create an indirect ping message
+            var (addr, port) = memberlist.GetAdvertiseAddr();
             var indirectPing = new IndirectPingMessage
             {
                 SeqNo = seqNo,
@@ -62,7 +59,7 @@ public class IndirectPing(Memberlist memberlist, ILogger? logger = null)
                 Node = target.Name,
                 SourceAddr = addr.GetAddressBytes(),
                 SourcePort = (ushort)port,
-                SourceNode = _memberlist._config.Name
+                SourceNode = memberlist.Config.Name
             };
 
             // Set up ack handler to wait for response
@@ -70,8 +67,8 @@ public class IndirectPing(Memberlist memberlist, ILogger? logger = null)
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             cts.CancelAfter(timeout);
 
-            var handler = new AckNackHandler(_logger);
-            _memberlist._ackHandlers.TryAdd(seqNo, handler);
+            var handler = new AckNackHandler(logger);
+            memberlist.AckHandlers.TryAdd(seqNo, handler);
             handler.SetAckHandler(
                 seqNo,
                 (payload, timestamp) =>
@@ -95,7 +92,7 @@ public class IndirectPing(Memberlist memberlist, ILogger? logger = null)
                 };
 
                 var pingBytes = Messages.MessageEncoder.Encode(MessageType.IndirectPing, indirectPing);
-                await _memberlist.SendUdpAsync(pingBytes, intermediaryAddr, cts.Token);
+                await memberlist.SendUdpAsync(pingBytes, intermediaryAddr, cts.Token);
 
                 // Wait for ack
                 return await ackReceived.Task;
@@ -106,12 +103,12 @@ public class IndirectPing(Memberlist memberlist, ILogger? logger = null)
             }
             finally
             {
-                _memberlist._ackHandlers.TryRemove(seqNo, out _);
+                memberlist.AckHandlers.TryRemove(seqNo, out _);
             }
         }
         catch (Exception ex)
         {
-            _logger?.LogWarning(ex, "Indirect ping request failed to {Node}", intermediary.Name);
+            logger?.LogWarning(ex, "Indirect ping request failed to {Node}", intermediary.Name);
             return false;
         }
     }

@@ -30,7 +30,7 @@ public static class Security
     }
 
     /// <summary>
-    /// Computes the buffer size needed for a message of given length.
+    /// Computes the buffer size needed for a message of a given length.
     /// </summary>
     public static int EncryptedLength(byte version, int messageLength)
     {
@@ -41,7 +41,7 @@ public static class Security
         }
 
         // Version 0: PKCS7 padding
-        int padding = BlockSize - (messageLength % BlockSize);
+        var padding = BlockSize - (messageLength % BlockSize);
         return VersionSize + NonceSize + messageLength + padding + TagSize;
     }
 
@@ -62,29 +62,22 @@ public static class Security
 
         using var aes = new AesGcm(key, TagSize);
 
-        // Prepare output buffer
-        var output = new List<byte>();
-
-        // Add version
-        output.Add(version);
+        // Prepare an output buffer
+        var output = new List<byte> {
+            // Add version
+            version };
 
         // Generate random nonce
         var nonce = new byte[NonceSize];
         RandomNumberGenerator.Fill(nonce);
         output.AddRange(nonce);
 
-        // Prepare message for encryption
+        // Prepare a message for encryption
         byte[] plaintext;
-        if (version == 0)
-        {
-            // Version 0: Apply PKCS7 padding
-            plaintext = Pkcs7Encode(message);
-        }
-        else
-        {
+        // Version 0: Apply PKCS7 padding
+        plaintext = version == 0 ? Pkcs7Encode(message) :
             // Version 1: No padding
-            plaintext = message;
-        }
+            message;
 
         // Encrypt
         var ciphertext = new byte[plaintext.Length];
@@ -115,14 +108,14 @@ public static class Security
         }
 
         // Extract version
-        byte version = encryptedMessage[0];
+        var version = encryptedMessage[0];
         if (version > 1)
         {
             throw new ArgumentException($"Unsupported encryption version {version}", nameof(encryptedMessage));
         }
 
         // Validate length
-        int minLength = EncryptedLength(version, 0);
+        var minLength = EncryptedLength(version, 0);
         if (encryptedMessage.Length < minLength)
         {
             throw new ArgumentException($"Payload is too small to decrypt: {encryptedMessage.Length}", nameof(encryptedMessage));
@@ -132,8 +125,8 @@ public static class Security
         var nonce = encryptedMessage.AsSpan(VersionSize, NonceSize).ToArray();
 
         // Extract ciphertext and tag
-        int ciphertextStart = VersionSize + NonceSize;
-        int ciphertextLength = encryptedMessage.Length - ciphertextStart - TagSize;
+        const int ciphertextStart = VersionSize + NonceSize;
+        var ciphertextLength = encryptedMessage.Length - ciphertextStart - TagSize;
         var ciphertext = encryptedMessage.AsSpan(ciphertextStart, ciphertextLength).ToArray();
         var tag = encryptedMessage.AsSpan(ciphertextStart + ciphertextLength, TagSize).ToArray();
 
@@ -148,19 +141,11 @@ public static class Security
                 aes.Decrypt(nonce, ciphertext, tag, plaintext, additionalData);
 
                 // Remove padding for version 0
-                if (version == 0)
-                {
-                    return Pkcs7Decode(plaintext);
-                }
-                else
-                {
-                    return plaintext;
-                }
+                return version == 0 ? Pkcs7Decode(plaintext) : plaintext;
             }
             catch (CryptographicException)
             {
-                // Try next key
-                continue;
+                // Try the next key
             }
         }
 
@@ -172,12 +157,12 @@ public static class Security
     /// </summary>
     private static byte[] Pkcs7Encode(byte[] data)
     {
-        int padding = BlockSize - (data.Length % BlockSize);
+        var padding = BlockSize - (data.Length % BlockSize);
         var result = new byte[data.Length + padding];
         Array.Copy(data, result, data.Length);
 
         // Fill padding bytes with the padding length
-        for (int i = data.Length; i < result.Length; i++)
+        for (var i = data.Length; i < result.Length; i++)
         {
             result[i] = (byte)padding;
         }
@@ -196,7 +181,7 @@ public static class Security
         }
 
         int padding = data[^1];
-        int newLength = data.Length - padding;
+        var newLength = data.Length - padding;
 
         var result = new byte[newLength];
         Array.Copy(data, result, newLength);

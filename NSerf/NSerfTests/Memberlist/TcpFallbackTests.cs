@@ -84,7 +84,7 @@ public class TcpFallbackTests : IAsyncLifetime
         config1.DisableTcpPings = false; // Enable TCP fallback
         var m1 =  CreateMemberlistAsync(config1);
         
-        var bindPort = m1._config.BindPort;
+        var bindPort = m1.Config.BindPort;
         await Task.Delay(100);
         
         // Create second node with TCP fallback enabled
@@ -95,7 +95,7 @@ public class TcpFallbackTests : IAsyncLifetime
         await Task.Delay(100);
         
         // m2 joins m1
-        var joinAddr = $"{m1._config.BindAddr}:{bindPort}";
+        var joinAddr = $"{m1.Config.BindAddr}:{bindPort}";
         using var joinCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var (numJoined, error) = await m2.JoinAsync(new[] { joinAddr }, joinCts.Token);
         
@@ -112,17 +112,17 @@ public class TcpFallbackTests : IAsyncLifetime
         await Task.Delay(1000);
         
         // Both nodes should still be alive (TCP fallback should work)
-        lock (m1._nodeLock)
+        lock (m1.NodeLock)
         {
-            if (m1._nodeMap.TryGetValue("node2", out var node2State))
+            if (m1.NodeMap.TryGetValue("node2", out var node2State))
             {
                 node2State.State.Should().Be(NodeStateType.Alive, "node2 should remain alive with TCP fallback");
             }
         }
         
-        lock (m2._nodeLock)
+        lock (m2.NodeLock)
         {
-            if (m2._nodeMap.TryGetValue("node1", out var node1State))
+            if (m2.NodeMap.TryGetValue("node1", out var node1State))
             {
                 node1State.State.Should().Be(NodeStateType.Alive, "node1 should remain alive with TCP fallback");
             }
@@ -137,7 +137,7 @@ public class TcpFallbackTests : IAsyncLifetime
         config1.DisableTcpPings = true; // Disable TCP fallback
         var m1 = CreateMemberlistAsync(config1);
         
-        var bindPort = m1._config.BindPort;
+        var bindPort = m1.Config.BindPort;
         await Task.Delay(100);
         
         // Create second node with TCP fallback disabled
@@ -148,7 +148,7 @@ public class TcpFallbackTests : IAsyncLifetime
         await Task.Delay(100);
         
         // m2 joins m1
-        var joinAddr = $"{m1._config.BindAddr}:{bindPort}";
+        var joinAddr = $"{m1.Config.BindAddr}:{bindPort}";
         using var joinCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var (numJoined, error) = await m2.JoinAsync(new[] { joinAddr }, joinCts.Token);
         
@@ -162,8 +162,8 @@ public class TcpFallbackTests : IAsyncLifetime
         m2.NumMembers().Should().Be(2);
         
         // Verify TCP fallback is disabled in config
-        m1._config.DisableTcpPings.Should().BeTrue("TCP fallback should be disabled");
-        m2._config.DisableTcpPings.Should().BeTrue("TCP fallback should be disabled");
+        m1.Config.DisableTcpPings.Should().BeTrue("TCP fallback should be disabled");
+        m2.Config.DisableTcpPings.Should().BeTrue("TCP fallback should be disabled");
     }
 
     [Fact]
@@ -176,7 +176,7 @@ public class TcpFallbackTests : IAsyncLifetime
         config1.DisableTcpPingsForNode = (nodeName) => nodeName == "node2";
         var m1 = CreateMemberlistAsync(config1);
         
-        var bindPort = m1._config.BindPort;
+        var bindPort = m1.Config.BindPort;
         await Task.Delay(100);
         
         // Create second node
@@ -187,7 +187,7 @@ public class TcpFallbackTests : IAsyncLifetime
         await Task.Delay(100);
         
         // m2 joins m1
-        var joinAddr = $"{m1._config.BindAddr}:{bindPort}";
+        var joinAddr = $"{m1.Config.BindAddr}:{bindPort}";
         using var joinCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var (numJoined, error) = await m2.JoinAsync(new[] { joinAddr }, joinCts.Token);
         
@@ -201,9 +201,9 @@ public class TcpFallbackTests : IAsyncLifetime
         m2.NumMembers().Should().Be(2);
         
         // Verify per-node disable function is set
-        m1._config.DisableTcpPingsForNode.Should().NotBeNull("Per-node TCP disable should be configured");
-        m1._config.DisableTcpPingsForNode!("node2").Should().BeTrue("TCP pings to node2 should be disabled");
-        m1._config.DisableTcpPingsForNode!("node1").Should().BeFalse("TCP pings to node1 should be enabled");
+        m1.Config.DisableTcpPingsForNode.Should().NotBeNull("Per-node TCP disable should be configured");
+        m1.Config.DisableTcpPingsForNode!("node2").Should().BeTrue("TCP pings to node2 should be disabled");
+        m1.Config.DisableTcpPingsForNode!("node1").Should().BeFalse("TCP pings to node1 should be enabled");
     }
 
     [Fact]
@@ -216,7 +216,7 @@ public class TcpFallbackTests : IAsyncLifetime
         config1.DisableTcpPings = false;
         var m1 = CreateMemberlistAsync(config1);
         
-        var bindPort = m1._config.BindPort;
+        var bindPort = m1.Config.BindPort;
         await Task.Delay(100);
         
         var config2 = CreateTestConfig("node2");
@@ -226,25 +226,25 @@ public class TcpFallbackTests : IAsyncLifetime
         await Task.Delay(100);
         
         // Join nodes
-        var joinAddr = $"{m1._config.BindAddr}:{bindPort}";
+        var joinAddr = $"{m1.Config.BindAddr}:{bindPort}";
         using var joinCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         await m2.JoinAsync([joinAddr], joinCts.Token);
         
         await Task.Delay(500);
         
         // Verify protocol versions support TCP fallback (>= 3)
-        lock (m1._nodeLock)
+        lock (m1.NodeLock)
         {
-            if (m1._nodeMap.TryGetValue("node2", out var node2State))
+            if (m1.NodeMap.TryGetValue("node2", out var node2State))
             {
                 node2State.Node.PMax.Should().BeGreaterOrEqualTo((byte)3, 
                     "node2 should support protocol version 3+ for TCP fallback");
             }
         }
         
-        lock (m2._nodeLock)
+        lock (m2.NodeLock)
         {
-            if (m2._nodeMap.TryGetValue("node1", out var node1State))
+            if (m2.NodeMap.TryGetValue("node1", out var node1State))
             {
                 node1State.Node.PMax.Should().BeGreaterOrEqualTo((byte)3,
                     "node1 should support protocol version 3+ for TCP fallback");
@@ -262,7 +262,7 @@ public class TcpFallbackTests : IAsyncLifetime
         config1.ProbeTimeout = TimeSpan.FromMilliseconds(200);
         var m1 = CreateMemberlistAsync(config1);
         
-        var bindPort = m1._config.BindPort;
+        var bindPort = m1.Config.BindPort;
         await Task.Delay(100);
         
         var config2 = CreateTestConfig("node2");
@@ -274,7 +274,7 @@ public class TcpFallbackTests : IAsyncLifetime
         await Task.Delay(100);
         
         // Join nodes
-        var joinAddr = $"{m1._config.BindAddr}:{bindPort}";
+        var joinAddr = $"{m1.Config.BindAddr}:{bindPort}";
         using var joinCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var (numJoined, error) = await m2.JoinAsync(new[] { joinAddr }, joinCts.Token);
         

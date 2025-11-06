@@ -18,12 +18,9 @@ public class MessageValidator(ILogger? logger = null)
     /// </summary>
     public bool ValidateMessageSize(byte[] message, int maxSize)
     {
-        if (message.Length > maxSize)
-        {
-            _logger?.LogWarning("Message too large: {Size} > {Max}", message.Length, maxSize);
-            return false;
-        }
-        return true;
+        if (message.Length <= maxSize) return true;
+        _logger?.LogWarning("Message too large: {Size} > {Max}", message.Length, maxSize);
+        return false;
     }
 
     /// <summary>
@@ -37,13 +34,10 @@ public class MessageValidator(ILogger? logger = null)
             return false;
         }
 
-        if (name.Length > 255)
-        {
-            _logger?.LogWarning("Node name too long: {Length}", name.Length);
-            return false;
-        }
+        if (name.Length <= 255) return true;
+        _logger?.LogWarning("Node name too long: {Length}", name.Length);
+        return false;
 
-        return true;
     }
 
     /// <summary>

@@ -13,9 +13,6 @@ namespace NSerf.Memberlist;
 /// </summary>
 public class EventNotifier(IEventDelegate? eventDelegate = null, ILogger? logger = null)
 {
-    private readonly IEventDelegate? _eventDelegate = eventDelegate;
-    private readonly ILogger? _logger = logger;
-
     /// <summary>
     /// Notifies about a node joining.
     /// </summary>
@@ -23,12 +20,12 @@ public class EventNotifier(IEventDelegate? eventDelegate = null, ILogger? logger
     {
         try
         {
-            _eventDelegate?.NotifyJoin(node);
-            _logger?.LogInformation("Node joined: {Node}", node.Name);
+            eventDelegate?.NotifyJoin(node);
+            logger?.LogInformation("Node joined: {Node}", node.Name);
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "Error notifying join for {Node}", node.Name);
+            logger?.LogError(ex, "Error notifying join for {Node}", node.Name);
         }
     }
 
@@ -39,12 +36,12 @@ public class EventNotifier(IEventDelegate? eventDelegate = null, ILogger? logger
     {
         try
         {
-            _eventDelegate?.NotifyLeave(node);
-            _logger?.LogInformation("Node left: {Node}", node.Name);
+            eventDelegate?.NotifyLeave(node);
+            logger?.LogInformation("Node left: {Node}", node.Name);
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "Error notifying leave for {Node}", node.Name);
+            logger?.LogError(ex, "Error notifying leave for {Node}", node.Name);
         }
     }
 
@@ -55,12 +52,12 @@ public class EventNotifier(IEventDelegate? eventDelegate = null, ILogger? logger
     {
         try
         {
-            _eventDelegate?.NotifyUpdate(node);
-            _logger?.LogDebug("Node updated: {Node}", node.Name);
+            eventDelegate?.NotifyUpdate(node);
+            logger?.LogDebug("Node updated: {Node}", node.Name);
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "Error notifying update for {Node}", node.Name);
+            logger?.LogError(ex, "Error notifying update for {Node}", node.Name);
         }
     }
 }

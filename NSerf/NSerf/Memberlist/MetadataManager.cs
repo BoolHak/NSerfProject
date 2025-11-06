@@ -12,8 +12,6 @@ namespace NSerf.Memberlist;
 /// </summary>
 public class MetadataManager(IDelegate? delegateHandler = null, ILogger? logger = null)
 {
-    private readonly IDelegate? _delegate = delegateHandler;
-    private readonly ILogger? _logger = logger;
     private byte[] _localMeta = [];
     private readonly object _lock = new();
 
@@ -35,7 +33,7 @@ public class MetadataManager(IDelegate? delegateHandler = null, ILogger? logger 
     {
         try
         {
-            var meta = _delegate?.LocalState(false) ?? [];
+            var meta = delegateHandler?.LocalState(false) ?? [];
 
             lock (_lock)
             {
@@ -46,7 +44,7 @@ public class MetadataManager(IDelegate? delegateHandler = null, ILogger? logger 
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "Error refreshing local metadata");
+            logger?.LogError(ex, "Error refreshing local metadata");
             return [];
         }
     }
@@ -56,11 +54,8 @@ public class MetadataManager(IDelegate? delegateHandler = null, ILogger? logger 
     /// </summary>
     public bool ValidateMetaSize(byte[] meta, int maxSize = 512)
     {
-        if (meta.Length > maxSize)
-        {
-            _logger?.LogWarning("Metadata too large: {Size} > {Max}", meta.Length, maxSize);
-            return false;
-        }
-        return true;
+        if (meta.Length <= maxSize) return true;
+        logger?.LogWarning("Metadata too large: {Size} > {Max}", meta.Length, maxSize);
+        return false;
     }
 }

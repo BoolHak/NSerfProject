@@ -19,12 +19,12 @@ namespace NSerf.Memberlist;
 /// It is eventually consistent but converges quickly. Node failures are detected, and network partitions
 /// are partially tolerated by attempting to communicate with potentially dead nodes through multiple routes.
 /// </summary>
-public partial class Memberlist : IDisposable, IAsyncDisposable
+public class Memberlist : IDisposable, IAsyncDisposable
 {
     // Atomic counters
     private uint _sequenceNum;
     private uint _incarnation;
-    internal uint _numNodes;
+    internal uint NumNodes;
     private uint _pushPullReq;
 
     // Advertise address
@@ -33,7 +33,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
     private ushort _advertisePort;
 
     // Configuration and lifecycle
-    internal readonly MemberlistConfig _config;
+    internal readonly MemberlistConfig Config;
     private int _shutdown; // Atomic boolean
     private readonly CancellationTokenSource _shutdownCts = new();
     private int _leave; // Atomic boolean
@@ -44,22 +44,22 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
     private readonly List<Task> _backgroundTasks = [];
 
     // Node management
-    internal readonly object _nodeLock = new();
-    internal readonly List<NodeState> _nodes = [];
-    internal readonly ConcurrentDictionary<string, NodeState> _nodeMap = new();
-    internal readonly ConcurrentDictionary<string, object> _nodeTimers = new(); // Suspicion timers
+    internal readonly object NodeLock = new();
+    internal readonly List<NodeState> Nodes = [];
+    internal readonly ConcurrentDictionary<string, NodeState> NodeMap = new();
+    internal readonly ConcurrentDictionary<string, object> NodeTimers = new(); // Suspicion timers
 
     // Health awareness
-    internal readonly Awareness _awareness;
+    internal readonly Awareness Awareness;
 
     // Ack/Nack handlers
-    internal readonly ConcurrentDictionary<uint, AckNackHandler> _ackHandlers = new();
+    internal readonly ConcurrentDictionary<uint, AckNackHandler> AckHandlers = new();
 
     // Broadcast queue
-    internal readonly TransmitLimitedQueue _broadcasts;
+    internal readonly TransmitLimitedQueue Broadcasts;
 
     // Push-pull state synchronization
-    internal readonly PushPullManager _pushPullManager;
+    internal readonly PushPullManager PushPullManager;
 
     // Probe index for round-robin probing
     private int _probeIndex = 0;
@@ -74,20 +74,20 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
 
     private Memberlist(MemberlistConfig config, INodeAwareTransport transport)
     {
-        _config = config;
+        Config = config;
         _transport = transport;
         _logger = config.Logger;
         _incarnation = 0;
         _sequenceNum = 0;
-        _numNodes = 1; // Start with just ourselves
-        _awareness = new Awareness(config.AwarenessMaxMultiplier);
+        NumNodes = 1; // Start with just ourselves
+        Awareness = new Awareness(config.AwarenessMaxMultiplier);
         _packetHandler = new PacketHandler(this, _logger);
-        _pushPullManager = new PushPullManager(_logger);
+        PushPullManager = new PushPullManager(_logger);
 
         // Initialize broadcast queue
-        _broadcasts = new TransmitLimitedQueue
+        Broadcasts = new TransmitLimitedQueue
         {
-            NumNodes = () => (int)_numNodes,
+            NumNodes = () => (int)NumNodes,
             RetransmitMult = config.RetransmitMult
         };
     }
@@ -147,19 +147,17 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
     /// </summary>
     public static Memberlist Create(MemberlistConfig config)
     {
-        // Validate protocol version
-        if (config.ProtocolVersion < ProtocolVersion.Min)
+        switch (config.ProtocolVersion)
         {
-            throw new ArgumentException(
-                $"Protocol version '{config.ProtocolVersion}' too low. Must be in range: [{ProtocolVersion.Min}, {ProtocolVersion.Max}]",
-                nameof(config));
-        }
-
-        if (config.ProtocolVersion > ProtocolVersion.Max)
-        {
-            throw new ArgumentException(
-                $"Protocol version '{config.ProtocolVersion}' too high. Must be in range: [{ProtocolVersion.Min}, {ProtocolVersion.Max}]",
-                nameof(config));
+            // Validate protocol version
+            case < ProtocolVersion.Min:
+                throw new ArgumentException(
+                    $"Protocol version '{config.ProtocolVersion}' too low. Must be in range: [{ProtocolVersion.Min}, {ProtocolVersion.Max}]",
+                    nameof(config));
+            case > ProtocolVersion.Max:
+                throw new ArgumentException(
+                    $"Protocol version '{config.ProtocolVersion}' too high. Must be in range: [{ProtocolVersion.Min}, {ProtocolVersion.Max}]",
+                    nameof(config));
         }
 
         // Validate node name
@@ -209,9 +207,9 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
     /// </summary>
     public int NumMembers()
     {
-        lock (_nodeLock)
+        lock (NodeLock)
         {
-            return _nodeMap.Count;
+            return NodeMap.Count;
         }
     }
 
@@ -221,7 +219,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
     /// </summary>
     public int GetHealthScore()
     {
-        return _awareness.GetHealthScore();
+        return Awareness.GetHealthScore();
     }
 
     /// <summary>
@@ -234,7 +232,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
     /// </summary>
     internal int EstNumNodes()
     {
-        return (int)Interlocked.CompareExchange(ref _numNodes, 0, 0);
+        return (int)Interlocked.CompareExchange(ref NumNodes, 0, 0);
     }
 
     /// <summary>
@@ -278,7 +276,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
     }
 
     /// <summary>
-    /// Gets the advertise address and port.
+    /// Gets the advertisement address and port.
     /// </summary>
     internal (IPAddress Address, int Port) GetAdvertiseAddr()
     {
@@ -421,7 +419,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
                 {
                     try
                     {
-                        await Task.Delay(_config.GossipInterval, _shutdownCts.Token);
+                        await Task.Delay(Config.GossipInterval, _shutdownCts.Token);
                         await GossipAsync();
                     }
                     catch (OperationCanceledException)
@@ -442,21 +440,21 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
         _backgroundTasks.Add(gossipTask);
 
         // Probe scheduler - periodically probes nodes for failure detection
-        if (_config.ProbeInterval > TimeSpan.Zero)
+        if (Config.ProbeInterval > TimeSpan.Zero)
         {
             var probeTask = Task.Run(async () =>
             {
                 try
                 {
                     // Add initial random stagger to avoid synchronization
-                    var stagger = TimeSpan.FromMilliseconds(Random.Shared.Next(0, (int)_config.ProbeInterval.TotalMilliseconds));
+                    var stagger = TimeSpan.FromMilliseconds(Random.Shared.Next(0, (int)Config.ProbeInterval.TotalMilliseconds));
                     await Task.Delay(stagger, _shutdownCts.Token);
 
                     while (!_shutdownCts.IsCancellationRequested)
                     {
                         try
                         {
-                            await Task.Delay(_config.ProbeInterval, _shutdownCts.Token);
+                            await Task.Delay(Config.ProbeInterval, _shutdownCts.Token);
                             await ProbeAsync();
                         }
                         catch (OperationCanceledException)
@@ -478,21 +476,21 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
         }
 
         // Push-pull scheduler - periodically performs full state sync with a random node
-        if (_config.PushPullInterval > TimeSpan.Zero)
+        if (Config.PushPullInterval > TimeSpan.Zero)
         {
             var pushPullTask = Task.Run(async () =>
             {
                 try
                 {
                     // Add initial random stagger to avoid synchronization
-                    var stagger = TimeSpan.FromMilliseconds(Random.Shared.Next(0, (int)_config.PushPullInterval.TotalMilliseconds));
+                    var stagger = TimeSpan.FromMilliseconds(Random.Shared.Next(0, (int)Config.PushPullInterval.TotalMilliseconds));
                     await Task.Delay(stagger, _shutdownCts.Token);
 
                     while (!_shutdownCts.IsCancellationRequested)
                     {
                         try
                         {
-                            await Task.Delay(_config.PushPullInterval, _shutdownCts.Token);
+                            await Task.Delay(Config.PushPullInterval, _shutdownCts.Token);
                             await PeriodicPushPullAsync();
                         }
                         catch (OperationCanceledException)
@@ -528,16 +526,16 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
 
         // Get a random node to sync with
         NodeState? nodeState;
-        lock (_nodeLock)
+        lock (NodeLock)
         {
-            if (_nodes.Count == 0)
+            if (Nodes.Count == 0)
             {
                 return;
             }
 
             // Pick a random node
-            var index = Random.Shared.Next(_nodes.Count);
-            nodeState = _nodes[index];
+            var index = Random.Shared.Next(Nodes.Count);
+            nodeState = Nodes[index];
         }
 
         var addr = new Address
@@ -573,9 +571,9 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
         var numCheck = 0;
         int maxChecks;
 
-        lock (_nodeLock)
+        lock (NodeLock)
         {
-            maxChecks = _nodes.Count;
+            maxChecks = Nodes.Count;
             if (maxChecks == 0)
             {
                 return; // No nodes to probe
@@ -586,27 +584,27 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
         {
             NodeState? nodeToProbe;
 
-            lock (_nodeLock)
+            lock (NodeLock)
             {
                 // Recheck the node count in case it changed
-                if (_nodes.Count == 0)
+                if (Nodes.Count == 0)
                 {
                     return; // No nodes to probe
                 }
 
                 // Handle wrap around
-                if (_probeIndex >= _nodes.Count)
+                if (_probeIndex >= Nodes.Count)
                 {
                     _probeIndex = 0;
                 }
 
                 // Get candidate node
-                var node = _nodes[_probeIndex];
+                var node = Nodes[_probeIndex];
                 _probeIndex++;
                 numCheck++;
 
                 // Skip local node
-                if (node.Name == _config.Name)
+                if (node.Name == Config.Name)
                 {
                     continue;
                 }
@@ -660,10 +658,10 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
             {
                 ackReceived.TrySetResult(false); // Timeout/Nack
             },
-            _config.ProbeTimeout
+            Config.ProbeTimeout
         );
 
-        _ackHandlers[seqNo] = handler;
+        AckHandlers[seqNo] = handler;
 
         try
         {
@@ -675,7 +673,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
                 Node = node.Name,  // Target node name for verification
                 SourceAddr = advertiseAddr.GetAddressBytes(),
                 SourcePort = (ushort)advertisePort,
-                SourceNode = _config.Name
+                SourceNode = Config.Name
             };
 
             var pingBytes = Messages.MessageEncoder.Encode(MessageType.Ping, pingMsg);
@@ -690,8 +688,8 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
             // Start TCP fallback in parallel if enabled and node supports it
             // Go implementation does this for a protocol version >= 3
             var tcpFallbackTask = Task.FromResult(false);
-            var disableTcpPings = _config.DisableTcpPings ||
-                (_config.DisableTcpPingsForNode != null && _config.DisableTcpPingsForNode(node.Name));
+            var disableTcpPings = Config.DisableTcpPings ||
+                (Config.DisableTcpPingsForNode != null && Config.DisableTcpPingsForNode(node.Name));
 
             if (!disableTcpPings && node.Node.PMax >= 3)
             {
@@ -699,7 +697,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
                 {
                     try
                     {
-                        var deadline = DateTimeOffset.UtcNow.Add(_config.ProbeTimeout);
+                        var deadline = DateTimeOffset.UtcNow.Add(Config.ProbeTimeout);
                         var didContact = await SendPingAndWaitForAckAsync(addr, pingMsg, deadline, _shutdownCts.Token);
                         return didContact;
                     }
@@ -719,7 +717,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
                 _logger?.LogDebug("Probe successful for node: {Node}", node.Name);
 
                 // Cancel any suspicion timer since the node responded successfully
-                if (!_nodeTimers.TryRemove(node.Name, out var timerObj) || timerObj is not Suspicion suspicion) return;
+                if (!NodeTimers.TryRemove(node.Name, out var timerObj) || timerObj is not Suspicion suspicion) return;
                 
                 try
                 {
@@ -739,7 +737,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
                 _logger?.LogWarning("Was able to connect to {Node} over TCP but UDP probes failed, network may be misconfigured", node.Name);
 
                 // Cancel any suspicion timer
-                if (!_nodeTimers.TryRemove(node.Name, out var timerObj) || timerObj is not Suspicion suspicion) return;
+                if (!NodeTimers.TryRemove(node.Name, out var timerObj) || timerObj is not Suspicion suspicion) return;
                 try
                 {
                     suspicion.Dispose();
@@ -766,7 +764,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
             {
                 Incarnation = node.Incarnation,
                 Node = node.Name,
-                From = _config.Name
+                From = Config.Name
             };
 
             var stateHandler = new StateHandlers(this, _logger);
@@ -779,7 +777,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
         finally
         {
             // Cleanup
-            _ackHandlers.TryRemove(seqNo, out _);
+            AckHandlers.TryRemove(seqNo, out _);
         }
     }
 
@@ -801,10 +799,10 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
     private List<byte[]> GetBroadcasts(int overhead, int limit)
     {
         // Get memberlist messages first
-        var toSend = _broadcasts.GetBroadcasts(overhead, limit);
+        var toSend = Broadcasts.GetBroadcasts(overhead, limit);
 
         // Check if the user has a delegate with broadcasts
-        var d = _config.Delegate;
+        var d = Config.Delegate;
         if (d == null) return toSend;
         // Determine the bytes used already
         var bytesUsed = toSend.Sum(msg => msg.Length + overhead);
@@ -840,19 +838,19 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
     {
         // Get some random live, suspect, or recently dead nodes
         List<Node> kNodes;
-        lock (_nodeLock)
+        lock (NodeLock)
         {
-            kNodes = NodeStateManager.KRandomNodes(_config.GossipNodes, _nodes, node =>
+            kNodes = NodeStateManager.KRandomNodes(Config.GossipNodes, Nodes, node =>
             {
                 // Exclude self
-                if (node.Name == _config.Name)
+                if (node.Name == Config.Name)
                     return true;
 
                 // Include live and suspect nodes
                 return node.State switch
                 {
                     NodeStateType.Alive or NodeStateType.Suspect => false,
-                    NodeStateType.Dead or NodeStateType.Left => (DateTimeOffset.UtcNow - node.StateChange) > _config.GossipToTheDeadTime,// Gossip to dead/left nodes if they transitioned recently                                                                                                                 // This allows leave messages to propagate even to nodes that already left
+                    NodeStateType.Dead or NodeStateType.Left => (DateTimeOffset.UtcNow - node.StateChange) > Config.GossipToTheDeadTime,// Gossip to dead/left nodes if they transitioned recently                                                                                                                 // This allows leave messages to propagate even to nodes that already left
                     _ => true,// Exclude other states
                 };
             });
@@ -864,9 +862,9 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
         }
 
         // Calculate bytes available for broadcasts
-        var bytesAvail = _config.UDPBufferSize - Messages.MessageConstants.CompoundHeaderOverhead;
+        var bytesAvail = Config.UDPBufferSize - Messages.MessageConstants.CompoundHeaderOverhead;
 
-        _logger?.LogDebug("[GOSSIP] Starting gossip round to {Count} nodes, {Queued} broadcasts queued", kNodes.Count, _broadcasts.NumQueued());
+        _logger?.LogDebug("[GOSSIP] Starting gossip round to {Count} nodes, {Queued} broadcasts queued", kNodes.Count, Broadcasts.NumQueued());
 
         // CRITICAL: Get broadcasts ONCE per gossip interval, not per node!
         // The same messages are sent to all K random nodes in this interval
@@ -894,12 +892,12 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
                 var packet = msgs.Count == 1 ? msgs[0] : CompoundMessage.MakeCompoundMessage(msgs);
 
                 // Encrypt if enabled (BEFORE adding label header, matching SendPacketAsync)
-                if (_config.EncryptionEnabled() && _config.GossipVerifyOutgoing)
+                if (Config.EncryptionEnabled() && Config.GossipVerifyOutgoing)
                 {
                     try
                     {
-                        var authData = System.Text.Encoding.UTF8.GetBytes(_config.Label ?? "");
-                        var primaryKey = _config.Keyring?.GetPrimaryKey() ?? throw new InvalidOperationException("No primary key available");
+                        var authData = System.Text.Encoding.UTF8.GetBytes(Config.Label ?? "");
+                        var primaryKey = Config.Keyring?.GetPrimaryKey() ?? throw new InvalidOperationException("No primary key available");
                         packet = Security.EncryptPayload(1, primaryKey, packet, authData);
                     }
                     catch (Exception ex)
@@ -910,9 +908,9 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
                 }
 
                 // Add a label header if configured (AFTER encryption, matching SendPacketAsync)
-                if (!string.IsNullOrEmpty(_config.Label))
+                if (!string.IsNullOrEmpty(Config.Label))
                 {
-                    packet = LabelHandler.AddLabelHeaderToPacket(packet, _config.Label);
+                    packet = LabelHandler.AddLabelHeaderToPacket(packet, Config.Label);
                 }
 
                 // Use the provided token (not shutdown token) to allow leave messages during shutdown
@@ -936,14 +934,14 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
         try
         {
             _logger?.LogDebug("Accepted incoming TCP connection");
-            stream.Socket.ReceiveTimeout = (int)_config.TCPTimeout.TotalMilliseconds;
-            stream.Socket.SendTimeout = (int)_config.TCPTimeout.TotalMilliseconds;
+            stream.Socket.ReceiveTimeout = (int)Config.TCPTimeout.TotalMilliseconds;
+            stream.Socket.SendTimeout = (int)Config.TCPTimeout.TotalMilliseconds;
 
             // Remove and validate label header from stream
             var (streamLabel, peekedData) = await LabelHandler.RemoveLabelHeaderFromStreamAsync(stream, _shutdownCts.Token);
 
             // Validate label
-            if (_config.SkipInboundLabelCheck)
+            if (Config.SkipInboundLabelCheck)
             {
                 if (!string.IsNullOrEmpty(streamLabel))
                 {
@@ -951,10 +949,10 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
                     return;
                 }
                 // Set this from config so that the auth data assertions work below
-                streamLabel = _config.Label;
+                streamLabel = Config.Label;
             }
 
-            if (_config.Label != streamLabel)
+            if (Config.Label != streamLabel)
             {
                 _logger?.LogError("Discarding stream with unacceptable label \"{Label}\"", streamLabel);
                 return;
@@ -1014,18 +1012,18 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
             }
 
             // Check if encryption is enabled - decrypt if needed
-            if (_config.EncryptionEnabled())
+            if (Config.EncryptionEnabled())
             {
                 _logger?.LogDebug("Decrypting incoming message (encryption enabled in config)");
 
                 try
                 {
                     var authData = System.Text.Encoding.UTF8.GetBytes(streamLabel);
-                    messageData = Security.DecryptPayload([.. _config.Keyring!.GetKeys()], messageData, authData);
+                    messageData = Security.DecryptPayload([.. Config.Keyring!.GetKeys()], messageData, authData);
                 }
                 catch (Exception ex)
                 {
-                    if (_config.GossipVerifyIncoming)
+                    if (Config.GossipVerifyIncoming)
                     {
                         _logger?.LogError(ex, "Failed to decrypt stream");
                         return;
@@ -1092,17 +1090,17 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
     {
         try
         {
-            if (msgType == MessageType.PushPull)
+            switch (msgType)
             {
-                await HandlePushPullStreamAsync(payloadStream, originalStream);
-            }
-            else if (msgType == MessageType.User)
-            {
-                await HandleUserMsgStreamAsync(payloadStream, originalStream);
-            }
-            else
-            {
-                _logger?.LogWarning("Unknown stream message type: {MessageType}", msgType);
+                case MessageType.PushPull:
+                    await HandlePushPullStreamAsync(payloadStream, originalStream);
+                    break;
+                case MessageType.User:
+                    await HandleUserMsgStreamAsync(payloadStream, originalStream);
+                    break;
+                default:
+                    _logger?.LogWarning("Unknown stream message type: {MessageType}", msgType);
+                    break;
             }
         }
         catch (Exception ex)
@@ -1141,9 +1139,9 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
                 }
 
                 // Pass to delegate
-                if (_config.Delegate != null)
+                if (Config.Delegate != null)
                 {
-                    _config.Delegate.NotifyMsg(userMsgBytes);
+                    Config.Delegate.NotifyMsg(userMsgBytes);
                     _logger?.LogDebug("User message ({Size} bytes) delivered to delegate via TCP", userMsgBytes.Length);
                 }
                 else
@@ -1166,7 +1164,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
     {
         try
         {
-            // Read remote state from payload stream 
+            // Read remote state from the payload stream 
             var (remoteNodes, userState) = await ReadRemoteStateAsync(payloadStream, _shutdownCts.Token);
             _logger?.LogDebug("Received {Count} nodes from remote", remoteNodes.Count);
 
@@ -1175,11 +1173,11 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
             stateHandler.MergeRemoteState(remoteNodes);
 
             // Handle user state through delegate if needed
-            if (userState != null && userState.Length > 0 && _config.Delegate != null)
+            if (userState != null && userState.Length > 0 && Config.Delegate != null)
             {
                 try
                 {
-                    _config.Delegate.MergeRemoteState(userState, join: false);
+                    Config.Delegate.MergeRemoteState(userState, join: false);
                 }
                 catch (Exception ex)
                 {
@@ -1187,8 +1185,8 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
                 }
             }
 
-            // Send our state back on response stream
-            await SendLocalStateAsync(responseStream, join: false, _config.Label, _shutdownCts.Token);
+            // Send our state back on the response stream
+            await SendLocalStateAsync(responseStream, join: false, Config.Label, _shutdownCts.Token);
         }
         catch (Exception ex)
         {
@@ -1215,21 +1213,21 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
     internal async Task SendPacketAsync(byte[] buffer, Transport.Address addr, CancellationToken cancellationToken = default)
     {
         // Get label for both header and auth data
-        string label = _config.Label ?? "";
+        var label = Config.Label ?? "";
 
-        // Encrypt UDP packet if enabled (before adding label header)
+        // Encrypt a UDP packet if enabled (before adding label header)
         // This matches the TCP encryption behavior in RawSendMsgStreamAsync
-        if (_config.EncryptionEnabled() && _config.GossipVerifyOutgoing)
+        if (Config.EncryptionEnabled() && Config.GossipVerifyOutgoing)
         {
             try
             {
-                if (_config.Keyring == null)
+                if (Config.Keyring == null)
                 {
                     throw new InvalidOperationException("Encryption is enabled but no keyring is configured");
                 }
 
                 var authData = System.Text.Encoding.UTF8.GetBytes(label);
-                var primaryKey = _config.Keyring.GetPrimaryKey() ?? throw new InvalidOperationException("No primary key available");
+                var primaryKey = Config.Keyring.GetPrimaryKey() ?? throw new InvalidOperationException("No primary key available");
                 buffer = Security.EncryptPayload(1, primaryKey, buffer, authData);
             }
             catch (Exception ex)
@@ -1239,7 +1237,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
             }
         }
 
-        // Add label header if configured (after encryption, so label is not encrypted)
+        // Add a label header if configured (after encryption, so the label is not encrypted)
         if (!string.IsNullOrEmpty(label))
         {
             buffer = LabelHandler.AddLabelHeaderToPacket(buffer, label);
@@ -1249,7 +1247,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
     }
 
     /// <summary>
-    /// Sends a UDP packet to an address, adding label header if configured.
+    /// Sends a UDP packet to an address, adding a label header if configured.
     /// Public API matching Go's SendToAddress for query responses.
     /// </summary>
     public async Task SendToAddress(Address addr, byte[] buffer, CancellationToken cancellationToken = default)
@@ -1258,7 +1256,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
     }
 
     /// <summary>
-    /// Sends a UDP packet to an address, adding label header if configured.
+    /// Sends a UDP packet to an address, adding a label header if configured.
     /// Internal helper that calls SendPacketAsync.
     /// </summary>
     internal async Task SendUdpAsync(byte[] buffer, Address addr, CancellationToken cancellationToken = default)
@@ -1267,12 +1265,12 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
     }
 
     /// <summary>
-    /// Initializes the local node with address from transport.
+    /// Initializes the local node with an address from transport.
     /// </summary>
     private void InitializeLocalNode()
     {
         // Get advertise address from transport
-        var (ip, port) = _transport.FinalAdvertiseAddr(_config.AdvertiseAddr, _config.AdvertisePort);
+        var (ip, port) = _transport.FinalAdvertiseAddr(Config.AdvertiseAddr, Config.AdvertisePort);
 
         lock (_advertiseLock)
         {
@@ -1280,20 +1278,20 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
             _advertisePort = (ushort)port;
         }
 
-        // Create local node
+        // Create the local node
         _localNode = new Node
         {
-            Name = _config.Name,
+            Name = Config.Name,
             Addr = ip,
             Port = (ushort)port,
-            Meta = _config.Delegate?.NodeMeta(ushort.MaxValue) ?? [],
+            Meta = Config.Delegate?.NodeMeta(ushort.MaxValue) ?? [],
             State = NodeStateType.Alive,
             PMin = ProtocolVersion.Min,
             PMax = ProtocolVersion.Max,
-            PCur = _config.ProtocolVersion,
-            DMin = _config.DelegateProtocolMin,
-            DMax = _config.DelegateProtocolMax,
-            DCur = _config.DelegateProtocolVersion
+            PCur = Config.ProtocolVersion,
+            DMin = Config.DelegateProtocolMin,
+            DMax = Config.DelegateProtocolMax,
+            DCur = Config.DelegateProtocolVersion
         };
 
         // Add ourselves to the node map
@@ -1305,11 +1303,11 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
             Incarnation = 0
         };
 
-        _nodeMap[_config.Name] = localState;
+        NodeMap[Config.Name] = localState;
 
-        lock (_nodeLock)
+        lock (NodeLock)
         {
-            _nodes.Add(localState);
+            Nodes.Add(localState);
         }
     }
 
@@ -1317,13 +1315,13 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
     /// Sends a raw message over a stream with proper TCP framing.
     /// Format: [4-byte length prefix][message data (possibly compressed/encrypted)]
     /// </summary>
-    internal async Task RawSendMsgStreamAsync(NetworkStream conn, byte[] buf, string streamLabel, CancellationToken cancellationToken = default)
+    private async Task RawSendMsgStreamAsync(NetworkStream conn, byte[] buf, string streamLabel, CancellationToken cancellationToken = default)
     {
         // Note: Label header should be added once when the connection is created (in transport layer),
         // not for every message sent on the stream.
 
         // Apply compression if enabled
-        if (_config.EnableCompression)
+        if (Config.EnableCompression)
         {
             try
             {
@@ -1341,17 +1339,17 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
         }
 
         // Apply encryption if enabled
-        if (_config.EncryptionEnabled() && _config.GossipVerifyOutgoing)
+        if (Config.EncryptionEnabled() && Config.GossipVerifyOutgoing)
         {
             try
             {
-                if (_config.Keyring == null)
+                if (Config.Keyring == null)
                 {
                     throw new InvalidOperationException("Encryption is enabled but no keyring is configured");
                 }
 
                 var authData = System.Text.Encoding.UTF8.GetBytes(streamLabel);
-                var primaryKey = _config.Keyring.GetPrimaryKey() ?? throw new InvalidOperationException("No primary key available");
+                var primaryKey = Config.Keyring.GetPrimaryKey() ?? throw new InvalidOperationException("No primary key available");
                 buf = Security.EncryptPayload(1, primaryKey, buf, authData);
             }
             catch (Exception ex)
@@ -1361,7 +1359,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
             }
         }
 
-        // Always add length prefix for proper TCP framing
+        // Always add a length prefix for proper TCP framing
         using var framedMs = new MemoryStream();
         var lengthBytes = BitConverter.GetBytes(buf.Length);
         if (BitConverter.IsLittleEndian)
@@ -1381,7 +1379,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
     /// </summary>
     internal async Task<bool> SendPingAndWaitForAckAsync(Address addr, Messages.PingMessage ping, DateTimeOffset deadline, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrEmpty(addr.Name) && _config.RequireNodeNames)
+        if (string.IsNullOrEmpty(addr.Name) && Config.RequireNodeNames)
         {
             throw new InvalidOperationException("Node names are required");
         }
@@ -1402,16 +1400,16 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
             conn = await _transport.DialAddressTimeoutAsync(addr, timeout, cts.Token);
 
             // Add label header to stream if configured (must be first thing sent)
-            if (!string.IsNullOrEmpty(_config.Label))
+            if (!string.IsNullOrEmpty(Config.Label))
             {
-                await LabelHandler.AddLabelHeaderToStreamAsync(conn, _config.Label, cts.Token);
+                await LabelHandler.AddLabelHeaderToStreamAsync(conn, Config.Label, cts.Token);
             }
 
             // Encode the ping message
             var pingBytes = Messages.MessageEncoder.Encode(Messages.MessageType.Ping, ping);
 
             // Send the ping
-            await RawSendMsgStreamAsync(conn, pingBytes, _config.Label, cts.Token);
+            await RawSendMsgStreamAsync(conn, pingBytes, Config.Label, cts.Token);
 
             // Read the response
             var response = new byte[1024];
@@ -1432,13 +1430,10 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
             // Decode ack
             var ack = Messages.MessageEncoder.Decode<Messages.AckRespMessage>(response.AsSpan(1, bytesRead - 1));
 
-            if (ack.SeqNo != ping.SeqNo)
-            {
-                _logger?.LogWarning("Sequence number mismatch: expected {Expected}, got {Actual}", ping.SeqNo, ack.SeqNo);
-                return false;
-            }
+            if (ack.SeqNo == ping.SeqNo) return true;
+            _logger?.LogWarning("Sequence number mismatch: expected {Expected}, got {Actual}", ping.SeqNo, ack.SeqNo);
+            return false;
 
-            return true;
         }
         catch (OperationCanceledException)
         {
@@ -1469,15 +1464,14 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
     /// <summary>
     /// Encodes a message and queues it for broadcast with notification when complete.
     /// </summary>
-    internal void EncodeBroadcastNotify(string node, MessageType msgType, object message, BroadcastNotifyChannel? notify)
+    private void EncodeBroadcastNotify(string node, MessageType msgType, object message, BroadcastNotifyChannel? notify)
     {
         try
         {
             // Convert protocol structures to MessagePack messages
-            object msgToEncode = message;
-            if (message is Messages.Alive alive)
+            var msgToEncode = message switch
             {
-                msgToEncode = new Messages.AliveMessage
+                Alive alive => new AliveMessage
                 {
                     Incarnation = alive.Incarnation,
                     Node = alive.Node ?? string.Empty,
@@ -1485,40 +1479,31 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
                     Port = alive.Port,
                     Meta = alive.Meta ?? [],
                     Vsn = alive.Vsn ?? [],
-                };
-            }
-            else if (message is Messages.Suspect suspect)
-            {
-                msgToEncode = new Messages.SuspectMessage
+                },
+                Suspect suspect => new SuspectMessage
                 {
-                    Incarnation = suspect.Incarnation,
-                    Node = suspect.Node,
-                    From = suspect.From
-                };
-            }
-            else if (message is Messages.Dead dead)
-            {
-                msgToEncode = new Messages.DeadMessage
+                    Incarnation = suspect.Incarnation, Node = suspect.Node, From = suspect.From
+                },
+                Dead dead => new DeadMessage
                 {
-                    Incarnation = dead.Incarnation,
-                    Node = dead.Node,
-                    From = dead.From
-                };
-            }
+                    Incarnation = dead.Incarnation, Node = dead.Node, From = dead.From
+                },
+                _ => message
+            };
 
             var encoded = Messages.MessageEncoder.Encode(msgType, msgToEncode);
 
             // Check size limits
-            if (encoded.Length > _config.UDPBufferSize)
+            if (encoded.Length > Config.UDPBufferSize)
             {
                 _logger?.LogError("Encoded {Type} message for {Node} is too large ({Size} > {Max})",
-                    msgType, node, encoded.Length, _config.UDPBufferSize);
+                    msgType, node, encoded.Length, Config.UDPBufferSize);
                 return;
             }
 
             // Check if we should skip broadcasting our own messages based on config
             // EXCEPTION: Always broadcast Dead messages for graceful leave, even if reclaim time is 0
-            if (node == _config.Name && _config.DeadNodeReclaimTime == TimeSpan.Zero && msgType != MessageType.Dead)
+            if (node == Config.Name && Config.DeadNodeReclaimTime == TimeSpan.Zero && msgType != MessageType.Dead)
             {
                 // Don't broadcast our own state changes if reclaim time is 0
                 _logger?.LogDebug("Skipping broadcast for local node {Node} (reclaim time is 0)", node);
@@ -1539,23 +1524,23 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
     /// </summary>
     public List<Node> Members()
     {
-        lock (_nodeLock)
+        lock (NodeLock)
         {
-            return [.. _nodes
+            return [.. Nodes
                 .Where(n => n.State != NodeStateType.Dead && n.State != NodeStateType.Left)
                 .Select(n => n.Node)];
         }
     }
 
     /// <summary>
-    /// Leave will broadcast a leave message but will not shutdown the background
+    /// Leave will broadcast a leave message but will not shut down the background
     /// listeners, meaning the node will continue participating in gossip and state
     /// updates.
     /// This method is safe to call multiple times.
     /// </summary>
     public async Task<Exception?> LeaveAsync(TimeSpan timeout)
     {
-        // Set leave flag to prevent gossiping Alive messages for ourselves
+        // Set leave a flag to prevent gossiping Alive messages for ourselves
         if (Interlocked.CompareExchange(ref _leave, 1, 0) != 0)
         {
             // Already left
@@ -1563,26 +1548,24 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
         }
 
         // Cancel all suspicion timers to prevent marking healthy nodes as dead
-        foreach (var kvp in _nodeTimers)
+        foreach (var kvp in NodeTimers)
         {
-            if (kvp.Value is Suspicion suspicion)
+            if (kvp.Value is not Suspicion suspicion) continue;
+            try
             {
-                try
-                {
-                    suspicion.Dispose();
-                }
-                catch (ObjectDisposedException)
-                {
-                    // Timer already disposed, safe to ignore
-                }
+                suspicion.Dispose();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Timer already disposed, safe to ignore
             }
         }
-        _nodeTimers.Clear();
+        NodeTimers.Clear();
 
         // Update our own state to Left
-        lock (_nodeLock)
+        lock (NodeLock)
         {
-            if (_nodeMap.TryGetValue(_config.Name, out var ourState))
+            if (NodeMap.TryGetValue(Config.Name, out var ourState))
             {
                 ourState.State = NodeStateType.Left;
                 ourState.StateChange = DateTimeOffset.UtcNow;
@@ -1590,7 +1573,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
         }
 
         var leaveManager = new LeaveManager(this, _logger);
-        var result = await leaveManager.LeaveAsync(_config.Name, timeout);
+        var result = await leaveManager.LeaveAsync(Config.Name, timeout);
 
         return result.Success ? null : result.Error;
     }
@@ -1602,15 +1585,15 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
     /// number and broadcasts an alive message with the updated information.
     /// </summary>
     /// <param name="timeout">How long to wait for broadcast confirmation</param>
-    /// <returns>Task that completes when update is broadcast</returns>
-    /// <exception cref="InvalidOperationException">Thrown if metadata exceeds size limit</exception>
+    /// <returns>Task that completes when an update is broadcast</returns>
+    /// <exception cref="InvalidOperationException">Thrown if metadata exceeds the size limit</exception>
     public async Task UpdateNodeAsync(TimeSpan timeout)
     {
-        // Step 1: Get metadata from delegate
+        // Step 1: Get metadata from a delegate
         var meta = Array.Empty<byte>();
-        if (_config.Delegate != null)
+        if (Config.Delegate != null)
         {
-            meta = _config.Delegate.NodeMeta(MessageConstants.MetaMaxSize);
+            meta = Config.Delegate.NodeMeta(MessageConstants.MetaMaxSize);
 
             // Step 2: Validate metadata size
             if (meta.Length > MessageConstants.MetaMaxSize)
@@ -1623,27 +1606,27 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
         // Step 3: Increment incarnation
         var inc = NextIncarnation();
 
-        // Step 4: Create alive message
+        // Step 4: Create an alive message
         var localNode = LocalNode;
         var alive = new Messages.Alive
         {
             Incarnation = inc,
-            Node = _config.Name,
+            Node = Config.Name,
             Addr = localNode.Addr.GetAddressBytes(),
             Port = localNode.Port,
             Meta = meta,
             Vsn =
             [
-                _config.ProtocolVersion,
-                _config.DelegateProtocolMin,
-                _config.DelegateProtocolMax,
-                _config.DelegateProtocolVersion
+                Config.ProtocolVersion,
+                Config.DelegateProtocolMin,
+                Config.DelegateProtocolMax,
+                Config.DelegateProtocolVersion
             ]
         };
 
         // Step 5: Update our own NodeState directly (don't go through HandleAliveNode for local updates)
         // HandleAliveNode would treat this as a refutation scenario and increment incarnation again
-        if (_nodeMap.TryGetValue(_config.Name, out var localState))
+        if (NodeMap.TryGetValue(Config.Name, out var localState))
         {
             localState.Incarnation = inc;
             localState.Node.Meta = meta;
@@ -1666,26 +1649,26 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
         }
 
         // Step 5b: Notify event delegate about local update (so Serf sees the new tags)
-        if (_config.Events != null && localState != null)
+        if (Config.Events != null && localState != null)
         {
-            _config.Events.NotifyUpdate(localState.Node);
+            Config.Events.NotifyUpdate(localState.Node);
         }
 
-        // Step 5c: Broadcast the update to cluster
-        EncodeAndBroadcast(_config.Name, Messages.MessageType.Alive, alive);
+        // Step 5c: Broadcast the update to the cluster
+        EncodeAndBroadcast(Config.Name, Messages.MessageType.Alive, alive);
 
         // Step 6: Wait briefly to allow broadcast to be queued
         // In Go, this waits for the broadcast to be transmitted, but in our implementation
         // EncodeAndBroadcast queues the message immediately, so we just need a small delay
         // to ensure the broadcast queue has processed it
-        bool hasOtherNodes = false;
-        lock (_nodeLock)
+        bool hasOtherNodes;
+        lock (NodeLock)
         {
             // anyAlive() equivalent: Check for nodes that are not dead/left and not ourselves
-            hasOtherNodes = _nodes.Any(n =>
+            hasOtherNodes = Nodes.Any(n =>
                 n.State != NodeStateType.Dead &&
                 n.State != NodeStateType.Left &&
-                n.Name != _config.Name);
+                n.Name != Config.Name);
         }
 
         if (hasOtherNodes && timeout > TimeSpan.Zero)
@@ -1703,7 +1686,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
     /// </summary>
     public async Task<(int NumJoined, Exception? Error)> JoinAsync(IEnumerable<string> existing, CancellationToken cancellationToken = default)
     {
-        int numSuccess = 0;
+        var numSuccess = 0;
         var errors = new List<Exception>();
 
         foreach (var exist in existing)
@@ -1711,8 +1694,8 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
             try
             {
                 // Parse address format: "NodeName/IP:Port" or "IP:Port"
-                string nodeName = "";
-                string addr = exist;
+                var nodeName = "";
+                var addr = exist;
 
                 if (exist.Contains('/'))
                 {
@@ -1759,7 +1742,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
     /// <summary>
     /// Performs a complete state exchange with a specific node over TCP.
     /// </summary>
-    internal async Task PushPullNodeAsync(Address addr, bool join, CancellationToken cancellationToken = default)
+    private async Task PushPullNodeAsync(Address addr, bool join, CancellationToken cancellationToken = default)
     {
         // Send and receive state
         var (remoteNodes, userState) = await SendAndReceiveStateAsync(addr, join, cancellationToken);
@@ -1769,11 +1752,11 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
         stateHandler.MergeRemoteState(remoteNodes);
 
         // Handle user state through delegate if present
-        if (userState != null && userState.Length > 0 && _config.Delegate != null)
+        if (userState != null && userState.Length > 0 && Config.Delegate != null)
         {
             try
             {
-                _config.Delegate.MergeRemoteState(userState, join: false);
+                Config.Delegate.MergeRemoteState(userState, join: false);
             }
             catch (Exception ex)
             {
@@ -1790,7 +1773,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
         bool join,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrEmpty(addr.Name) && _config.RequireNodeNames)
+        if (string.IsNullOrEmpty(addr.Name) && Config.RequireNodeNames)
         {
             throw new InvalidOperationException("Node names are required");
         }
@@ -1799,20 +1782,20 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
         NetworkStream? conn = null;
         try
         {
-            conn = await _transport.DialAddressTimeoutAsync(addr, _config.TCPTimeout, cancellationToken);
+            conn = await _transport.DialAddressTimeoutAsync(addr, Config.TCPTimeout, cancellationToken);
             _logger?.LogDebug("Initiating push/pull sync with: {Address}", addr);
 
-            // Add label header to stream if configured (must be first thing sent)
-            if (!string.IsNullOrEmpty(_config.Label))
+            // Add label header to stream if configured (must be the first thing sent)
+            if (!string.IsNullOrEmpty(Config.Label))
             {
-                await LabelHandler.AddLabelHeaderToStreamAsync(conn, _config.Label, cancellationToken);
+                await LabelHandler.AddLabelHeaderToStreamAsync(conn, Config.Label, cancellationToken);
             }
 
             // Send our local state
-            await SendLocalStateAsync(conn, join, _config.Label, cancellationToken);
+            await SendLocalStateAsync(conn, join, Config.Label, cancellationToken);
 
             // Set read deadline
-            conn.Socket.ReceiveTimeout = (int)_config.TCPTimeout.TotalMilliseconds;
+            conn.Socket.ReceiveTimeout = (int)Config.TCPTimeout.TotalMilliseconds;
 
             // Read response with proper TCP framing
             var buffer = new byte[1];
@@ -1822,10 +1805,10 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
                 throw new IOException("Connection closed by remote");
             }
 
-            // Read 4-byte length prefix (always present)
+            // Read a 4-byte length prefix (always present)
             var lengthBytes = new byte[4];
             lengthBytes[0] = buffer[0];
-            int totalRead = 1;
+            var totalRead = 1;
             while (totalRead < 4)
             {
                 var read = await conn.ReadAsync(lengthBytes.AsMemory(totalRead, 4 - totalRead), cancellationToken);
@@ -1857,11 +1840,11 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
             }
 
             // Decrypt if encryption is enabled
-            if (_config.EncryptionEnabled())
+            if (Config.EncryptionEnabled())
             {
                 _logger?.LogDebug("Decrypting push-pull response");
-                var authData = System.Text.Encoding.UTF8.GetBytes(_config.Label);
-                messageData = Security.DecryptPayload([.. _config.Keyring!.GetKeys()], messageData, authData);
+                var authData = System.Text.Encoding.UTF8.GetBytes(Config.Label);
+                messageData = Security.DecryptPayload([.. Config.Keyring!.GetKeys()], messageData, authData);
             }
 
             // Get message type and create stream
@@ -1918,7 +1901,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
                 throw new Exception($"Expected PushPull but got {msgType}");
             }
 
-            // Read remote state from response stream
+            // Read remote state from the response stream
             var (remoteNodes, userState) = await ReadRemoteStateAsync(responseStream, cancellationToken);
             return (remoteNodes, userState);
         }
@@ -1941,16 +1924,16 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
     /// </summary>
     private async Task SendLocalStateAsync(NetworkStream conn, bool join, string? streamLabel, CancellationToken cancellationToken)
     {
-        conn.Socket.SendTimeout = (int)_config.TCPTimeout.TotalMilliseconds;
+        conn.Socket.SendTimeout = (int)Config.TCPTimeout.TotalMilliseconds;
 
-        // Prepare local node state - include ALL states (Alive, Suspect, Dead, Left)
-        // This matches Go memberlist behavior and is critical for rejoin scenarios.
-        // Dead/Left nodes MUST be included so rejoining nodes can see their own tombstone
+        // Prepare a local node state - include ALL states (Alive, Suspect, Dead, Left)
+        // This matches Go memberlist behavior and is critical for rejoined scenarios.
+        // Dead/Left nodes MUST be included, so rejoining nodes can see their own tombstone
         // and trigger refutation by incrementing incarnation.
         List<Messages.PushNodeState> localNodes;
-        lock (_nodeLock)
+        lock (NodeLock)
         {
-            localNodes = [.. _nodes
+            localNodes = [.. Nodes
                 .Select(n => new Messages.PushNodeState
                 {
                     Name = n.Name,
@@ -1969,11 +1952,11 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
 
         // Get delegate state if any
         byte[] userData = [];
-        if (_config.Delegate != null)
+        if (Config.Delegate != null)
         {
             try
             {
-                userData = _config.Delegate.LocalState(join);
+                userData = Config.Delegate.LocalState(join);
             }
             catch (Exception ex)
             {
@@ -1981,7 +1964,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
             }
         }
 
-        // Encode the payload first (without message type)
+        // Encode the payload first (without a message type)
         using var payloadMs = new MemoryStream();
 
         // Create header
@@ -1992,7 +1975,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
             Join = join
         };
 
-        // Encode with MessagePack into payload stream
+        // Encode with MessagePack into the payload stream
         await MessagePack.MessagePackSerializer.SerializeAsync(payloadMs, header, cancellationToken: cancellationToken);
         foreach (var node in localNodes)
         {
@@ -2023,36 +2006,32 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
     /// Reads remote state from a TCP stream connection.
     /// Stream should already be positioned after the message type byte.
     /// </summary>
-    private async Task<(List<Messages.PushNodeState> RemoteNodes, byte[]? UserState)> ReadRemoteStateAsync(
+    private static async Task<(List<PushNodeState> RemoteNodes, byte[]? UserState)> ReadRemoteStateAsync(
         Stream conn,
         CancellationToken cancellationToken)
     {
         // Read header first
-        var header = await MessagePack.MessagePackSerializer.DeserializeAsync<Messages.PushPullHeader>(
+        var header = await MessagePack.MessagePackSerializer.DeserializeAsync<PushPullHeader>(
             conn, cancellationToken: cancellationToken);
 
         // Read nodes
-        var remoteNodes = new List<Messages.PushNodeState>(header.Nodes);
-        for (int i = 0; i < header.Nodes; i++)
+        var remoteNodes = new List<PushNodeState>(header.Nodes);
+        for (var i = 0; i < header.Nodes; i++)
         {
-            var node = await MessagePack.MessagePackSerializer.DeserializeAsync<Messages.PushNodeState>(
+            var node = await MessagePack.MessagePackSerializer.DeserializeAsync<PushNodeState>(
                 conn, cancellationToken: cancellationToken);
             remoteNodes.Add(node);
         }
 
         // Read user state if present
         byte[]? userState = null;
-        if (header.UserStateLen > 0)
-        {
-            userState = new byte[header.UserStateLen];
-            var read = await conn.ReadAsync(userState, cancellationToken);
-            if (read != header.UserStateLen)
-            {
-                throw new IOException($"Expected {header.UserStateLen} bytes of user state but got {read}");
-            }
-        }
-
-        return (remoteNodes, userState);
+        if (header.UserStateLen <= 0) return (remoteNodes, userState);
+        userState = new byte[header.UserStateLen];
+        
+        var read = await conn.ReadAsync(userState, cancellationToken);
+        return read != header.UserStateLen ? 
+            throw new IOException($"Expected {header.UserStateLen} bytes of user state but got {read}") : 
+            (remoteNodes, userState);
     }
 
     /// <summary>
@@ -2060,7 +2039,7 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
     /// </summary>
     private void QueueBroadcast(string node, MessageType msgType, byte[] message, BroadcastNotifyChannel? notify)
     {
-        // Create broadcast with notify channel - it will call notify.Notify() when Finished() is invoked
+        // Create a broadcast with notification channel - it will call notify.Notify() when Finished() is invoked
         // by the TransmitLimitedQueue (either when invalidated or transmit limit reached)
         IBroadcast broadcast = msgType switch
         {
@@ -2070,28 +2049,26 @@ public partial class Memberlist : IDisposable, IAsyncDisposable
             _ => throw new ArgumentException($"Unsupported message type for broadcast: {msgType}", nameof(msgType))
         };
 
-        _broadcasts.QueueBroadcast(broadcast);
-        _logger?.LogDebug("[BROADCAST] Queued {Type} broadcast for {Node}, queue size: {Size}", msgType, node, _broadcasts.NumQueued());
+        Broadcasts.QueueBroadcast(broadcast);
+        _logger?.LogDebug("[BROADCAST] Queued {Type} broadcast for {Node}, queue size: {Size}", msgType, node, Broadcasts.NumQueued());
     }
 
     public void Dispose()
     {
-        if (!_disposed)
+        if (_disposed) return;
+        _disposed = true;
+        // Try async dispose first, but if we must use sync Dispose,
+        // use Task.Run to avoid deadlocks in synchronization contexts
+        try
         {
-            _disposed = true;
-            // Try async dispose first, but if we must use sync Dispose,
-            // use Task.Run to avoid deadlocks in synchronization contexts
-            try
-            {
-                Task.Run(ShutdownAsync).GetAwaiter().GetResult();
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogError(ex, "Error during synchronous disposal");
-            }
-            _shutdownCts.Dispose();
-            GC.SuppressFinalize(this);
+            Task.Run(ShutdownAsync).GetAwaiter().GetResult();
         }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Error during synchronous disposal");
+        }
+        _shutdownCts.Dispose();
+        GC.SuppressFinalize(this);
     }
 
     public async ValueTask DisposeAsync()

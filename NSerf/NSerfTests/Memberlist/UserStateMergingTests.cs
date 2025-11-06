@@ -72,7 +72,7 @@ public class UserStateMergingTests : IDisposable
         var m2 =  CreateMemberlistAsync(config2);
         
         // Act - Join nodes (triggers push/pull)
-        var joinAddr = $"{m1._config.BindAddr}:{m1._config.BindPort}";
+        var joinAddr = $"{m1.Config.BindAddr}:{m1.Config.BindPort}";
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var (numJoined, error) =  await m2.JoinAsync([joinAddr], cts.Token);
         
@@ -102,7 +102,7 @@ public class UserStateMergingTests : IDisposable
         var m2 =  CreateMemberlistAsync(config2);
         
         // Act - Join should work without delegates
-        var joinAddr = $"{m1._config.BindAddr}:{m1._config.BindPort}";
+        var joinAddr = $"{m1.Config.BindAddr}:{m1.Config.BindPort}";
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var (numJoined, error) = await m2.JoinAsync(new[] { joinAddr }, cts.Token);
         
@@ -128,7 +128,7 @@ public class UserStateMergingTests : IDisposable
         var m2 =  CreateMemberlistAsync(config2);
         
         // Act - Join nodes
-        var joinAddr = $"{m1._config.BindAddr}:{m1._config.BindPort}";
+        var joinAddr = $"{m1.Config.BindAddr}:{m1.Config.BindPort}";
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var (numJoined, error) = await m2.JoinAsync(new[] { joinAddr }, cts.Token);
         
@@ -152,7 +152,7 @@ public class UserStateMergingTests : IDisposable
         var m2 =  CreateMemberlistAsync(config2);
         
         // Act - Join nodes
-        var joinAddr = $"{m1._config.BindAddr}:{m1._config.BindPort}";
+        var joinAddr = $"{m1.Config.BindAddr}:{m1.Config.BindPort}";
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var (numJoined, error) = await m2.JoinAsync(new[] { joinAddr }, cts.Token);
         
@@ -180,7 +180,7 @@ public class UserStateMergingTests : IDisposable
         var m2 = CreateMemberlistAsync(config2);
         
         // Act - Join (should have join=true initially)
-        var joinAddr = $"{m1._config.BindAddr}:{m1._config.BindPort}";
+        var joinAddr = $"{m1.Config.BindAddr}:{m1.Config.BindPort}";
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         await m2.JoinAsync(new[] { joinAddr }, cts.Token);
         
@@ -211,7 +211,7 @@ public class UserStateMergingTests : IDisposable
         var m2 =  CreateMemberlistAsync(config2);
         
         // Act - Join nodes
-        var joinAddr = $"{m1._config.BindAddr}:{m1._config.BindPort}";
+        var joinAddr = $"{m1.Config.BindAddr}:{m1.Config.BindPort}";
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         await m2.JoinAsync(new[] { joinAddr }, cts.Token);
         

@@ -14,10 +14,6 @@ namespace NSerf.Memberlist;
 /// </summary>
 public class DirectPing(Memberlist memberlist, SequenceGenerator seqGen, ILogger? logger = null)
 {
-    private readonly Memberlist _memberlist = memberlist;
-    private readonly ILogger? _logger = logger;
-    private readonly SequenceGenerator _seqGen = seqGen;
-
     /// <summary>
     /// Sends a ping to a node and waits for ack.
     /// </summary>
@@ -26,22 +22,22 @@ public class DirectPing(Memberlist memberlist, SequenceGenerator seqGen, ILogger
         TimeSpan timeout,
         CancellationToken cancellationToken = default)
     {
-        var seqNo = _seqGen.NextSeqNo();
+        var seqNo = seqGen.NextSeqNo();
         var sw = Stopwatch.StartNew();
 
         try
         {
-            _logger?.LogDebug("Sending ping {SeqNo} to {Target}", seqNo, target.Name);
+            logger?.LogDebug("Sending ping {SeqNo} to {Target}", seqNo, target.Name);
 
-            // Create ping message
+            // Create a ping message
             var ping = new Messages.PingMessage
             {
                 SeqNo = seqNo,
-                Node = _memberlist._config.Name
+                Node = memberlist.Config.Name
             };
 
             var deadline = DateTimeOffset.UtcNow + timeout;
-            var success = await _memberlist.SendPingAndWaitForAckAsync(target, ping, deadline, cancellationToken);
+            var success = await memberlist.SendPingAndWaitForAckAsync(target, ping, deadline, cancellationToken);
 
             sw.Stop();
 
@@ -65,7 +61,7 @@ public class DirectPing(Memberlist memberlist, SequenceGenerator seqGen, ILogger
         catch (Exception ex)
         {
             sw.Stop();
-            _logger?.LogWarning(ex, "Ping failed to {Target}", target.Name);
+            logger?.LogWarning(ex, "Ping failed to {Target}", target.Name);
 
             return new PingResponse
             {

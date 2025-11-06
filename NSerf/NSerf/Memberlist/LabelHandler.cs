@@ -16,7 +16,7 @@ public static class LabelHandler
     /// <summary>
     /// Maximum length of a packet or stream label.
     /// </summary>
-    public const int LabelMaxSize = 255;
+    private const int LabelMaxSize = 255;
     
     /// <summary>
     /// Prefixes outgoing packets with the label header if the label is not empty.
@@ -24,17 +24,11 @@ public static class LabelHandler
     /// </summary>
     public static byte[] AddLabelHeaderToPacket(byte[] buf, string label)
     {
-        if (string.IsNullOrEmpty(label))
-        {
-            return buf;
-        }
+        if (string.IsNullOrEmpty(label)) return buf;
         
-        if (label.Length > LabelMaxSize)
-        {
-            throw new ArgumentException($"Label \"{label}\" is too long", nameof(label));
-        }
-        
-        return MakeLabelHeader(label, buf);
+        return label.Length > LabelMaxSize ? 
+            throw new ArgumentException($"Label \"{label}\" is too long", nameof(label)) : 
+            MakeLabelHeader(label, buf);
     }
     
     /// <summary>
@@ -69,8 +63,8 @@ public static class LabelHandler
             throw new InvalidOperationException("Cannot decode label; packet has been truncated");
         }
         
-        string label = System.Text.Encoding.UTF8.GetString(buf, 2, size);
-        byte[] newBuf = new byte[buf.Length - 2 - size];
+        var label = System.Text.Encoding.UTF8.GetString(buf, 2, size);
+        var newBuf = new byte[buf.Length - 2 - size];
         Array.Copy(buf, 2 + size, newBuf, 0, newBuf.Length);
         
         return (newBuf, label);
@@ -81,17 +75,14 @@ public static class LabelHandler
     /// </summary>
     public static async Task AddLabelHeaderToStreamAsync(NetworkStream stream, string label, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrEmpty(label))
-        {
-            return;
-        }
+        if (string.IsNullOrEmpty(label)) return;
         
         if (label.Length > LabelMaxSize)
         {
             throw new ArgumentException($"Label \"{label}\" is too long", nameof(label));
         }
         
-        byte[] header = MakeLabelHeader(label, null);
+        var header = MakeLabelHeader(label, null);
         await stream.WriteAsync(header, cancellationToken);
     }
     
@@ -103,9 +94,9 @@ public static class LabelHandler
         NetworkStream stream, 
         CancellationToken cancellationToken = default)
     {
-        // Peek first byte to check for label
-        byte[] typeBuf = new byte[1];
-        int read = await stream.ReadAsync(typeBuf, cancellationToken);
+        // Peek the first byte to check for a label
+        var typeBuf = new byte[1];
+        var read = await stream.ReadAsync(typeBuf, cancellationToken);
         
         if (read == 0)
         {
@@ -120,7 +111,7 @@ public static class LabelHandler
         }
         
         // Read size byte
-        byte[] sizeBuf = new byte[1];
+        var sizeBuf = new byte[1];
         read = await stream.ReadAsync(sizeBuf, cancellationToken);
         
         if (read == 0)
@@ -135,8 +126,8 @@ public static class LabelHandler
         }
         
         // Read label bytes
-        byte[] labelBuf = new byte[size];
-        int totalRead = 0;
+        var labelBuf = new byte[size];
+        var totalRead = 0;
         while (totalRead < size)
         {
             read = await stream.ReadAsync(labelBuf.AsMemory(totalRead, size - totalRead), cancellationToken);
@@ -147,7 +138,7 @@ public static class LabelHandler
             totalRead += read;
         }
         
-        string label = System.Text.Encoding.UTF8.GetString(labelBuf);
+        var label = System.Text.Encoding.UTF8.GetString(labelBuf);
         return (label, null);
     }
     
@@ -165,16 +156,16 @@ public static class LabelHandler
     
     private static byte[] MakeLabelHeader(string label, byte[]? rest)
     {
-        byte[] labelBytes = System.Text.Encoding.UTF8.GetBytes(label);
-        int totalLength = 2 + labelBytes.Length + (rest?.Length ?? 0);
+        var labelBytes = System.Text.Encoding.UTF8.GetBytes(label);
+        var totalLength = 2 + labelBytes.Length + (rest?.Length ?? 0);
         
-        byte[] newBuf = new byte[totalLength];
+        var newBuf = new byte[totalLength];
         newBuf[0] = (byte)MessageType.HasLabel;
         newBuf[1] = (byte)labelBytes.Length;
         
         Array.Copy(labelBytes, 0, newBuf, 2, labelBytes.Length);
         
-        if (rest != null && rest.Length > 0)
+        if (rest is { Length: > 0 })
         {
             Array.Copy(rest, 0, newBuf, 2 + labelBytes.Length, rest.Length);
         }

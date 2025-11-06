@@ -9,7 +9,7 @@ using NSerf.Memberlist.State;
 namespace NSerf.Memberlist;
 
 /// <summary>
-/// Implements the SWIM (Scalable Weakly-consistent Infection-style Process Group Membership) protocol.
+/// Implements the SWIM (Scalable Weakly consistent Infection-style Process Group Membership) protocol.
 /// </summary>
 public class SwimProtocol
 {
@@ -92,7 +92,7 @@ public class SwimProtocol
         _logger?.LogDebug("Indirect probe of {Target} via {Count} nodes", 
             target.Name, indirectNodes.Count);
         
-        bool success = false;
+        var success = false;
         if (_indirectPing != null && indirectNodes.Count > 0)
         {
             // Use IndirectPing to send requests through intermediaries

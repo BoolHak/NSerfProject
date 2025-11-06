@@ -45,12 +45,7 @@ public class NodeSelector
                        n.Name != localNode)
             .ToList();
 
-        if (candidates.Count <= count)
-        {
-            return candidates;
-        }
-
-        return RandomSelector.SelectRandomK(candidates, count);
+        return candidates.Count <= count ? candidates : RandomSelector.SelectRandomK(candidates, count);
     }
 
     /// <summary>
@@ -67,11 +62,9 @@ public class NodeSelector
         var node = nodes[probeIndex];
 
         // Skip ourselves
-        if (node.Name == localNode && nodes.Count > 1)
-        {
-            probeIndex = (probeIndex + 1) % nodes.Count;
-            node = nodes[probeIndex];
-        }
+        if (node.Name != localNode || nodes.Count <= 1) return node.Name != localNode ? node : null;
+        probeIndex = (probeIndex + 1) % nodes.Count;
+        node = nodes[probeIndex];
 
         return node.Name != localNode ? node : null;
     }

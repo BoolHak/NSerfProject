@@ -12,16 +12,13 @@ namespace NSerf.Memberlist;
 /// </summary>
 public class BroadcastScheduler(TransmitLimitedQueue queue, ILogger? logger = null)
 {
-    private readonly TransmitLimitedQueue _queue = queue;
-    private readonly ILogger? _logger = logger;
-
     /// <summary>
     /// Queues a broadcast for transmission.
     /// </summary>
     public void QueueBroadcast(IBroadcast broadcast)
     {
-        _queue.QueueBroadcast(broadcast);
-        _logger?.LogDebug("Queued broadcast");
+        queue.QueueBroadcast(broadcast);
+        logger?.LogDebug("Queued broadcast");
     }
 
     /// <summary>
@@ -29,7 +26,7 @@ public class BroadcastScheduler(TransmitLimitedQueue queue, ILogger? logger = nu
     /// </summary>
     public List<byte[]> GetPiggybackBroadcasts(int overhead, int limit)
     {
-        return _queue.GetBroadcasts(overhead, limit);
+        return queue.GetBroadcasts(overhead, limit);
     }
 
     /// <summary>
@@ -37,11 +34,11 @@ public class BroadcastScheduler(TransmitLimitedQueue queue, ILogger? logger = nu
     /// </summary>
     public void PruneOldBroadcasts(int maxRetain)
     {
-        _queue.Prune(maxRetain);
+        queue.Prune(maxRetain);
     }
 
     /// <summary>
     /// Gets the number of queued broadcasts.
     /// </summary>
-    public int QueuedCount => _queue.NumQueued();
+    public int QueuedCount => queue.NumQueued();
 }

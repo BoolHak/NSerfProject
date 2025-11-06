@@ -13,7 +13,6 @@ namespace NSerf.Memberlist;
 public class AckNackHandler(ILogger? logger = null)
 {
     private readonly ConcurrentDictionary<uint, AckHandler> _handlers = new();
-    private readonly ILogger? _logger = logger;
 
     /// <summary>
     /// Sets an ack handler for a sequence number.
@@ -26,11 +25,9 @@ public class AckNackHandler(ILogger? logger = null)
             NackFn = nackFn,
             Timer = new Timer(_ =>
             {
-                if (_handlers.TryRemove(seqNo, out var h))
-                {
-                    h.NackFn?.Invoke();
-                    h.Dispose();
-                }
+                if (!_handlers.TryRemove(seqNo, out var h)) return;
+                h.NackFn?.Invoke();
+                h.Dispose();
             }, null, timeout, Timeout.InfiniteTimeSpan)
         };
 
@@ -42,12 +39,10 @@ public class AckNackHandler(ILogger? logger = null)
     /// </summary>
     public void InvokeAck(uint seqNo, byte[] payload, DateTimeOffset timestamp)
     {
-        if (_handlers.TryRemove(seqNo, out var handler))
-        {
-            handler.Timer?.Dispose();
-            handler.AckFn?.Invoke(payload, timestamp);
-            handler.Dispose();
-        }
+        if (!_handlers.TryRemove(seqNo, out var handler)) return;
+        handler.Timer?.Dispose();
+        handler.AckFn?.Invoke(payload, timestamp);
+        handler.Dispose();
     }
 
     /// <summary>
@@ -55,12 +50,10 @@ public class AckNackHandler(ILogger? logger = null)
     /// </summary>
     public void InvokeNack(uint seqNo)
     {
-        if (_handlers.TryRemove(seqNo, out var handler))
-        {
-            handler.Timer?.Dispose();
-            handler.NackFn?.Invoke();
-            handler.Dispose();
-        }
+        if (!_handlers.TryRemove(seqNo, out var handler)) return;
+        handler.Timer?.Dispose();
+        handler.NackFn?.Invoke();
+        handler.Dispose();
     }
 
     /// <summary>
@@ -73,7 +66,7 @@ public class AckNackHandler(ILogger? logger = null)
             handler.Dispose();
         }
         _handlers.Clear();
-        _logger?.LogDebug("Cleared all handlers");
+        logger?.LogDebug("Cleared all handlers");
     }
 
     /// <summary>

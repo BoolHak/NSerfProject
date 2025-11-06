@@ -5,7 +5,7 @@
 namespace NSerf.Memberlist;
 
 /// <summary>
-/// Tracks network metrics for memberlist.
+/// Track network metrics for the memberlist.
 /// </summary>
 public class NetworkMetrics
 {

@@ -6,7 +6,7 @@ namespace NSerf.Memberlist;
 
 /// <summary>
 /// Used to queue messages to broadcast to the cluster (via gossip) but limits
-/// the number of transmits per message. It also prioritizes messages with lower
+/// the number of transmitting per message. It also prioritizes messages with lower
 /// transmit counts (hence newer messages).
 /// </summary>
 public class TransmitLimitedQueue
@@ -56,7 +56,7 @@ public class TransmitLimitedQueue
                 Broadcast = broadcast
             };
 
-            bool isUnique = broadcast is IUniqueBroadcast;
+            var isUnique = broadcast is IUniqueBroadcast;
 
             // Check if this is a named broadcast
             if (broadcast is INamedBroadcast nb)
@@ -74,18 +74,12 @@ public class TransmitLimitedQueue
             {
                 // Check for invalidation (slow path)
                 var toRemove = new List<LimitedBroadcast>();
-                foreach (var cur in _queue)
+                foreach (var cur in _queue
+                             .Where(cur => cur.Broadcast is not (INamedBroadcast or IUniqueBroadcast))
+                             .Where(cur => broadcast.Invalidates(cur.Broadcast)))
                 {
-                    // Special broadcasts can only invalidate each other
-                    if (cur.Broadcast is not INamedBroadcast &&
-                        cur.Broadcast is not IUniqueBroadcast)
-                    {
-                        if (broadcast.Invalidates(cur.Broadcast))
-                        {
-                            cur.Broadcast.Finished();
-                            toRemove.Add(cur);
-                        }
-                    }
+                    cur.Broadcast.Finished();
+                    toRemove.Add(cur);
                 }
 
                 foreach (var cur in toRemove)
@@ -114,23 +108,20 @@ public class TransmitLimitedQueue
     {
         lock (_lock)
         {
-            if (_queue.Count == 0)
-            {
-                return new List<byte[]>();
-            }
+            if (_queue.Count == 0) return [];
 
             var numNodes = NumNodes();
-            int transmitLimit = Common.MemberlistMath.RetransmitLimit(RetransmitMult, numNodes);
+            var transmitLimit = Common.MemberlistMath.RetransmitLimit(RetransmitMult, numNodes);
 
-            int bytesUsed = 0;
+            var bytesUsed = 0;
             var toSend = new List<byte[]>();
             var toReinsert = new List<LimitedBroadcast>();
             var toRemove = new List<LimitedBroadcast>();
 
-            // Process items by transmit count (lower first)
+            // Process items by transmitted count (lower first)
             foreach (var item in _queue)
             {
-                int msgLen = item.Broadcast.Message().Length;
+                var msgLen = item.Broadcast.Message().Length;
 
                 // Check if it fits
                 if (bytesUsed + overhead + msgLen > limit)
@@ -173,7 +164,7 @@ public class TransmitLimitedQueue
                 }
             }
 
-            // Reinsert items that need more transmits
+            // Reinsert items that need more transmitted
             foreach (var item in toReinsert)
             {
                 _queue.Add(item);
@@ -231,7 +222,7 @@ public class TransmitLimitedQueue
         {
             while (_queue.Count > maxRetain)
             {
-                // Remove oldest (highest transmit count)
+                // Remove the oldest (highest transmit count)
                 var oldest = _queue.Max;
                 if (oldest == null) break;
 
@@ -273,13 +264,9 @@ internal class LimitedBroadcastComparer : IComparer<LimitedBroadcast>
             return x.Transmits.CompareTo(y.Transmits);
         }
 
-        // Secondary: Larger messages come first (within same transmit tier)
-        if (x.MsgLen != y.MsgLen)
-        {
-            return y.MsgLen.CompareTo(x.MsgLen);
-        }
-
-        // Tertiary: Higher ID comes first (newer messages)
-        return y.Id.CompareTo(x.Id);
+        // Secondary: Larger messages come first (within the same transmitted tier)
+        return x.MsgLen != y.MsgLen ? y.MsgLen.CompareTo(x.MsgLen) :
+            // Tertiary: Higher ID comes first (newer messages)
+            y.Id.CompareTo(x.Id);
     }
 }

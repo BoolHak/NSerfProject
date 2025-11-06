@@ -23,7 +23,7 @@ public interface IBroadcast
     
     /// <summary>
     /// Invoked when the message will no longer be broadcast, either due to
-    /// invalidation or to the transmit limit being reached.
+    /// invalidation or to the transmitted limit being reached.
     /// </summary>
     void Finished();
 }
@@ -42,7 +42,7 @@ public interface INamedBroadcast : IBroadcast
 }
 
 /// <summary>
-/// Optional interface that indicates each message is intrinsically unique and
+/// Optional interface that indicates each message is intrinsically unique, and
 /// there is no need to scan the broadcast queue for duplicates.
 /// Implementations should ensure that Invalidates() always returns false.
 /// </summary>

@@ -30,12 +30,8 @@ internal class BroadcastComparer : IComparer<QueuedBroadcast>
 
         // Lower transmits = higher priority
         var transmitCompare = x.Transmits.CompareTo(y.Transmits);
-        if (transmitCompare != 0)
-        {
-            return transmitCompare;
-        }
-
-        // Older = higher priority
-        return x.QueueTime.CompareTo(y.QueueTime);
+        return transmitCompare != 0 ? transmitCompare :
+            // Older = higher priority
+            x.QueueTime.CompareTo(y.QueueTime);
     }
 }

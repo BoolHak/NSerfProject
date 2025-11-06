@@ -163,7 +163,7 @@ public class LeaveEventBroadcastTests : IDisposable
         stateHandler.HandleDeadNode(deadMsg);
 
         // ASSERT: Check node state
-        var nodeState = memberlist._nodeMap.GetValueOrDefault("test-node-3");
+        var nodeState = memberlist.NodeMap.GetValueOrDefault("test-node-3");
         Assert.NotNull(nodeState);
 
         _logger.LogInformation("Node state after dead message: {State}", nodeState.State);
@@ -200,7 +200,7 @@ public class LeaveEventBroadcastTests : IDisposable
         stateHandler.HandleDeadNode(deadMsg);
 
         // ASSERT: Check node state
-        var nodeState = memberlist1._nodeMap.GetValueOrDefault("node-b");
+        var nodeState = memberlist1.NodeMap.GetValueOrDefault("node-b");
         Assert.NotNull(nodeState);
 
         _logger.LogInformation("Node-b state after dead message from node-a: {State}", nodeState.State);
@@ -335,7 +335,7 @@ public class LeaveEventBroadcastTests : IDisposable
         stateHandler.HandleDeadNode(failureMsg);
 
         // Verify backend-test is marked as Dead on proxy
-        var nodeState = memberlist1._nodeMap.GetValueOrDefault("backend-test");
+        var nodeState = memberlist1.NodeMap.GetValueOrDefault("backend-test");
         Assert.NotNull(nodeState);
         _logger.LogInformation("State after failure detection: {State}", nodeState.State);
         Assert.Equal(NSerf.Memberlist.State.NodeStateType.Dead, nodeState.State);
@@ -351,7 +351,7 @@ public class LeaveEventBroadcastTests : IDisposable
         stateHandler.HandleDeadNode(gracefulLeaveMsg);
 
         // ASSERT: Should override Dead→Left
-        nodeState = memberlist1._nodeMap.GetValueOrDefault("backend-test");
+        nodeState = memberlist1.NodeMap.GetValueOrDefault("backend-test");
         Assert.NotNull(nodeState);
         _logger.LogInformation("State after graceful leave: {State}", nodeState.State);
         Assert.Equal(NSerf.Memberlist.State.NodeStateType.Left, nodeState.State);

@@ -104,14 +104,14 @@ public class StateTests
 
             // Verify node was added - use internal accessor for testing
             // Note: In production, would query via Members() API
-            m1._nodeMap.TryGetValue("node2", out var nodeState).Should().BeTrue();
+            m1.NodeMap.TryGetValue("node2", out var nodeState).Should().BeTrue();
             nodeState.Should().NotBeNull();
             
             // Wait for probe cycles to complete (probes run automatically in background)
             await Task.Delay(50);
 
             // Assert - Node should still be alive
-            m1._nodeMap.TryGetValue("node2", out var finalState).Should().BeTrue();
+            m1.NodeMap.TryGetValue("node2", out var finalState).Should().BeTrue();
             finalState!.State.Should().Be(NodeStateType.Alive, "node should remain alive after successful probe");
             
             // Sequence number should have incremented
@@ -163,7 +163,7 @@ public class StateTests
             stateHandler.HandleAliveNode(deadNode, false, null);
 
             // Act - Probe the dead node
-            m1._nodeMap.TryGetValue("dead-node", out var nodeState).Should().BeTrue();
+            m1.NodeMap.TryGetValue("dead-node", out var nodeState).Should().BeTrue();
             nodeState.Should().NotBeNull();
             
             // Wait for probe cycles to timeout and node to be marked suspect
@@ -171,7 +171,7 @@ public class StateTests
             await Task.Delay(500);
 
             // Assert - Node should be marked suspect after failed probe
-            m1._nodeMap.TryGetValue("dead-node", out var finalState).Should().BeTrue();
+            m1.NodeMap.TryGetValue("dead-node", out var finalState).Should().BeTrue();
             finalState!.State.Should().Be(NodeStateType.Suspect, "node should be marked suspect after failed probe");
         }
         finally
@@ -215,7 +215,7 @@ public class StateTests
             stateHandler.HandleAliveNode(alive, false, null);
 
             // Assert
-            m._nodeMap.TryGetValue("new-node", out var nodeState).Should().BeTrue();
+            m.NodeMap.TryGetValue("new-node", out var nodeState).Should().BeTrue();
             nodeState.Should().NotBeNull();
             nodeState!.Node.Name.Should().Be("new-node");
             nodeState.Node.Addr.ToString().Should().Be("127.0.0.1");
@@ -294,7 +294,7 @@ public class StateTests
             stateHandler.HandleAliveNode(alive, false, null);
 
             // Assert - Node should be alive (overriding suspect/dead state)
-            m._nodeMap.TryGetValue("test-node", out var finalState).Should().BeTrue();
+            m.NodeMap.TryGetValue("test-node", out var finalState).Should().BeTrue();
             finalState!.State.Should().Be(NodeStateType.Alive, 
                 "alive message with higher incarnation should override suspect/dead");
             finalState.Incarnation.Should().Be(2);
@@ -348,7 +348,7 @@ public class StateTests
             stateHandler.HandleDeadNode(dead);
 
             // Assert - Node should be marked dead
-            m._nodeMap.TryGetValue("node2", out var state).Should().BeTrue();
+            m.NodeMap.TryGetValue("node2", out var state).Should().BeTrue();
             state!.State.Should().Be(NodeStateType.Dead);
             state.Incarnation.Should().Be(2);
         }
@@ -392,7 +392,7 @@ public class StateTests
                 "local node should increment incarnation to refute suspicion");
             
             // Local node should remain alive
-            m._nodeMap.TryGetValue("node1", out var state).Should().BeTrue();
+            m.NodeMap.TryGetValue("node1", out var state).Should().BeTrue();
             state!.State.Should().Be(NodeStateType.Alive);
         }
         finally
@@ -434,7 +434,7 @@ public class StateTests
             };
             stateHandler.HandleAliveNode(alive1, false, null);
             
-            m._nodeMap.TryGetValue("node2", out var state1).Should().BeTrue();
+            m.NodeMap.TryGetValue("node2", out var state1).Should().BeTrue();
             state1!.Node.Meta.Should().BeEquivalentTo(new byte[] { 1, 2, 3 });
 
             // Act - Update with different metadata (same incarnation to test metadata-only update)
@@ -453,7 +453,7 @@ public class StateTests
             stateHandler.HandleAliveNode(alive2, false, null);
 
             // Assert - Metadata should be updated (with higher incarnation)
-            m._nodeMap.TryGetValue("node2", out var state2).Should().BeTrue();
+            m.NodeMap.TryGetValue("node2", out var state2).Should().BeTrue();
             state2!.Node.Meta.Should().BeEquivalentTo(new byte[] { 4, 5, 6 });
             state2.Incarnation.Should().Be(2);
         }
@@ -505,14 +505,14 @@ public class StateTests
             };
             stateHandler.HandleDeadNode(dead);
             
-            m._nodeMap.TryGetValue("node2", out var state1).Should().BeTrue();
+            m.NodeMap.TryGetValue("node2", out var state1).Should().BeTrue();
             state1!.State.Should().Be(NodeStateType.Dead);
 
             // Act - Send same dead message again
             stateHandler.HandleDeadNode(dead);
 
             // Assert - Should still be dead, no errors
-            m._nodeMap.TryGetValue("node2", out var state2).Should().BeTrue();
+            m.NodeMap.TryGetValue("node2", out var state2).Should().BeTrue();
             state2!.State.Should().Be(NodeStateType.Dead);
             state2.Incarnation.Should().Be(2);
         }
@@ -565,7 +565,7 @@ public class StateTests
             stateHandler.HandleDeadNode(dead);
 
             // Assert - Should still be alive (old message ignored)
-            m._nodeMap.TryGetValue("node2", out var state).Should().BeTrue();
+            m.NodeMap.TryGetValue("node2", out var state).Should().BeTrue();
             state!.State.Should().Be(NodeStateType.Alive);
             state.Incarnation.Should().Be(10);
         }
@@ -609,7 +609,7 @@ public class StateTests
                 "local node should increment incarnation to refute death accusation");
             
             // Local node should remain alive
-            m._nodeMap.TryGetValue("node1", out var state).Should().BeTrue();
+            m.NodeMap.TryGetValue("node1", out var state).Should().BeTrue();
             state!.State.Should().Be(NodeStateType.Alive);
         }
         finally
@@ -709,7 +709,7 @@ public class StateTests
             stateHandler.HandleDeadNode(dead);
 
             // Assert - Local node should still be alive (we refuted)
-            m._nodeMap.TryGetValue("node1", out var state).Should().BeTrue();
+            m.NodeMap.TryGetValue("node1", out var state).Should().BeTrue();
             state!.State.Should().Be(NodeStateType.Alive);
         }
         finally
@@ -751,7 +751,7 @@ public class StateTests
             };
             stateHandler.HandleAliveNode(alive1, false, null);
             
-            m._nodeMap.TryGetValue("node2", out var state1).Should().BeTrue();
+            m.NodeMap.TryGetValue("node2", out var state1).Should().BeTrue();
             var firstStateChange = state1!.StateChange;
 
             // Wait a bit
@@ -761,7 +761,7 @@ public class StateTests
             stateHandler.HandleAliveNode(alive1, false, null);
 
             // Assert - State change time should not update (idempotent)
-            m._nodeMap.TryGetValue("node2", out var state2).Should().BeTrue();
+            m.NodeMap.TryGetValue("node2", out var state2).Should().BeTrue();
             state2!.StateChange.Should().Be(firstStateChange, 
                 "duplicate alive messages should not update state change time");
         }
@@ -824,11 +824,11 @@ public class StateTests
             stateHandler.MergeRemoteState(remoteStates);
 
             // Assert - Both nodes should now be in our state
-            m._nodeMap.TryGetValue("node2", out var state2).Should().BeTrue();
+            m.NodeMap.TryGetValue("node2", out var state2).Should().BeTrue();
             state2!.State.Should().Be(NodeStateType.Alive);
             state2.Node.Meta.Should().BeEquivalentTo(new byte[] { 1, 2, 3 });
             
-            m._nodeMap.TryGetValue("node3", out var state3).Should().BeTrue();
+            m.NodeMap.TryGetValue("node3", out var state3).Should().BeTrue();
             state3!.State.Should().Be(NodeStateType.Alive);
         }
         finally
@@ -889,7 +889,7 @@ public class StateTests
             stateHandler.HandleSuspectNode(suspect2);
 
             // Assert - Node should be suspect (suspicion confirmed)
-            m._nodeMap.TryGetValue("node2", out var state).Should().BeTrue();
+            m.NodeMap.TryGetValue("node2", out var state).Should().BeTrue();
             // Note: State might already be Dead due to timeout, which is also valid
             state!.State.Should().BeOneOf(NodeStateType.Suspect, NodeStateType.Dead);
         }
@@ -937,7 +937,7 @@ public class StateTests
             // Assert - Node should be in the map
             // Note: Basic address change handling works. Advanced refutation logic
             // (e.g., detecting and refuting malicious address changes) is a future enhancement
-            m._nodeMap.TryGetValue("node1", out var state).Should().BeTrue();
+            m.NodeMap.TryGetValue("node1", out var state).Should().BeTrue();
             state.Should().NotBeNull();
         }
         finally
@@ -988,7 +988,7 @@ public class StateTests
             };
             stateHandler.HandleDeadNode(dead);
             
-            m._nodeMap.TryGetValue("node2", out var deadState).Should().BeTrue();
+            m.NodeMap.TryGetValue("node2", out var deadState).Should().BeTrue();
             deadState!.State.Should().Be(NodeStateType.Dead);
 
             // Act - Try to replay old alive message
@@ -1007,7 +1007,7 @@ public class StateTests
             stateHandler.HandleAliveNode(alive2, false, null);
 
             // Assert - Should still be dead (old alive ignored)
-            m._nodeMap.TryGetValue("node2", out var finalState).Should().BeTrue();
+            m.NodeMap.TryGetValue("node2", out var finalState).Should().BeTrue();
             finalState!.State.Should().Be(NodeStateType.Dead);
             finalState.Incarnation.Should().Be(10);
         }
@@ -1045,7 +1045,7 @@ public class StateTests
             stateHandler.HandleSuspectNode(suspect);
 
             // Assert - Node should not be added
-            m._nodeMap.TryGetValue("unknown-node", out _).Should().BeFalse(
+            m.NodeMap.TryGetValue("unknown-node", out _).Should().BeFalse(
                 "suspect messages should not create new nodes");
         }
         finally
@@ -1097,7 +1097,7 @@ public class StateTests
             stateHandler.HandleSuspectNode(suspect);
 
             // Assert - Should still be alive (old suspect ignored)
-            m._nodeMap.TryGetValue("node2", out var state).Should().BeTrue();
+            m.NodeMap.TryGetValue("node2", out var state).Should().BeTrue();
             state!.State.Should().Be(NodeStateType.Alive);
             state.Incarnation.Should().Be(10);
         }
@@ -1150,7 +1150,7 @@ public class StateTests
             stateHandler.HandleDeadNode(dead);
 
             // Assert - Should be marked as Left (not Dead)
-            m._nodeMap.TryGetValue("node2", out var state).Should().BeTrue();
+            m.NodeMap.TryGetValue("node2", out var state).Should().BeTrue();
             state!.State.Should().Be(NodeStateType.Left, 
                 "self-announced dead should be marked as left");
         }
@@ -1177,7 +1177,7 @@ public class StateTests
         try
         {
             var stateHandler = new StateHandlers(m, config.Logger);
-            var initialQueueCount = m._broadcasts.NumQueued();
+            var initialQueueCount = m.Broadcasts.NumQueued();
             
             // Act - Add node in bootstrap mode (should not broadcast)
             var alive = new Alive
@@ -1195,11 +1195,11 @@ public class StateTests
             stateHandler.HandleAliveNode(alive, true, null);  // bootstrap = true
 
             // Assert - Node added but no broadcast queued
-            m._nodeMap.TryGetValue("node2", out var state).Should().BeTrue();
+            m.NodeMap.TryGetValue("node2", out var state).Should().BeTrue();
             state!.State.Should().Be(NodeStateType.Alive);
             
             // In bootstrap mode, no broadcast should be queued
-            var finalQueueCount = m._broadcasts.NumQueued();
+            var finalQueueCount = m.Broadcasts.NumQueued();
             finalQueueCount.Should().Be(initialQueueCount, 
                 "bootstrap mode should not queue broadcasts");
         }
@@ -1244,7 +1244,7 @@ public class StateTests
             // Note: Basic protocol validation exists (checks pMin/pMax validity).
             // Full compatibility verification (cluster-wide version range overlap checking) 
             // is a future enhancement per Go's verifyProtocol()
-            m._nodeMap.TryGetValue("different-protocol-node", out var state).Should().BeTrue();
+            m.NodeMap.TryGetValue("different-protocol-node", out var state).Should().BeTrue();
             state.Should().NotBeNull();
         }
         finally
@@ -1284,7 +1284,7 @@ public class StateTests
             stateHandler.HandleAliveNode(alive, false, null);
 
             // Assert - Protocol versions should be stored
-            m._nodeMap.TryGetValue("node2", out var state).Should().BeTrue();
+            m.NodeMap.TryGetValue("node2", out var state).Should().BeTrue();
             state!.Node.PMin.Should().Be(1);
             state.Node.PMax.Should().Be(5);
             state.Node.PCur.Should().Be(3);
@@ -1335,7 +1335,7 @@ public class StateTests
             }
 
             // Verify all nodes added
-            m._nodeMap.Count.Should().BeGreaterOrEqualTo(4, "should have added 4 nodes");
+            m.NodeMap.Count.Should().BeGreaterOrEqualTo(4, "should have added 4 nodes");
 
             // Act - Mark some as dead to test pruning
             var dead = new Dead
@@ -1347,7 +1347,7 @@ public class StateTests
             stateHandler.HandleDeadNode(dead);
 
             // Assert - Dead node still in map but marked dead
-            m._nodeMap.TryGetValue("node3", out var deadState).Should().BeTrue();
+            m.NodeMap.TryGetValue("node3", out var deadState).Should().BeTrue();
             deadState!.State.Should().Be(NodeStateType.Dead);
         }
         finally
@@ -1400,7 +1400,7 @@ public class StateTests
             stateHandler.HandleSuspectNode(suspect);
 
             // Assert - Node should be in suspect or dead state (may timeout quickly)
-            m._nodeMap.TryGetValue("node2", out var state).Should().BeTrue();
+            m.NodeMap.TryGetValue("node2", out var state).Should().BeTrue();
             state!.State.Should().BeOneOf(NodeStateType.Suspect, NodeStateType.Dead);
         }
         finally
@@ -1467,7 +1467,7 @@ public class StateTests
             stateHandler.HandleAliveNode(alive2, false, null);
 
             // Assert - Should be alive with new incarnation
-            m._nodeMap.TryGetValue("node2", out var state).Should().BeTrue();
+            m.NodeMap.TryGetValue("node2", out var state).Should().BeTrue();
             state!.State.Should().Be(NodeStateType.Alive);
             state.Incarnation.Should().Be(5);
         }
@@ -1505,7 +1505,7 @@ public class StateTests
             stateHandler.HandleDeadNode(dead);
 
             // Assert - Node should not be added
-            m._nodeMap.TryGetValue("unknown-node", out _).Should().BeFalse(
+            m.NodeMap.TryGetValue("unknown-node", out _).Should().BeFalse(
                 "dead messages should not create new nodes");
         }
         finally
@@ -1552,10 +1552,10 @@ public class StateTests
             }
 
             // Assert - All nodes should be tracked
-            m._nodeMap.TryGetValue("node2", out _).Should().BeTrue();
-            m._nodeMap.TryGetValue("node3", out _).Should().BeTrue();
-            m._nodeMap.TryGetValue("node4", out _).Should().BeTrue();
-            m._nodeMap.Count.Should().BeGreaterOrEqualTo(4, "should have at least 4 nodes including self");
+            m.NodeMap.TryGetValue("node2", out _).Should().BeTrue();
+            m.NodeMap.TryGetValue("node3", out _).Should().BeTrue();
+            m.NodeMap.TryGetValue("node4", out _).Should().BeTrue();
+            m.NodeMap.Count.Should().BeGreaterOrEqualTo(4, "should have at least 4 nodes including self");
         }
         finally
         {
@@ -1577,11 +1577,11 @@ public class StateTests
             var initialScore = m.GetHealthScore();
             initialScore.Should().Be(0, "initial health score should be 0");
             
-            m._awareness.ApplyDelta(1);
+            m.Awareness.ApplyDelta(1);
             var degradedScore = m.GetHealthScore();
             degradedScore.Should().Be(1, "health score should increase");
             
-            m._awareness.ApplyDelta(-1);
+            m.Awareness.ApplyDelta(-1);
             var recoveredScore = m.GetHealthScore();
             recoveredScore.Should().Be(0, "health score should recover");
         }
@@ -1625,7 +1625,7 @@ public class StateTests
             var suspect2 = new Suspect { Node = "node2", Incarnation = 1, From = "node4" };
             stateHandler.HandleSuspectNode(suspect2);
 
-            m._nodeMap.TryGetValue("node2", out var state).Should().BeTrue();
+            m.NodeMap.TryGetValue("node2", out var state).Should().BeTrue();
             state!.State.Should().BeOneOf(NodeStateType.Suspect, NodeStateType.Dead);
         }
         finally
@@ -1666,7 +1666,7 @@ public class StateTests
 
             stateHandler.MergeRemoteState(remoteStates);
 
-            m._nodeMap.TryGetValue("remote1", out var state).Should().BeTrue();
+            m.NodeMap.TryGetValue("remote1", out var state).Should().BeTrue();
             state!.Incarnation.Should().Be(5);
             state.Node.Meta.Should().BeEquivalentTo(new byte[] { 10, 20 });
         }
@@ -1711,7 +1711,7 @@ public class StateTests
             };
             stateHandler.HandleDeadNode(dead);
 
-            m._nodeMap.TryGetValue("departing-node", out var state).Should().BeTrue();
+            m.NodeMap.TryGetValue("departing-node", out var state).Should().BeTrue();
             state!.State.Should().Be(NodeStateType.Left);
         }
         finally
@@ -1789,7 +1789,7 @@ public class StateTests
             };
             stateHandler.HandleAliveNode(oldAlive, false, null);
 
-            m._nodeMap.TryGetValue("node2", out var state).Should().BeTrue();
+            m.NodeMap.TryGetValue("node2", out var state).Should().BeTrue();
             state!.State.Should().Be(NodeStateType.Dead);
             state.Incarnation.Should().Be(10);
         }
@@ -1833,7 +1833,7 @@ public class StateTests
                 stateHandler.HandleSuspectNode(suspect);
             }
 
-            m._nodeMap.TryGetValue("node2", out var state).Should().BeTrue();
+            m.NodeMap.TryGetValue("node2", out var state).Should().BeTrue();
             state!.State.Should().BeOneOf(NodeStateType.Suspect, NodeStateType.Dead);
         }
         finally
@@ -1869,13 +1869,13 @@ public class StateTests
             };
             stateHandler.HandleAliveNode(alive, false, null);
 
-            m._nodeMap.TryGetValue("node2", out var aliveState).Should().BeTrue();
+            m.NodeMap.TryGetValue("node2", out var aliveState).Should().BeTrue();
             aliveState!.State.Should().Be(NodeStateType.Alive);
 
             var dead = new Dead { Node = "node2", Incarnation = 10, From = "node3" };
             stateHandler.HandleDeadNode(dead);
 
-            m._nodeMap.TryGetValue("node2", out var deadState).Should().BeTrue();
+            m.NodeMap.TryGetValue("node2", out var deadState).Should().BeTrue();
             deadState!.State.Should().Be(NodeStateType.Dead);
             deadState.Incarnation.Should().Be(10);
         }
@@ -1913,12 +1913,12 @@ public class StateTests
             };
             stateHandler.HandleAliveNode(alive, false, null);
 
-            m._nodeMap["test-node"].State.Should().Be(NodeStateType.Alive);
+            m.NodeMap["test-node"].State.Should().Be(NodeStateType.Alive);
 
             var suspect = new Suspect { Node = "test-node", Incarnation = 1, From = "node2" };
             stateHandler.HandleSuspectNode(suspect);
 
-            m._nodeMap["test-node"].State.Should().BeOneOf(NodeStateType.Suspect, NodeStateType.Dead);
+            m.NodeMap["test-node"].State.Should().BeOneOf(NodeStateType.Suspect, NodeStateType.Dead);
 
             var refute = new Alive
             {
@@ -1934,8 +1934,8 @@ public class StateTests
             };
             stateHandler.HandleAliveNode(refute, false, null);
 
-            m._nodeMap["test-node"].State.Should().Be(NodeStateType.Alive);
-            m._nodeMap["test-node"].Incarnation.Should().Be(3);
+            m.NodeMap["test-node"].State.Should().Be(NodeStateType.Alive);
+            m.NodeMap["test-node"].Incarnation.Should().Be(3);
         }
         finally
         {
@@ -2019,7 +2019,7 @@ public class StateTests
             await Task.WhenAll(tasks);
             await Task.Delay(100);
 
-            m._nodeMap.Count.Should().BeGreaterThan(45);
+            m.NodeMap.Count.Should().BeGreaterThan(45);
         }
         finally
         {
@@ -2039,7 +2039,7 @@ public class StateTests
         try
         {
             var stateHandler = new StateHandlers(m, config.Logger);
-            var initialCount = m._broadcasts.NumQueued();
+            var initialCount = m.Broadcasts.NumQueued();
 
             var alive = new Alive
             {
@@ -2055,7 +2055,7 @@ public class StateTests
             };
             stateHandler.HandleAliveNode(alive, true, null);
 
-            m._broadcasts.NumQueued().Should().Be(initialCount);
+            m.Broadcasts.NumQueued().Should().Be(initialCount);
         }
         finally
         {
@@ -2079,12 +2079,12 @@ public class StateTests
             var suspect = new Suspect { Node = "local", Incarnation = 0, From = "other" };
             stateHandler.HandleSuspectNode(suspect);
 
-            m._nodeMap["local"].State.Should().Be(NodeStateType.Alive);
+            m.NodeMap["local"].State.Should().Be(NodeStateType.Alive);
 
             var dead = new Dead { Node = "local", Incarnation = 0, From = "other" };
             stateHandler.HandleDeadNode(dead);
 
-            m._nodeMap["local"].State.Should().Be(NodeStateType.Alive);
+            m.NodeMap["local"].State.Should().Be(NodeStateType.Alive);
         }
         finally
         {
@@ -2180,9 +2180,9 @@ public class StateTests
             var dead = new Dead { Node = "dead-node", Incarnation = 1, From = "other" };
             stateHandler.HandleDeadNode(dead);
 
-            m._nodeMap["alive-node"].State.Should().Be(NodeStateType.Alive);
-            m._nodeMap["suspect-node"].State.Should().BeOneOf(NodeStateType.Suspect, NodeStateType.Dead);
-            m._nodeMap["dead-node"].State.Should().Be(NodeStateType.Dead);
+            m.NodeMap["alive-node"].State.Should().Be(NodeStateType.Alive);
+            m.NodeMap["suspect-node"].State.Should().BeOneOf(NodeStateType.Suspect, NodeStateType.Dead);
+            m.NodeMap["dead-node"].State.Should().Be(NodeStateType.Dead);
         }
         finally
         {
@@ -2245,7 +2245,7 @@ public class StateTests
             
             stateHandler.MergeRemoteState(emptyStates);
             
-            m._nodeMap.Count.Should().BeGreaterOrEqualTo(1);
+            m.NodeMap.Count.Should().BeGreaterOrEqualTo(1);
         }
         finally
         {
@@ -2303,7 +2303,7 @@ public class StateTests
                 "should refute by incrementing incarnation above remote's tombstone incarnation");
             
             // Local node should remain Alive (not Left)
-            m._nodeMap.TryGetValue("node1", out var localState).Should().BeTrue();
+            m.NodeMap.TryGetValue("node1", out var localState).Should().BeTrue();
             localState!.State.Should().Be(NodeStateType.Alive, 
                 "local node should remain alive after refuting tombstone");
             localState.Incarnation.Should().Be(m.Incarnation,
@@ -2353,7 +2353,7 @@ public class StateTests
             
             // Assert
             m.Incarnation.Should().BeGreaterThan(5, "should refute Dead state");
-            m._nodeMap.TryGetValue("node1", out var localState).Should().BeTrue();
+            m.NodeMap.TryGetValue("node1", out var localState).Should().BeTrue();
             localState!.State.Should().Be(NodeStateType.Alive);
         }
         finally
@@ -2438,7 +2438,7 @@ public class StateTests
                 stateHandler.HandleAliveNode(alive, false, null);
             }
 
-            m._nodeMap.Count.Should().BeGreaterThan(95);
+            m.NodeMap.Count.Should().BeGreaterThan(95);
             m.EstNumNodes().Should().BeGreaterThan(95);
         }
         finally
@@ -2490,7 +2490,7 @@ public class StateTests
                 }
             }
 
-            m._nodeMap.Count.Should().BeGreaterOrEqualTo(10);
+            m.NodeMap.Count.Should().BeGreaterOrEqualTo(10);
         }
         finally
         {
@@ -2525,14 +2525,14 @@ public class StateTests
                 }
             };
             stateHandler.HandleAliveNode(alive, false, null);
-            m._nodeMap["transition-node"].State.Should().Be(NodeStateType.Alive);
+            m.NodeMap["transition-node"].State.Should().Be(NodeStateType.Alive);
 
             var suspect = new Suspect { Node = "transition-node", Incarnation = 1, From = "accuser" };
             stateHandler.HandleSuspectNode(suspect);
             
             await Task.Delay(50);
             
-            m._nodeMap["transition-node"].State.Should().BeOneOf(NodeStateType.Suspect, NodeStateType.Dead);
+            m.NodeMap["transition-node"].State.Should().BeOneOf(NodeStateType.Suspect, NodeStateType.Dead);
         }
         finally
         {
@@ -2569,8 +2569,8 @@ public class StateTests
             };
             stateHandler.HandleAliveNode(alive, false, null);
             
-            m._nodeMap["meta-node"].Node.Meta.Length.Should().Be(256);
-            m._nodeMap["meta-node"].Node.Meta[255].Should().Be(255);
+            m.NodeMap["meta-node"].Node.Meta.Length.Should().Be(256);
+            m.NodeMap["meta-node"].Node.Meta[255].Should().Be(255);
         }
         finally
         {
@@ -2621,7 +2621,7 @@ public class StateTests
             countAfterAdd.Should().Be(21);
             countAfterRemove.Should().Be(21);
             
-            var aliveCount = m._nodeMap.Values.Count(n => n.State == NodeStateType.Alive);
+            var aliveCount = m.NodeMap.Values.Count(n => n.State == NodeStateType.Alive);
             aliveCount.Should().BeLessThan(21);
         }
         finally
@@ -2654,7 +2654,7 @@ public class StateTests
             };
             stateHandler.HandleAliveNode(alive, false, null);
             
-            m._nodeMap.ContainsKey("old-protocol-node").Should().BeTrue();
+            m.NodeMap.ContainsKey("old-protocol-node").Should().BeTrue();
         }
         finally
         {
@@ -2689,7 +2689,7 @@ public class StateTests
             };
             stateHandler.HandleAliveNode(alive, false, null);
             
-            m._nodeMap["overflow-node"].Incarnation.Should().Be(uint.MaxValue);
+            m.NodeMap["overflow-node"].Incarnation.Should().Be(uint.MaxValue);
         }
         finally
         {
@@ -2761,10 +2761,10 @@ public class StateTests
                 await Task.Delay(100);
                 
                 // Assert - Nodes should still be alive (probes succeeded)
-                m1._nodeMap.TryGetValue("node2", out var node2State).Should().BeTrue();
+                m1.NodeMap.TryGetValue("node2", out var node2State).Should().BeTrue();
                 node2State!.State.Should().Be(NodeStateType.Alive, "node2 should remain alive after successful probes");
                 
-                m2._nodeMap.TryGetValue("node1", out var node1State).Should().BeTrue();
+                m2.NodeMap.TryGetValue("node1", out var node1State).Should().BeTrue();
                 node1State!.State.Should().Be(NodeStateType.Alive, "node1 should remain alive after successful probes");
             }
             finally
@@ -2816,7 +2816,7 @@ public class StateTests
             try
             {
                 // Act - Join nodes first
-                var joinAddr = $"{m1._config.BindAddr}:{m1._config.BindPort}";
+                var joinAddr = $"{m1.Config.BindAddr}:{m1.Config.BindPort}";
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
                 await m2.JoinAsync(new[] { joinAddr }, cts.Token);
                 
@@ -2833,7 +2833,7 @@ public class StateTests
                 await Task.Delay(150);
                 
                 // Assert - m1 should have marked node2 as suspect or dead
-                m1._nodeMap.TryGetValue("node2", out var node2State).Should().BeTrue();
+                m1.NodeMap.TryGetValue("node2", out var node2State).Should().BeTrue();
                 node2State!.State.Should().NotBe(NodeStateType.Alive, 
                     "node2 should be marked suspect or dead after failed probes");
             }

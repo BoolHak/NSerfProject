@@ -12,32 +12,30 @@ namespace NSerf.Memberlist;
 /// </summary>
 public class AntiEntropyManager(PushPullSynchronizer pushPullSync, ILogger? logger = null)
 {
-    private readonly PushPullSynchronizer _pushPullSync = pushPullSync;
-    private readonly ILogger? _logger = logger;
     private DateTimeOffset _lastSync = DateTimeOffset.UtcNow;
 
     /// <summary>
-    /// Performs a full state synchronization with a random node.
+    /// Performs a full-state synchronization with a random node.
     /// </summary>
     public async Task<bool> PerformSyncAsync(CancellationToken cancellationToken = default)
     {
-        var success = await _pushPullSync.SyncAsync(cancellationToken);
+        var success = await pushPullSync.SyncAsync(cancellationToken);
 
         if (success)
         {
             _lastSync = DateTimeOffset.UtcNow;
-            _logger?.LogDebug("Anti-entropy sync completed successfully");
+            logger?.LogDebug("Anti-entropy sync completed successfully");
         }
         else
         {
-            _logger?.LogWarning("Anti-entropy sync failed");
+            logger?.LogWarning("Anti-entropy sync failed");
         }
 
         return success;
     }
 
     /// <summary>
-    /// Gets the time since last successful sync.
+    /// Gets the time since the last successful sync.
     /// </summary>
     public TimeSpan TimeSinceLastSync => DateTimeOffset.UtcNow - _lastSync;
 

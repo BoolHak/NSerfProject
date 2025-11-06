@@ -41,9 +41,9 @@ public class LeaveGossipRootCauseTest : IDisposable
         Assert.Equal(2, ml2.NumMembers());
 
         // ACT: Mark node2 as Left on node1 (simulate node2 already left)
-        lock (ml1._nodeLock)
+        lock (ml1.NodeLock)
         {
-            if (ml1._nodeMap.TryGetValue("node2", out var state))
+            if (ml1.NodeMap.TryGetValue("node2", out var state))
             {
                 state.State = NSerf.Memberlist.State.NodeStateType.Left;
                 state.StateChange = DateTimeOffset.UtcNow;
@@ -61,14 +61,14 @@ public class LeaveGossipRootCauseTest : IDisposable
         };
         ml1.EncodeAndBroadcast("node1", NSerf.Memberlist.Messages.MessageType.Alive, testMsg);
 
-        var queuedBefore = ml1._broadcasts.NumQueued();
+        var queuedBefore = ml1.Broadcasts.NumQueued();
         _output.WriteLine($"Broadcasts queued: {queuedBefore}");
         Assert.True(queuedBefore > 0, "Should have queued broadcast");
 
         // Try to gossip
         await ml1.GossipAsync();
 
-        var queuedAfter = ml1._broadcasts.NumQueued();
+        var queuedAfter = ml1.Broadcasts.NumQueued();
         _output.WriteLine($"Broadcasts queued after gossip: {queuedAfter}");
 
         // ASSERT: Broadcast NOT sent because node2 is Left and excluded

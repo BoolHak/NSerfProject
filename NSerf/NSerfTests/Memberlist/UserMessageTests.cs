@@ -76,8 +76,8 @@ public class UserMessageTests : IDisposable
         var m2 =  CreateMemberlistAsync(config2);
         
         // Join nodes
-        var bindPort = m1._config.BindPort;
-        var joinAddr = $"{m1._config.BindAddr}:{bindPort}";
+        var bindPort = m1.Config.BindPort;
+        var joinAddr = $"{m1.Config.BindAddr}:{bindPort}";
         using var joinCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var (numJoined, error) = await m2.JoinAsync(new[] { joinAddr }, joinCts.Token);
         
@@ -94,11 +94,11 @@ public class UserMessageTests : IDisposable
         
         var m2Addr = new Address
         {
-            Addr = $"{m2._config.BindAddr}:{m2._config.BindPort}",
-            Name = m2._config.Name
+            Addr = $"{m2.Config.BindAddr}:{m2.Config.BindPort}",
+            Name = m2.Config.Name
         };
         
-        var transport = (m1._config.Transport as INodeAwareTransport)!;
+        var transport = (m1.Config.Transport as INodeAwareTransport)!;
         await transport.WriteToAddressAsync(userMessageBytes, m2Addr, CancellationToken.None);
         
         // Assert - Wait for message to be received

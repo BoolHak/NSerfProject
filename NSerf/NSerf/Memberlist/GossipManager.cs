@@ -3,24 +3,20 @@
 // SPDX-License-Identifier: MPL-2.0
 
 using Microsoft.Extensions.Logging;
-using NSerf.Memberlist.State;
 
 namespace NSerf.Memberlist;
 
 /// <summary>
 /// Manages gossip operations for spreading information.
 /// </summary>
-public class GossipManager(TransmitLimitedQueue broadcasts, ILogger? logger = null)
+public class GossipManager(TransmitLimitedQueue broadcasts)
 {
-    private readonly TransmitLimitedQueue _broadcasts = broadcasts;
-    private readonly ILogger? _logger = logger;
-
     /// <summary>
     /// Queues a broadcast for gossip.
     /// </summary>
     public void QueueBroadcast(IBroadcast broadcast)
     {
-        _broadcasts.QueueBroadcast(broadcast);
+        broadcasts.QueueBroadcast(broadcast);
     }
 
     /// <summary>
@@ -28,11 +24,11 @@ public class GossipManager(TransmitLimitedQueue broadcasts, ILogger? logger = nu
     /// </summary>
     public List<byte[]> GetBroadcasts(int overhead, int limit)
     {
-        return _broadcasts.GetBroadcasts(overhead, limit);
+        return broadcasts.GetBroadcasts(overhead, limit);
     }
 
     /// <summary>
     /// Gets the number of queued broadcasts.
     /// </summary>
-    public int NumQueued() => _broadcasts.NumQueued();
+    public int NumQueued() => broadcasts.NumQueued();
 }

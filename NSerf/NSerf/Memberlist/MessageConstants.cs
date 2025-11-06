@@ -20,7 +20,7 @@ public static class MessageConstants
     public const int CompoundHeaderOverhead = 2;
     
     /// <summary>
-    /// Assumed overhead per entry in compound header.
+    /// Assumed overhead per entry in the compound header.
     /// </summary>
     public const int CompoundOverhead = 2;
     

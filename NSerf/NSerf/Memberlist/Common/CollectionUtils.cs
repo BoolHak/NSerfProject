@@ -18,9 +18,9 @@ public static class CollectionUtils
     public static void ShuffleNodes(NodeState[] nodes)
     {
         var n = nodes.Length;
-        for (int i = n - 1; i > 0; i--)
+        for (var i = n - 1; i > 0; i--)
         {
-            int j = Random.Shared.Next(0, i + 1);
+            var j = Random.Shared.Next(0, i + 1);
             (nodes[i], nodes[j]) = (nodes[j], nodes[i]);
         }
     }
@@ -35,9 +35,9 @@ public static class CollectionUtils
     public static int MoveDeadNodes(NodeState[] nodes, TimeSpan gossipToTheDeadTime)
     {
         var now = DateTimeOffset.UtcNow;
-        int numDead = 0;
-        int n = nodes.Length;
-        int i = 0;
+        var numDead = 0;
+        var n = nodes.Length;
+        var i = 0;
 
         while (i < n - numDead)
         {
@@ -50,7 +50,7 @@ public static class CollectionUtils
             }
 
             // Move dead node to the end
-            int deadIndex = n - numDead - 1;
+            var deadIndex = n - numDead - 1;
             (nodes[i], nodes[deadIndex]) = (nodes[deadIndex], nodes[i]);
             numDead++;
             // Only re-check if we actually moved a different node into position i
@@ -73,15 +73,15 @@ public static class CollectionUtils
     /// <returns>List of selected nodes.</returns>
     public static List<Node> KRandomNodes(int k, NodeState[] nodes, Func<NodeState, bool>? exclude = null)
     {
-        int n = nodes.Length;
+        var n = nodes.Length;
         var kNodes = new List<Node>(k);
 
         // Probe up to 3*n times, with large n this is not necessary
         // since k << n, but with small n we want search to be exhaustive
-        for (int i = 0; i < 3 * n && kNodes.Count < k; i++)
+        for (var i = 0; i < 3 * n && kNodes.Count < k; i++)
         {
-            // Get random node state
-            int idx = MemberlistMath.RandomOffset(n);
+            // Get a random node state
+            var idx = MemberlistMath.RandomOffset(n);
             var state = nodes[idx];
 
             // Give the filter a shot at it
@@ -91,20 +91,9 @@ public static class CollectionUtils
             }
 
             // Check if we have this node already
-            bool duplicate = false;
-            for (int j = 0; j < kNodes.Count; j++)
-            {
-                if (state.Node.Name == kNodes[j].Name)
-                {
-                    duplicate = true;
-                    break;
-                }
-            }
+            var duplicate = kNodes.Any(t => state.Node.Name == t.Name);
 
-            if (duplicate)
-            {
-                continue;
-            }
+            if (duplicate) continue;
 
             // Append the node
             kNodes.Add(state.Node);

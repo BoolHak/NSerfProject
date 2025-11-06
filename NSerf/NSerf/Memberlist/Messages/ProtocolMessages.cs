@@ -30,7 +30,7 @@ public class PingMessage
     /// Source address, used for a direct reply (optional).
     /// </summary>
     [Key(2)]
-    public byte[] SourceAddr { get; set; } = Array.Empty<byte>();
+    public byte[] SourceAddr { get; set; } = [];
 
     /// <summary>
     /// Source port, used for a direct reply (optional).

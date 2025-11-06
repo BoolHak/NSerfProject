@@ -17,12 +17,7 @@ public static class LoggingUtils
     /// </summary>
     public static string LogAddress(EndPoint? addr)
     {
-        if (addr == null)
-        {
-            return "from=<unknown address>";
-        }
-        
-        return $"from={addr}";
+        return addr == null ? "from=<unknown address>" : $"from={addr}";
     }
     
     /// <summary>
@@ -30,12 +25,7 @@ public static class LoggingUtils
     /// </summary>
     public static string LogStringAddress(string? addr)
     {
-        if (string.IsNullOrEmpty(addr))
-        {
-            return "from=<unknown address>";
-        }
-        
-        return $"from={addr}";
+        return string.IsNullOrEmpty(addr) ? "from=<unknown address>" : $"from={addr}";
     }
     
     /// <summary>

@@ -26,7 +26,7 @@ public enum EncryptionVersion : byte
 public static class EncryptionVersionHelper
 {
     /// <summary>
-    /// Returns the encryption version to use based on protocol version.
+    /// Returns the encryption version to use based on a protocol version.
     /// </summary>
     public static EncryptionVersion GetEncryptionVersion(byte protocolVersion)
     {

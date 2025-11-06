@@ -10,7 +10,6 @@ namespace NSerf.Memberlist;
 public class CircuitBreaker(int threshold = 5, TimeSpan? resetTimeout = null)
 {
     private int _failureCount;
-    private readonly int _threshold = threshold;
     private DateTimeOffset _lastFailure;
     private readonly TimeSpan _resetTimeout = resetTimeout ?? TimeSpan.FromMinutes(1);
 
@@ -36,18 +35,15 @@ public class CircuitBreaker(int threshold = 5, TimeSpan? resetTimeout = null)
     /// </summary>
     public bool IsOpen()
     {
-        if (_failureCount < _threshold)
+        if (_failureCount < threshold)
         {
             return false;
         }
 
-        // Check if reset timeout has passed
-        if (DateTimeOffset.UtcNow - _lastFailure > _resetTimeout)
-        {
-            Interlocked.Exchange(ref _failureCount, 0);
-            return false;
-        }
+        // Check if the reset timeout has passed
+        if (DateTimeOffset.UtcNow - _lastFailure <= _resetTimeout) return true;
+        Interlocked.Exchange(ref _failureCount, 0);
+        return false;
 
-        return true;
     }
 }

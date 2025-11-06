@@ -56,8 +56,8 @@ public class MemberlistApiTests
             m.GetHealthScore().Should().Be(0, "initial health score should be 0");
             
             // Verify broadcast queue is initialized
-            m._broadcasts.Should().NotBeNull();
-            m._broadcasts.NumQueued().Should().Be(0, "initial broadcast queue should be empty");
+            m.Broadcasts.Should().NotBeNull();
+            m.Broadcasts.NumQueued().Should().Be(0, "initial broadcast queue should be empty");
         }
         finally
         {
@@ -76,8 +76,8 @@ public class MemberlistApiTests
 
         try
         {
-            m._nodeMap.Should().ContainKey("node1");
-            m._nodes.Should().ContainSingle();
+            m.NodeMap.Should().ContainKey("node1");
+            m.Nodes.Should().ContainSingle();
         }
         finally
         {
@@ -320,7 +320,7 @@ public class MemberlistApiTests
 
         try
         {
-            m._nodeMap.TryGetValue("testnode", out var state).Should().BeTrue();
+            m.NodeMap.TryGetValue("testnode", out var state).Should().BeTrue();
             state!.State.Should().Be(NodeStateType.Alive);
         }
         finally
@@ -368,9 +368,9 @@ public class MemberlistApiTests
             m.Should().NotBeNull();
             
             // Verify custom config values are stored and accessible
-            m._config.SuspicionMult.Should().Be(10, "custom SuspicionMult should be applied");
-            m._config.ProbeInterval.Should().Be(TimeSpan.FromSeconds(5), "custom ProbeInterval should be applied");
-            m._config.Name.Should().Be("custom", "custom name should be applied");
+            m.Config.SuspicionMult.Should().Be(10, "custom SuspicionMult should be applied");
+            m.Config.ProbeInterval.Should().Be(TimeSpan.FromSeconds(5), "custom ProbeInterval should be applied");
+            m.Config.Name.Should().Be("custom", "custom name should be applied");
             
             // Verify memberlist is functional with custom config
             m.NumMembers().Should().Be(1, "memberlist should be functional");
@@ -393,7 +393,7 @@ public class MemberlistApiTests
 
         try
         {
-            m._ackHandlers.Should().BeEmpty();
+            m.AckHandlers.Should().BeEmpty();
         }
         finally
         {
@@ -412,7 +412,7 @@ public class MemberlistApiTests
 
         try
         {
-            m._broadcasts.NumQueued().Should().Be(0);
+            m.Broadcasts.NumQueued().Should().Be(0);
         }
         finally
         {

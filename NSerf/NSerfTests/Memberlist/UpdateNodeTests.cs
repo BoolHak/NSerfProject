@@ -105,7 +105,7 @@ public class UpdateNodeTests : IDisposable
         await Task.Delay(200);
 
         // Join ml1 to ml2 using the actual bound port from config
-        var ml2Port = ml2._config.BindPort;
+        var ml2Port = ml2.Config.BindPort;
         var joinAddr = $"127.0.0.1:{ml2Port}";
         
         using var joinCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
@@ -141,7 +141,7 @@ public class UpdateNodeTests : IDisposable
         await Task.Delay(200);
 
         // Join using actual bound port
-        var ml2Port = ml2._config.BindPort;
+        var ml2Port = ml2.Config.BindPort;
         using var joinCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         var (numJoined, error) = await ml1.JoinAsync(new[] { $"127.0.0.1:{ml2Port}" }, joinCts.Token);
         
@@ -372,13 +372,13 @@ public class UpdateNodeTests : IDisposable
         var ml2 = CreateTestMemberlist("node2");
         
         // Set event delegate on configs after creation
-        ml1._config.Events = eventDelegate;
-        ml2._config.Events = eventDelegate;
+        ml1.Config.Events = eventDelegate;
+        ml2.Config.Events = eventDelegate;
 
         await Task.Delay(200);
 
         // Join using actual bound port
-        var ml2Port = ml2._config.BindPort;
+        var ml2Port = ml2.Config.BindPort;
         using var joinCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         await ml1.JoinAsync(new[] { $"127.0.0.1:{ml2Port}" }, joinCts.Token);
         await Task.Delay(500);

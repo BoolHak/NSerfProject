@@ -14,16 +14,13 @@ namespace NSerf.Memberlist;
 /// </summary>
 internal class PacketHandler(Memberlist memberlist, ILogger? logger)
 {
-    private readonly Memberlist _memberlist = memberlist;
-    private readonly ILogger? _logger = logger;
-
     /// <summary>
     /// Ingests and processes an incoming packet.
     /// </summary>
     public void IngestPacket(byte[] buf, EndPoint from, DateTimeOffset timestamp)
     {
-        _logger?.LogInformation("[PACKET] Received {Size} bytes from {From}, first byte: {FirstByte}", buf.Length, from, buf[0]);
-        _logger?.LogDebug("[PACKET] Received {Size} bytes from {From}", buf.Length, from);
+        logger?.LogInformation("[PACKET] Received {Size} bytes from {From}, first byte: {FirstByte}", buf.Length, from, buf[0]);
+        logger?.LogDebug("[PACKET] Received {Size} bytes from {From}", buf.Length, from);
 
         // Remove label header if present
         string packetLabel;
@@ -33,47 +30,47 @@ internal class PacketHandler(Memberlist memberlist, ILogger? logger)
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "Failed to remove label header from packet from {From}", from);
+            logger?.LogError(ex, "Failed to remove label header from packet from {From}", from);
             return;
         }
 
         // Validate label
-        if (_memberlist._config.SkipInboundLabelCheck)
+        if (memberlist.Config.SkipInboundLabelCheck)
         {
             if (!string.IsNullOrEmpty(packetLabel))
             {
-                _logger?.LogError("Unexpected double packet label header from {From}", from);
+                logger?.LogError("Unexpected double packet label header from {From}", from);
                 return;
             }
             // Set this from config so that the auth data assertions work below
-            packetLabel = _memberlist._config.Label;
+            packetLabel = memberlist.Config.Label;
         }
 
-        if (_memberlist._config.Label != packetLabel)
+        if (memberlist.Config.Label != packetLabel)
         {
-            _logger?.LogError("Discarding packet with unacceptable label \"{Label}\" from {From}", packetLabel, from);
+            logger?.LogError("Discarding packet with unacceptable label \"{Label}\" from {From}", packetLabel, from);
             return;
         }
 
         // Check encryption and decrypt if needed
-        if (_memberlist._config.EncryptionEnabled())
+        if (memberlist.Config.EncryptionEnabled())
         {
             var authData = System.Text.Encoding.UTF8.GetBytes(packetLabel);
-            var keys = _memberlist._config.Keyring!.GetKeys();
+            var keys = memberlist.Config.Keyring!.GetKeys();
             try
             {
                 buf = Security.DecryptPayload([.. keys], buf, authData);
             }
             catch (Exception ex)
             {
-                if (!_memberlist._config.GossipVerifyIncoming)
+                if (!memberlist.Config.GossipVerifyIncoming)
                 {
                     // Treat the message as plaintext
-                    _logger?.LogDebug("Failed to decrypt packet, treating as plaintext: {Error}", ex.Message);
+                    logger?.LogDebug("Failed to decrypt packet, treating as plaintext: {Error}", ex.Message);
                 }
                 else
                 {
-                    _logger?.LogError(ex, "Failed to decrypt packet from {From} - DROPPING PACKET!", from);
+                    logger?.LogError(ex, "Failed to decrypt packet from {From} - DROPPING PACKET!", from);
                     return;
                 }
             }
@@ -92,7 +89,7 @@ internal class PacketHandler(Memberlist memberlist, ILogger? logger)
 
             if (crc != expected)
             {
-                _logger?.LogWarning("Got invalid checksum for UDP packet: {Crc:X}, {Expected:X}", crc, expected);
+                logger?.LogWarning("Got invalid checksum for UDP packet: {Crc:X}, {Expected:X}", crc, expected);
                 return;
             }
 
@@ -107,11 +104,11 @@ internal class PacketHandler(Memberlist memberlist, ILogger? logger)
     /// <summary>
     /// Handles a command message.
     /// </summary>
-    public void HandleCommand(byte[] buf, EndPoint from, DateTimeOffset timestamp)
+    private void HandleCommand(byte[] buf, EndPoint from, DateTimeOffset timestamp)
     {
         if (buf.Length < 1)
         {
-            _logger?.LogError("Missing message type byte from {From}", from);
+            logger?.LogError("Missing message type byte from {From}", from);
             return;
         }
 
@@ -152,8 +149,13 @@ internal class PacketHandler(Memberlist memberlist, ILogger? logger)
                 QueueMessage(msgType, msgBuf, from);
                 break;
 
+            case MessageType.PushPull:
+            case MessageType.Encrypt:
+            case MessageType.HasCrc:
+            case MessageType.Err:
+            case MessageType.HasLabel:
             default:
-                _logger?.LogError("Message type ({Type}) not supported from {From}", (int)msgType, from);
+                logger?.LogError("Message type ({Type}) not supported from {From}", (int)msgType, from);
                 break;
         }
     }
@@ -165,7 +167,7 @@ internal class PacketHandler(Memberlist memberlist, ILogger? logger)
 
         if (truncated > 0)
         {
-            _logger?.LogWarning("Compound request had {Truncated} truncated messages from {From}", truncated, from);
+            logger?.LogWarning("Compound request had {Truncated} truncated messages from {From}", truncated, from);
         }
 
         foreach (var part in parts)
@@ -184,7 +186,7 @@ internal class PacketHandler(Memberlist memberlist, ILogger? logger)
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "Failed to decompress payload from {From}", from);
+            logger?.LogError(ex, "Failed to decompress payload from {From}", from);
         }
     }
 
@@ -195,10 +197,10 @@ internal class PacketHandler(Memberlist memberlist, ILogger? logger)
             // Decode the PingMessage using MessagePack like Go implementation
             var ping = Messages.MessageEncoder.Decode<Messages.PingMessage>(buf);
 
-            // Verify node name if provided (Go does this)
-            if (!string.IsNullOrEmpty(ping.Node) && ping.Node != _memberlist._config.Name)
+            // Verify the node name if provided (Go does this)
+            if (!string.IsNullOrEmpty(ping.Node) && ping.Node != memberlist.Config.Name)
             {
-                _logger?.LogWarning("Got ping for unexpected node '{Node}' from {From}", ping.Node, from);
+                logger?.LogWarning("Got ping for unexpected node '{Node}' from {From}", ping.Node, from);
                 return;
             }
 
@@ -206,14 +208,14 @@ internal class PacketHandler(Memberlist memberlist, ILogger? logger)
             var ack = new Messages.AckRespMessage
             {
                 SeqNo = ping.SeqNo,
-                Payload = _memberlist._config.Ping?.AckPayload() ?? []
+                Payload = memberlist.Config.Ping?.AckPayload() ?? []
             };
 
             // Determine reply address - use source info if provided, otherwise use socket address
             string replyAddr;
-            if (ping.SourceAddr != null && ping.SourceAddr.Length > 0 && ping.SourcePort > 0)
+            if (ping.SourceAddr.Length > 0 && ping.SourcePort > 0)
             {
-                var sourceIp = new System.Net.IPAddress(ping.SourceAddr);
+                var sourceIp = new IPAddress(ping.SourceAddr);
                 replyAddr = $"{sourceIp}:{ping.SourcePort}";
             }
             else if (from is IPEndPoint ipep)
@@ -222,23 +224,23 @@ internal class PacketHandler(Memberlist memberlist, ILogger? logger)
             }
             else
             {
-                _logger?.LogWarning("Cannot determine sender address for ping reply: {From}", from);
+                logger?.LogWarning("Cannot determine sender address for ping reply: {From}", from);
                 return;
             }
 
             var addr = new Transport.Address
             {
                 Addr = replyAddr,
-                Name = ping.SourceNode ?? string.Empty
+                Name = ping.SourceNode
             };
 
             // Encode and send ack
             var ackBytes = Messages.MessageEncoder.Encode(MessageType.AckResp, ack);
-            _ = _memberlist.SendPacketAsync(ackBytes, addr);
+            _ = memberlist.SendPacketAsync(ackBytes, addr);
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "Error handling ping from {From}", from);
+            logger?.LogError(ex, "Error handling ping from {From}", from);
         }
     }
 
@@ -247,32 +249,32 @@ internal class PacketHandler(Memberlist memberlist, ILogger? logger)
         try
         {
             // Decode indirect ping request
-            var ind = Messages.MessageEncoder.Decode<Messages.IndirectPingMessage>(buf);
+            var ind = Messages.MessageEncoder.Decode<IndirectPingMessage>(buf);
 
             // For proto versions < 2, there is no port provided
             // Use configured port as fallback
-            if (_memberlist._config.ProtocolVersion < 2 || ind.Port == 0)
+            if (memberlist.Config.ProtocolVersion < 2 || ind.Port == 0)
             {
-                ind.Port = (ushort)_memberlist._config.BindPort;
+                ind.Port = (ushort)memberlist.Config.BindPort;
             }
 
             // Send a ping to the target on behalf of the requester
-            var localSeqNo = _memberlist.NextSequenceNum();
-            var (selfAddr, selfPort) = _memberlist.GetAdvertiseAddr();
+            var localSeqNo = memberlist.NextSequenceNum();
+            var (selfAddr, selfPort) = memberlist.GetAdvertiseAddr();
 
-            var ping = new Messages.PingMessage
+            var ping = new PingMessage
             {
                 SeqNo = localSeqNo,
                 Node = ind.Node,
                 SourceAddr = selfAddr.GetAddressBytes(),
                 SourcePort = (ushort)selfPort,
-                SourceNode = _memberlist._config.Name
+                SourceNode = memberlist.Config.Name
             };
 
-            // Determine address to send ack back to
+            // Determine the address to send ack back to
             string indAddr;
-            string indName = ind.SourceNode;
-            if (ind.SourceAddr != null && ind.SourceAddr.Length > 0 && ind.SourcePort > 0)
+            var indName = ind.SourceNode;
+            if (ind.SourceAddr.Length > 0 && ind.SourcePort > 0)
             {
                 var sourceIp = new IPAddress(ind.SourceAddr);
                 indAddr = $"{sourceIp}:{ind.SourcePort}";
@@ -283,12 +285,12 @@ internal class PacketHandler(Memberlist memberlist, ILogger? logger)
             }
             else
             {
-                _logger?.LogWarning("Cannot determine source address for indirect ping from {From}", from);
+                logger?.LogWarning("Cannot determine source address for indirect ping from {From}", from);
                 return;
             }
 
-            // Setup response handler to forward the ack
-            var ackHandler = new AckNackHandler(_logger);
+            // Set up response handler to forward the ack
+            var ackHandler = new AckNackHandler(logger);
             ackHandler.SetAckHandler(
                 localSeqNo,
                 (payload, timestamp) =>
@@ -297,7 +299,7 @@ internal class PacketHandler(Memberlist memberlist, ILogger? logger)
                     var ack = new Messages.AckRespMessage
                     {
                         SeqNo = ind.SeqNo,
-                        Payload = Array.Empty<byte>()
+                        Payload = []
                     };
                     var ackAddr = new Transport.Address { Addr = indAddr, Name = indName };
                     _ = EncodeAndSendMessageAsync(ackAddr, Messages.MessageType.AckResp, ack);
@@ -305,18 +307,16 @@ internal class PacketHandler(Memberlist memberlist, ILogger? logger)
                 () =>
                 {
                     // Send nack if requested
-                    if (ind.Nack)
-                    {
-                        var nackAddr = new Transport.Address { Addr = indAddr, Name = indName };
-                        var nack = new Messages.NackRespMessage { SeqNo = ind.SeqNo };
-                        _ = EncodeAndSendMessageAsync(nackAddr, Messages.MessageType.NackResp, nack);
-                    }
+                    if (!ind.Nack) return;
+                    var nackAddr = new Transport.Address { Addr = indAddr, Name = indName };
+                    var nack = new NackRespMessage { SeqNo = ind.SeqNo };
+                    _ = EncodeAndSendMessageAsync(nackAddr, MessageType.NackResp, nack);
                 },
                 TimeSpan.FromSeconds(5)
             );
 
             // Register handler temporarily
-            _memberlist._ackHandlers[localSeqNo] = ackHandler;
+            memberlist.AckHandlers[localSeqNo] = ackHandler;
 
             // Send ping to target
             var targetIp = new IPAddress(ind.Target);
@@ -327,12 +327,12 @@ internal class PacketHandler(Memberlist memberlist, ILogger? logger)
             };
             _ = EncodeAndSendMessageAsync(targetAddr, Messages.MessageType.Ping, ping);
 
-            _logger?.LogDebug("Forwarding indirect ping {SeqNo} to {Target} on behalf of {Source}",
+            logger?.LogDebug("Forwarding indirect ping {SeqNo} to {Target} on behalf of {Source}",
                 ind.SeqNo, ind.Node, from);
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "Error handling indirect ping from {From}", from);
+            logger?.LogError(ex, "Error handling indirect ping from {From}", from);
         }
     }
 
@@ -341,11 +341,11 @@ internal class PacketHandler(Memberlist memberlist, ILogger? logger)
         try
         {
             var encoded = Messages.MessageEncoder.Encode(msgType, message);
-            await _memberlist.SendPacketAsync(encoded, addr);
+            await memberlist.SendPacketAsync(encoded, addr);
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "Failed to send message type {Type} to {Addr}", msgType, addr);
+            logger?.LogError(ex, "Failed to send message type {Type} to {Addr}", msgType, addr);
         }
     }
 
@@ -355,17 +355,17 @@ internal class PacketHandler(Memberlist memberlist, ILogger? logger)
         {
             // Decode the AckRespMessage using MessagePack like Go implementation
             var ack = Messages.MessageEncoder.Decode<Messages.AckRespMessage>(buf);
-            _logger?.LogDebug("Received ack seq={Seq} from {From}", ack.SeqNo, from);
+            logger?.LogDebug("Received ack seq={Seq} from {From}", ack.SeqNo, from);
 
-            // Invoke ack handler if memberlist has an ack/nack handler
-            if (_memberlist._ackHandlers.TryGetValue(ack.SeqNo, out var handler) && handler is AckNackHandler ackHandler)
+            // Invoke ack handler if the memberlist has an ack/nack handler
+            if (memberlist.AckHandlers.TryGetValue(ack.SeqNo, out var handler))
             {
-                ackHandler.InvokeAck(ack.SeqNo, ack.Payload ?? Array.Empty<byte>(), timestamp);
+                handler.InvokeAck(ack.SeqNo, ack.Payload, timestamp);
             }
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "Error handling ack from {From}", from);
+            logger?.LogError(ex, "Error handling ack from {From}", from);
         }
     }
 
@@ -375,30 +375,30 @@ internal class PacketHandler(Memberlist memberlist, ILogger? logger)
         {
             if (buf.Length < 4)
             {
-                _logger?.LogError("Nack message too short from {From}", from);
+                logger?.LogError("Nack message too short from {From}", from);
                 return;
             }
-            uint seqNo = (uint)(buf[0] << 24 | buf[1] << 16 | buf[2] << 8 | buf[3]);
-            _logger?.LogDebug("Received nack seq={Seq} from {From}", seqNo, from);
+            var seqNo = (uint)(buf[0] << 24 | buf[1] << 16 | buf[2] << 8 | buf[3]);
+            logger?.LogDebug("Received nack seq={Seq} from {From}", seqNo, from);
 
             // Invoke nack handler if memberlist has an ack/nack handler
-            if (_memberlist._ackHandlers.TryGetValue(seqNo, out var handler) && handler is AckNackHandler ackHandler)
+            if (memberlist.AckHandlers.TryGetValue(seqNo, out var handler))
             {
-                ackHandler.InvokeNack(seqNo);
+                handler.InvokeNack(seqNo);
             }
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "Error handling nack from {From}", from);
+            logger?.LogError(ex, "Error handling nack from {From}", from);
         }
     }
 
     private void QueueMessage(MessageType msgType, byte[] buf, EndPoint from)
     {
-        _logger?.LogInformation("[QUEUE] Processing {MessageType} message from {From}", msgType, from);
+        logger?.LogInformation("[QUEUE] Processing {MessageType} message from {From}", msgType, from);
 
         // Process messages synchronously for now
-        var stateHandler = new StateHandlers(_memberlist, _logger);
+        var stateHandler = new StateHandlers(memberlist, logger);
 
         try
         {
@@ -430,9 +430,9 @@ internal class PacketHandler(Memberlist memberlist, ILogger? logger)
                     break;
 
                 case MessageType.Dead:
-                    _logger?.LogInformation("[QUEUE] Decoding Dead message, buf length: {Length}", buf.Length);
+                    logger?.LogInformation("[QUEUE] Decoding Dead message, buf length: {Length}", buf.Length);
                     var deadMsg = Messages.MessageEncoder.Decode<Messages.DeadMessage>(buf);
-                    _logger?.LogInformation("[QUEUE] Decoded Dead: Node={Node}, From={From}, Inc={Inc}",
+                    logger?.LogInformation("[QUEUE] Decoded Dead: Node={Node}, From={From}, Inc={Inc}",
                         deadMsg.Node, deadMsg.From, deadMsg.Incarnation);
                     var dead = new Messages.Dead
                     {
@@ -441,28 +441,28 @@ internal class PacketHandler(Memberlist memberlist, ILogger? logger)
                         From = deadMsg.From
                     };
                     stateHandler.HandleDeadNode(dead);
-                    _logger?.LogInformation("[QUEUE] HandleDeadNode returned for {Node}", deadMsg.Node);
+                    logger?.LogInformation("[QUEUE] HandleDeadNode returned for {Node}", deadMsg.Node);
                     break;
 
                 case MessageType.User:
                     // User messages are raw byte buffers passed directly to delegate
-                    if (_memberlist._config.Delegate != null)
+                    if (memberlist.Config.Delegate != null)
                     {
                         // Pass the raw buffer to the delegate
                         // Note: buf is the message payload after the message type byte
-                        _memberlist._config.Delegate.NotifyMsg(buf);
-                        _logger?.LogDebug("User message ({Size} bytes) delivered to delegate from {From}", buf.Length, from);
+                        memberlist.Config.Delegate.NotifyMsg(buf);
+                        logger?.LogDebug("User message ({Size} bytes) delivered to delegate from {From}", buf.Length, from);
                     }
                     else
                     {
-                        _logger?.LogDebug("User message ({Size} bytes) received from {From} but no delegate configured", buf.Length, from);
+                        logger?.LogDebug("User message ({Size} bytes) received from {From} but no delegate configured", buf.Length, from);
                     }
                     break;
             }
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "Failed to process {Type} message from {From}", msgType, from);
+            logger?.LogError(ex, "Failed to process {Type} message from {From}", msgType, from);
         }
     }
 
@@ -489,8 +489,8 @@ internal static class Crc32
 
         for (uint i = 0; i < 256; i++)
         {
-            uint crc = i;
-            for (int j = 0; j < 8; j++)
+            var crc = i;
+            for (var j = 0; j < 8; j++)
             {
                 if ((crc & 1) != 0)
                     crc = (crc >> 1) ^ poly;
@@ -505,11 +505,11 @@ internal static class Crc32
 
     public static uint Compute(byte[] buffer, int offset, int count)
     {
-        uint crc = 0xFFFFFFFF;
+        var crc = 0xFFFFFFFF;
 
-        for (int i = offset; i < offset + count; i++)
+        for (var i = offset; i < offset + count; i++)
         {
-            byte index = (byte)((crc & 0xFF) ^ buffer[i]);
+            var index = (byte)((crc & 0xFF) ^ buffer[i]);
             crc = (crc >> 8) ^ Table[index];
         }
 

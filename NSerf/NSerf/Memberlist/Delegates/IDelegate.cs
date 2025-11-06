@@ -5,7 +5,7 @@
 namespace NSerf.Memberlist.Delegates;
 
 /// <summary>
-/// Interface that clients must implement to hook into the gossip layer of Memberlist.
+/// Interface that clients must implement to hook into the gossip layer of the Memberlist.
 /// All methods must be thread-safe, as they can and generally will be called concurrently.
 /// </summary>
 public interface IDelegate

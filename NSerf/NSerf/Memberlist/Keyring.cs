@@ -34,12 +34,10 @@ public class Keyring
         var keyring = new Keyring();
         keyring.AddKey(primaryKey);
 
-        if (secondaryKeys != null)
+        if (secondaryKeys == null) return keyring;
+        foreach (var key in secondaryKeys)
         {
-            foreach (var key in secondaryKeys)
-            {
-                keyring.AddKey(key);
-            }
+            keyring.AddKey(key);
         }
 
         return keyring;
@@ -67,24 +65,15 @@ public class Keyring
 
         lock (_lock)
         {
-            // Check if key already exists
-            foreach (var existingKey in _keys)
-            {
-                if (KeysEqual(existingKey, key))
-                {
-                    return; // Already installed
-                }
-            }
+            // Check if the key already exists
+            if (_keys.Any(existingKey => KeysEqual(existingKey, key))) return; 
 
-            // Add new key
+            // Add a new key
             var primaryKey = GetPrimaryKeyInternal();
             _keys.Add(key);
 
             // If this is the first key, it becomes primary
-            if (primaryKey == null)
-            {
-                InstallKeysInternal(_keys, key);
-            }
+            if (primaryKey == null) InstallKeysInternal(_keys, key);
         }
     }
 
@@ -95,16 +84,8 @@ public class Keyring
     {
         lock (_lock)
         {
-            // Check if key exists
-            bool found = false;
-            foreach (var existingKey in _keys)
-            {
-                if (KeysEqual(existingKey, key))
-                {
-                    found = true;
-                    break;
-                }
-            }
+            // Check if the key exists
+            var found = _keys.Any(existingKey => KeysEqual(existingKey, key));
 
             if (!found)
             {
@@ -127,15 +108,13 @@ public class Keyring
                 throw new InvalidOperationException("Removing the primary key is not allowed");
             }
 
-            for (int i = 0; i < _keys.Count; i++)
+            for (var i = 0; i < _keys.Count; i++)
             {
-                if (KeysEqual(key, _keys[i]))
-                {
-                    var newKeys = new List<byte[]>(_keys);
-                    newKeys.RemoveAt(i);
-                    _keys = newKeys;
-                    return;
-                }
+                if (!KeysEqual(key, _keys[i])) continue;
+                var newKeys = new List<byte[]>(_keys);
+                newKeys.RemoveAt(i);
+                _keys = newKeys;
+                return;
             }
         }
     }
@@ -170,14 +149,8 @@ public class Keyring
     private void InstallKeysInternal(List<byte[]> keys, byte[] primaryKey)
     {
         var newKeys = new List<byte[]> { primaryKey };
-
-        foreach (var key in keys)
-        {
-            if (!KeysEqual(key, primaryKey))
-            {
-                newKeys.Add(key);
-            }
-        }
+        
+        newKeys.AddRange(keys.Where(key => !KeysEqual(key, primaryKey)));
 
         _keys = newKeys;
     }
@@ -186,11 +159,6 @@ public class Keyring
     {
         if (a.Length != b.Length) return false;
 
-        for (int i = 0; i < a.Length; i++)
-        {
-            if (a[i] != b[i]) return false;
-        }
-
-        return true;
+        return !a.Where((t, i) => t != b[i]).Any();
     }
 }

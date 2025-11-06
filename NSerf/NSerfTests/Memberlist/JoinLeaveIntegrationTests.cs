@@ -84,7 +84,7 @@ public class JoinLeaveIntegrationTests : IAsyncLifetime
         var config1 = CreateTestConfig("node1");
         var m1 = CreateMemberlistAsync(config1);
 
-        var bindPort = m1._config.BindPort;
+        var bindPort = m1.Config.BindPort;
 
         // Give the TCP listener time to start
         await Task.Delay(100);
@@ -98,7 +98,7 @@ public class JoinLeaveIntegrationTests : IAsyncLifetime
         await Task.Delay(100);
 
         // m2 joins m1 using TCP push/pull (now with length-prefixed framing)
-        var joinAddr = $"{m1._config.BindAddr}:{bindPort}";
+        var joinAddr = $"{m1.Config.BindAddr}:{bindPort}";
 
         // Add timeout to prevent test from hanging
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
@@ -135,7 +135,7 @@ public class JoinLeaveIntegrationTests : IAsyncLifetime
         var config1 = CreateTestConfig("node1");
         var m1 = CreateMemberlistAsync(config1);
 
-        var bindPort = m1._config.BindPort;
+        var bindPort = m1.Config.BindPort;
         await Task.Delay(100);
 
         var config2 = CreateTestConfig("node2");
@@ -145,7 +145,7 @@ public class JoinLeaveIntegrationTests : IAsyncLifetime
         await Task.Delay(100);
 
         // m2 joins m1
-        var joinAddr = $"{m1._config.BindAddr}:{bindPort}";
+        var joinAddr = $"{m1.Config.BindAddr}:{bindPort}";
         using var joinCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var (numJoined, error) = await m2.JoinAsync([joinAddr], joinCts.Token);
 
@@ -175,9 +175,9 @@ public class JoinLeaveIntegrationTests : IAsyncLifetime
         m2Members.Should().Contain(n => n.Name == "node2");
 
         // Check that m1 is marked as left in m2's node map
-        lock (m2._nodeLock)
+        lock (m2.NodeLock)
         {
-            if (m2._nodeMap.TryGetValue("node1", out var node1State))
+            if (m2.NodeMap.TryGetValue("node1", out var node1State))
             {
                 node1State.State.Should().Be(NodeStateType.Left, "m1 should be marked as Left");
             }

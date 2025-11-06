@@ -59,7 +59,7 @@ public class ConflictTests
 
             stateHandler.HandleAliveNode(conflictAlive, false, null);
 
-            m._nodeMap["node1"].State.Should().Be(NodeStateType.Alive);
+            m.NodeMap["node1"].State.Should().Be(NodeStateType.Alive);
         }
         finally
         {
@@ -92,7 +92,7 @@ public class ConflictTests
             stateHandler.HandleSuspectNode(conflictSuspect);
 
             m.Incarnation.Should().BeGreaterThan(currentInc);
-            m._nodeMap["localnode"].State.Should().Be(NodeStateType.Alive);
+            m.NodeMap["localnode"].State.Should().Be(NodeStateType.Alive);
         }
         finally
         {
@@ -125,7 +125,7 @@ public class ConflictTests
             stateHandler.HandleDeadNode(falseDeath);
 
             m.Incarnation.Should().BeGreaterThan(initialInc);
-            m._nodeMap["survivor"].State.Should().Be(NodeStateType.Alive);
+            m.NodeMap["survivor"].State.Should().Be(NodeStateType.Alive);
         }
         finally
         {
@@ -158,7 +158,7 @@ public class ConflictTests
             stateHandler.HandleDeadNode(higherDead);
 
             m.Incarnation.Should().BeGreaterThan(initialInc + 5);
-            m._nodeMap["node1"].State.Should().Be(NodeStateType.Alive);
+            m.NodeMap["node1"].State.Should().Be(NodeStateType.Alive);
         }
         finally
         {
@@ -202,8 +202,8 @@ public class ConflictTests
 
             stateHandler.HandleSuspectNode(oldSuspect);
 
-            m._nodeMap["othernode"].State.Should().Be(NodeStateType.Alive);
-            m._nodeMap["othernode"].Incarnation.Should().Be(10);
+            m.NodeMap["othernode"].State.Should().Be(NodeStateType.Alive);
+            m.NodeMap["othernode"].Incarnation.Should().Be(10);
         }
         finally
         {
@@ -238,7 +238,7 @@ public class ConflictTests
             }
 
             m.Incarnation.Should().BeGreaterThan(startInc);
-            m._nodeMap["defender"].State.Should().Be(NodeStateType.Alive);
+            m.NodeMap["defender"].State.Should().Be(NodeStateType.Alive);
         }
         finally
         {

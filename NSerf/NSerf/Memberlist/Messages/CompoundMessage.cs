@@ -18,11 +18,11 @@ public static class CompoundMessage
     public static List<byte[]> MakeCompoundMessages(List<byte[]> msgs)
     {
         var results = new List<byte[]>();
-        int offset = 0;
+        var offset = 0;
         
         while (offset < msgs.Count)
         {
-            int count = Math.Min(MaxMessagesPerCompound, msgs.Count - offset);
+            var count = Math.Min(MaxMessagesPerCompound, msgs.Count - offset);
             var batch = msgs.GetRange(offset, count);
             results.Add(MakeCompoundMessage(batch));
             offset += count;
@@ -45,16 +45,15 @@ public static class CompoundMessage
         using var ms = new MemoryStream();
         using var writer = new BinaryWriter(ms);
         
-        // Write message type
+        // Write a message type
         writer.Write((byte)MessageType.Compound);
         
-        // Write number of messages
+        // Write a number of messages
         writer.Write((byte)msgs.Count);
         
         // Write message lengths (big-endian uint16)
-        foreach (var msg in msgs)
+        foreach (var length in msgs.Select(msg => (ushort)msg.Length))
         {
-            ushort length = (ushort)msg.Length;
             writer.Write((byte)(length >> 8));
             writer.Write((byte)(length & 0xFF));
         }
@@ -80,7 +79,7 @@ public static class CompoundMessage
         }
         
         int numParts = buf[0];
-        int offset = 1;
+        var offset = 1;
         
         // Check we have enough bytes for lengths
         if (buf.Length < offset + numParts * 2)
@@ -90,7 +89,7 @@ public static class CompoundMessage
         
         // Decode the lengths (big-endian uint16)
         var lengths = new ushort[numParts];
-        for (int i = 0; i < numParts; i++)
+        for (var i = 0; i < numParts; i++)
         {
             lengths[i] = (ushort)((buf[offset] << 8) | buf[offset + 1]);
             offset += 2;
@@ -98,9 +97,9 @@ public static class CompoundMessage
         
         // Split each message
         var parts = new List<byte[]>();
-        int truncated = 0;
+        var truncated = 0;
         
-        for (int idx = 0; idx < lengths.Length; idx++)
+        for (var idx = 0; idx < lengths.Length; idx++)
         {
             int msgLen = lengths[idx];
             

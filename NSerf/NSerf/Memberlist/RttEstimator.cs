@@ -11,7 +11,6 @@ public class RttEstimator(int maxEntries = 1000)
 {
     private readonly Dictionary<string, TimeSpan> _rttCache = [];
     private readonly object _lock = new();
-    private readonly int _maxEntries = maxEntries;
 
     /// <summary>
     /// Records an RTT measurement for a node.
@@ -23,13 +22,11 @@ public class RttEstimator(int maxEntries = 1000)
             _rttCache[nodeId] = rtt;
 
             // Prune if too large
-            if (_rttCache.Count > _maxEntries)
+            if (_rttCache.Count <= maxEntries) return;
+            var toRemove = _rttCache.OrderBy(kvp => kvp.Value).Skip(maxEntries / 2).Select(kvp => kvp.Key).ToList();
+            foreach (var key in toRemove)
             {
-                var toRemove = _rttCache.OrderBy(kvp => kvp.Value).Skip(_maxEntries / 2).Select(kvp => kvp.Key).ToList();
-                foreach (var key in toRemove)
-                {
-                    _rttCache.Remove(key);
-                }
+                _rttCache.Remove(key);
             }
         }
     }

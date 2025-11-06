@@ -2,8 +2,6 @@
 // Copyright (c) Boolhak, Inc.
 // SPDX-License-Identifier: MPL-2.0
 
-using System.Net;
-
 namespace NSerf.Memberlist.Common;
 
 /// <summary>
@@ -12,7 +10,7 @@ namespace NSerf.Memberlist.Common;
 public static class NetworkUtils
 {
     /// <summary>
-    /// Joins a host and port into an address string suitable for use with a transport.
+    /// Joins a host and port into an address string suitable for use with transport.
     /// Handles IPv6 addresses by wrapping them in brackets.
     /// </summary>
     /// <param name="host">The hostname or IP address.</param>
@@ -21,12 +19,9 @@ public static class NetworkUtils
     public static string JoinHostPort(string host, ushort port)
     {
         // Check if this is an IPv6 address
-        if (host.Contains(':') && !host.StartsWith('['))
-        {
-            return $"[{host}]:{port}";
-        }
-        
-        return $"{host}:{port}";
+        if (!host.Contains(':') || host.StartsWith('[')) return $"{host}:{port}";
+
+        return $"[{host}]:{port}";
     }
     
     /// <summary>
@@ -38,16 +33,13 @@ public static class NetworkUtils
     public static bool HasPort(string address)
     {
         // IPv6 address in brackets like [::1]:port
-        if (address.StartsWith('['))
-        {
-            var lastBracket = address.LastIndexOf(']');
-            var lastColon = address.LastIndexOf(':');
-            return lastColon > lastBracket;
-        }
-        
+        if (!address.StartsWith('[')) return address.Count(c => c == ':') == 1;
+        var lastBracket = address.LastIndexOf(']');
+        var lastColon = address.LastIndexOf(':');
+        return lastColon > lastBracket;
+
         // For IPv4 or hostnames, a single colon indicates a port
         // IPv6 without brackets (count > 1) can't have a port
-        return address.Count(c => c == ':') == 1;
     }
     
     /// <summary>
@@ -66,13 +58,8 @@ public static class NetworkUtils
         // If this is an IPv6 address, trim brackets before adding port
         // (JoinHostPort will add them back)
         var trimmed = address.Trim('[', ']');
-        
+
         // For IPv6 addresses, use JoinHostPort to ensure proper formatting
-        if (trimmed.Contains(':'))
-        {
-            return $"[{trimmed}]:{defaultPort}";
-        }
-        
-        return $"{trimmed}:{defaultPort}";
+        return trimmed.Contains(':') ? $"[{trimmed}]:{defaultPort}" : $"{trimmed}:{defaultPort}";
     }
 }

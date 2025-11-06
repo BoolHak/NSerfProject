@@ -5,7 +5,7 @@
 namespace NSerf.Memberlist;
 
 /// <summary>
-/// Manages the suspect timer for a node and provides an interface to accelerate
+/// Manages the suspect timer for a node and provides an interface to speed up
 /// the timeout as we get more independent confirmations that a node is suspect.
 /// </summary>
 public class Suspicion : IDisposable
@@ -39,16 +39,16 @@ public class Suspicion : IDisposable
         _min = min;
         _max = max;
         _timeoutFn = timeoutFn;
-        _confirmations = new HashSet<string>();
+        _confirmations = [];
         _n = 0;
 
         // Exclude the from node from any confirmations
         _confirmations.Add(from);
 
-        // If there aren't any confirmations to be made then take the min time from the start
+        // If there aren't any confirmations to be made, then take the min time from the start
         var timeout = k < 1 ? min : max;
 
-        // Capture start time before starting timer
+        // Capture start time before starting the timer
         _start = DateTimeOffset.UtcNow;
 
         // Create timer (will call timeout function when it fires)
@@ -73,11 +73,10 @@ public class Suspicion : IDisposable
             }
 
             // Only allow one confirmation from each possible peer
-            if (_confirmations.Contains(from))
+            if (!_confirmations.Add(from))
             {
                 return false;
             }
-            _confirmations.Add(from);
 
             // Increment confirmation count atomically
             var n = Interlocked.Increment(ref _n);
@@ -107,7 +106,7 @@ public class Suspicion : IDisposable
     /// </summary>
     /// <param name="n">Number of confirmations received.</param>
     /// <param name="k">Number of confirmations desired.</param>
-    /// <param name="elapsed">Time elapsed since timer started.</param>
+    /// <param name="elapsed">Time elapsed since the timer started.</param>
     /// <param name="min">Minimum timeout.</param>
     /// <param name="max">Maximum timeout.</param>
     /// <returns>Remaining time until timeout.</returns>
@@ -131,11 +130,9 @@ public class Suspicion : IDisposable
 
     public void Dispose()
     {
-        if (!_disposed)
-        {
-            _disposed = true;
-            _timer?.Dispose();
-            GC.SuppressFinalize(this);
-        }
+        if (_disposed) return;
+        _disposed = true;
+        _timer?.Dispose();
+        GC.SuppressFinalize(this);
     }
 }

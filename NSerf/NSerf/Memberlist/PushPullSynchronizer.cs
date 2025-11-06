@@ -13,17 +13,14 @@ namespace NSerf.Memberlist;
 /// </summary>
 public class PushPullSynchronizer(Memberlist memberlist, ILogger? logger = null)
 {
-    private readonly ILogger? _logger = logger;
-    private readonly Memberlist _memberlist = memberlist;
-
     /// <summary>
     /// Initiates a push/pull sync with a random node.
     /// </summary>
     public async Task<bool> SyncAsync(CancellationToken cancellationToken = default)
     {
         // Get all alive nodes excluding ourselves
-        var nodes = _memberlist._nodes
-            .Where(n => n.State == NodeStateType.Alive && n.Name != _memberlist._config.Name)
+        var nodes = memberlist.Nodes
+            .Where(n => n.State == NodeStateType.Alive && n.Name != memberlist.Config.Name)
             .ToList();
 
         if (nodes.Count == 0)
@@ -34,15 +31,15 @@ public class PushPullSynchronizer(Memberlist memberlist, ILogger? logger = null)
         var random = new Random();
         var target = nodes[random.Next(nodes.Count)];
 
-        _logger?.LogDebug("Starting push/pull sync with {Node}", target.Name);
+        logger?.LogDebug("Starting push/pull sync with {Node}", target.Name);
 
         try
         {
-            // Create local state snapshot
+            // Create a local state snapshot
             var localNodes = new List<PushNodeState>();
-            lock (_memberlist._nodeLock)
+            lock (memberlist.NodeLock)
             {
-                foreach (var node in _memberlist._nodes)
+                foreach (var node in memberlist.Nodes)
                 {
                     localNodes.Add(new PushNodeState
                     {
@@ -65,12 +62,12 @@ public class PushPullSynchronizer(Memberlist memberlist, ILogger? logger = null)
                 }
             }
 
-            // In a full implementation, this would be sent over TCP to the target node
+            // In a full implementation, this would be sent over TCP to the target node,
             // and we would receive their state in return. For now, we just acknowledge
             // that the sync was initiated. The actual TCP push/pull protocol would be
             // handled in a separate stream-based handler.
 
-            _logger?.LogDebug("Push/pull sync initiated with {Node}, {Count} local nodes",
+            logger?.LogDebug("Push/pull sync initiated with {Node}, {Count} local nodes",
                 target.Name, localNodes.Count);
 
             await Task.CompletedTask;
@@ -78,7 +75,7 @@ public class PushPullSynchronizer(Memberlist memberlist, ILogger? logger = null)
         }
         catch (Exception ex)
         {
-            _logger?.LogWarning(ex, "Push/pull sync failed with {Node}", target.Name);
+            logger?.LogWarning(ex, "Push/pull sync failed with {Node}", target.Name);
             return false;
         }
     }
@@ -90,17 +87,17 @@ public class PushPullSynchronizer(Memberlist memberlist, ILogger? logger = null)
         List<PushNodeState> remoteNodes,
         CancellationToken cancellationToken = default)
     {
-        _logger?.LogDebug("Handling push/pull request with {Count} remote nodes", remoteNodes.Count);
+        logger?.LogDebug("Handling push/pull request with {Count} remote nodes", remoteNodes.Count);
 
         // Merge remote state using StateHandlers
-        var stateHandler = new StateHandlers(_memberlist, _logger);
+        var stateHandler = new StateHandlers(memberlist, logger);
         stateHandler.MergeRemoteState(remoteNodes);
 
         // Return our current state
         List<NodeState> localStates;
-        lock (_memberlist._nodeLock)
+        lock (memberlist.NodeLock)
         {
-            localStates = [.. _memberlist._nodes];
+            localStates = [.. memberlist.Nodes];
         }
 
         return Task.FromResult(localStates);

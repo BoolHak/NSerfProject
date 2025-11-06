@@ -11,13 +11,8 @@ namespace NSerf.Memberlist;
 /// </summary>
 public class BroadcastNotifyChannel
 {
-    private readonly Channel<bool> _channel;
-    
-    public BroadcastNotifyChannel()
-    {
-        _channel = Channel.CreateUnbounded<bool>();
-    }
-    
+    private readonly Channel<bool> _channel = Channel.CreateUnbounded<bool>();
+
     /// <summary>
     /// Notifies that a broadcast is complete.
     /// </summary>

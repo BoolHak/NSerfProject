@@ -14,7 +14,6 @@ public class ConnectionPool(TimeSpan maxAge, int maxPerHost = 10) : IDisposable
 {
     private readonly ConcurrentDictionary<string, ConcurrentQueue<TcpClient>> _pools = new();
     private readonly TimeSpan _maxAge = maxAge;
-    private readonly int _maxPerHost = maxPerHost;
     private bool _disposed;
 
     /// <summary>
@@ -33,7 +32,7 @@ public class ConnectionPool(TimeSpan maxAge, int maxPerHost = 10) : IDisposable
             client.Dispose();
         }
 
-        // Create new connection
+        // Create a new connection
         var newClient = new TcpClient();
         await newClient.ConnectAsync(host, port, cancellationToken);
         return newClient;
@@ -53,7 +52,7 @@ public class ConnectionPool(TimeSpan maxAge, int maxPerHost = 10) : IDisposable
         var key = $"{host}:{port}";
         var queue = _pools.GetOrAdd(key, _ => new ConcurrentQueue<TcpClient>());
 
-        if (queue.Count < _maxPerHost)
+        if (queue.Count < maxPerHost)
         {
             queue.Enqueue(client);
         }
@@ -77,5 +76,6 @@ public class ConnectionPool(TimeSpan maxAge, int maxPerHost = 10) : IDisposable
         }
 
         _pools.Clear();
+        GC.SuppressFinalize(this);   
     }
 }

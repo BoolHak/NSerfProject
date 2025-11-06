@@ -9,14 +9,10 @@ using NSerf.Memberlist.Transport;
 namespace NSerf.Memberlist;
 
 /// <summary>
-/// Manages joining the cluster.
+/// Manages to join the cluster.
 /// </summary>
 public class JoinManager(Memberlist memberlist, AddressResolver addressResolver, ILogger? logger = null)
 {
-    private readonly Memberlist _memberlist = memberlist;
-    private readonly AddressResolver _addressResolver = addressResolver;
-    private readonly ILogger? _logger = logger;
-
     /// <summary>
     /// Attempts to join the cluster by contacting existing nodes.
     /// </summary>
@@ -30,11 +26,11 @@ public class JoinManager(Memberlist memberlist, AddressResolver addressResolver,
         {
             try
             {
-                _logger?.LogDebug("Attempting to join via {Node}", node);
+                logger?.LogDebug("Attempting to join via {Node}", node);
 
                 // Parse node format: "NodeName/IP:Port" or "IP:Port"
-                string nodeName = "";
-                string addressToParse = node;
+                var nodeName = "";
+                var addressToParse = node;
 
                 if (node.Contains('/'))
                 {
@@ -44,11 +40,11 @@ public class JoinManager(Memberlist memberlist, AddressResolver addressResolver,
                 }
 
                 // Resolve the address
-                var addresses = await _addressResolver.ResolveAsync(addressToParse, 7946, cancellationToken);
+                var addresses = await addressResolver.ResolveAsync(addressToParse, 7946, cancellationToken);
 
                 if (addresses.Count == 0)
                 {
-                    _logger?.LogWarning("Could not resolve address for {Node}", node);
+                    logger?.LogWarning("Could not resolve address for {Node}", node);
                     result.FailedNodes.Add(node);
                     continue;
                 }
@@ -61,24 +57,24 @@ public class JoinManager(Memberlist memberlist, AddressResolver addressResolver,
                 };
 
                 // Perform TCP push-pull state exchange (join=true)
-                var (RemoteNodes, UserState) = await _memberlist.SendAndReceiveStateAsync(addr, join: true, cancellationToken);
+                var (remoteNodes, _) = await memberlist.SendAndReceiveStateAsync(addr, join: true, cancellationToken);
 
-                if (RemoteNodes != null && RemoteNodes.Count > 0)
+                if (remoteNodes is { Count: > 0 })
                 {
                     result.NumJoined++;
                     result.SuccessfulNodes.Add(node);
-                    _logger?.LogInformation("Successfully joined via {Node}, received {Count} nodes",
-                        node, RemoteNodes.Count);
+                    logger?.LogInformation("Successfully joined via {Node}, received {Count} nodes",
+                        node, remoteNodes.Count);
                 }
                 else
                 {
-                    _logger?.LogWarning("Push-pull with {Node} returned no remote nodes", node);
+                    logger?.LogWarning("Push-pull with {Node} returned no remote nodes", node);
                     result.FailedNodes.Add(node);
                 }
             }
             catch (Exception ex)
             {
-                _logger?.LogError(ex, "Failed to join via {Node}", node);
+                logger?.LogError(ex, "Failed to join via {Node}", node);
                 result.FailedNodes.Add(node);
                 result.Errors.Add(ex);
             }

@@ -45,7 +45,7 @@ public class LeaveGossipTests : IDisposable
         await Task.Delay(1000);
 
         // ASSERT: Node1 should see node2 as Left (not Dead)
-        var node2State = ml1._nodeMap.GetValueOrDefault("node2");
+        var node2State = ml1.NodeMap.GetValueOrDefault("node2");
         Assert.NotNull(node2State);
         Assert.Equal(NSerf.Memberlist.State.NodeStateType.Left, node2State.State);
     }
@@ -79,8 +79,8 @@ public class LeaveGossipTests : IDisposable
         await Task.Delay(1000);
 
         // ASSERT: Both node1 and node3 see node2 as Left
-        var node1View = ml1._nodeMap.GetValueOrDefault("node2");
-        var node3View = ml3._nodeMap.GetValueOrDefault("node2");
+        var node1View = ml1.NodeMap.GetValueOrDefault("node2");
+        var node3View = ml3.NodeMap.GetValueOrDefault("node2");
         
         Assert.NotNull(node1View);
         Assert.NotNull(node3View);
@@ -122,7 +122,7 @@ public class LeaveGossipTests : IDisposable
         // ASSERT: All other nodes see node4 as Left
         for (int i = 0; i < 4; i++)
         {
-            var nodeView = memberlists[i]._nodeMap.GetValueOrDefault("node4");
+            var nodeView = memberlists[i].NodeMap.GetValueOrDefault("node4");
             Assert.NotNull(nodeView);
             Assert.Equal(NSerf.Memberlist.State.NodeStateType.Left, nodeView.State);
         }
@@ -175,9 +175,9 @@ public class LeaveGossipTests : IDisposable
 
         // Node1 should see both as Left
         Assert.Equal(NSerf.Memberlist.State.NodeStateType.Left, 
-            ml1._nodeMap["node2"].State);
+            ml1.NodeMap["node2"].State);
         Assert.Equal(NSerf.Memberlist.State.NodeStateType.Left, 
-            ml1._nodeMap["node3"].State);
+            ml1.NodeMap["node3"].State);
 
         // Now node1 leaves (should have no alive peers)
         var startTime = DateTimeOffset.UtcNow;

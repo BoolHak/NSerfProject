@@ -13,8 +13,6 @@ namespace NSerf.Memberlist;
 /// </summary>
 public class AddressResolver(ILogger? logger = null)
 {
-    private readonly ILogger? _logger = logger;
-
     /// <summary>
     /// Resolves a host:port address to IP addresses.
     /// </summary>
@@ -44,18 +42,13 @@ public class AddressResolver(ILogger? logger = null)
         try
         {
             var hostEntry = await Dns.GetHostEntryAsync(address, cancellationToken);
-            foreach (var addr in hostEntry.AddressList)
-            {
-                if (addr.AddressFamily == AddressFamily.InterNetwork ||
-                    addr.AddressFamily == AddressFamily.InterNetworkV6)
-                {
-                    results.Add(new IPEndPoint(addr, defaultPort));
-                }
-            }
+            results.AddRange(from addr in hostEntry.AddressList 
+                where addr.AddressFamily is AddressFamily.InterNetwork or AddressFamily.InterNetworkV6 
+                select new IPEndPoint(addr, defaultPort));
         }
         catch (Exception ex)
         {
-            _logger?.LogWarning(ex, "Failed to resolve address {Address}", address);
+            logger?.LogWarning(ex, "Failed to resolve address {Address}", address);
         }
 
         return results;

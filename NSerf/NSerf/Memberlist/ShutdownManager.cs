@@ -48,7 +48,7 @@ public class ShutdownManager(ILogger? logger = null)
         _logger?.LogInformation("Initiating graceful shutdown");
 
         // Execute shutdown actions in reverse order
-        for (int i = _shutdownActions.Count - 1; i >= 0; i--)
+        for (var i = _shutdownActions.Count - 1; i >= 0; i--)
         {
             try
             {

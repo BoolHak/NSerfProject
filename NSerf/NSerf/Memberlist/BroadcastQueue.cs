@@ -11,14 +11,12 @@ namespace NSerf.Memberlist;
 /// </summary>
 public class BroadcastQueue(TransmitLimitedQueue queue)
 {
-    private readonly TransmitLimitedQueue _queue = queue;
-
     /// <summary>
     /// Queues a simple byte array broadcast.
     /// </summary>
     public void QueueBytes(byte[] data)
     {
-        _queue.QueueBroadcast(new SimpleBroadcast(data));
+        queue.QueueBroadcast(new SimpleBroadcast(data));
     }
 
     /// <summary>
@@ -27,7 +25,7 @@ public class BroadcastQueue(TransmitLimitedQueue queue)
     /// </summary>
     public Task QueueBytesAsync(byte[] data)
     {
-        _queue.QueueBroadcast(new SimpleBroadcast(data));
+        queue.QueueBroadcast(new SimpleBroadcast(data));
 
         return Task.CompletedTask;
     }
@@ -37,7 +35,7 @@ public class BroadcastQueue(TransmitLimitedQueue queue)
     /// </summary>
     public void QueueNamed(string name, byte[] data)
     {
-        _queue.QueueBroadcast(new NamedBroadcast(name, data));
+        queue.QueueBroadcast(new NamedBroadcast(name, data));
     }
 
     /// <summary>
@@ -45,23 +43,23 @@ public class BroadcastQueue(TransmitLimitedQueue queue)
     /// </summary>
     public List<byte[]> GetBroadcasts(int overhead, int limit)
     {
-        return _queue.GetBroadcasts(overhead, limit);
+        return queue.GetBroadcasts(overhead, limit);
     }
 
     /// <summary>
     /// Gets the number of queued broadcasts.
     /// </summary>
-    public int Count => _queue.NumQueued();
+    public int Count => queue.NumQueued();
 
     /// <summary>
     /// Resets the queue.
     /// </summary>
-    public void Reset() => _queue.Reset();
+    public void Reset() => queue.Reset();
 
     /// <summary>
     /// Prunes old broadcasts.
     /// </summary>
-    public void Prune(int maxRetain) => _queue.Prune(maxRetain);
+    public void Prune(int maxRetain) => queue.Prune(maxRetain);
 }
 
 /// <summary>
@@ -81,12 +79,9 @@ internal class SimpleBroadcast(byte[] data) : IBroadcast
 /// </summary>
 internal class NamedBroadcast(string name, byte[] data) : INamedBroadcast
 {
-    private readonly string _name = name;
-    private readonly byte[] _data = data;
-
-    public string Name() => _name;
+    public string Name() => name;
     public bool Invalidates(IBroadcast other) => false;
-    public byte[] Message() => _data;
+    public byte[] Message() => data;
     public void Finished() { }
 }
 
@@ -96,15 +91,12 @@ internal class NamedBroadcast(string name, byte[] data) : INamedBroadcast
 /// </summary>
 internal class NotifyingBroadcast(byte[] data, TaskCompletionSource notifier) : IBroadcast
 {
-    private readonly byte[] _data = data;
-    private readonly TaskCompletionSource _notifier = notifier;
-
     public bool Invalidates(IBroadcast other) => false;
-    public byte[] Message() => _data;
+    public byte[] Message() => data;
 
     public void Finished()
     {
-        // Signal that broadcast has been sent (matches Go closing the notify channel)
-        _notifier.TrySetResult();
+        // Signal that broadcast has been sent (matches Go closing the notification channel)
+        notifier.TrySetResult();
     }
 }

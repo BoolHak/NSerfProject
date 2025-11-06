@@ -10,9 +10,7 @@ namespace NSerf.Memberlist;
 public class BackoffTimer(TimeSpan minDelay, TimeSpan maxDelay)
 {
     private readonly TimeSpan _minDelay = minDelay;
-    private readonly TimeSpan _maxDelay = maxDelay;
     private TimeSpan _currentDelay = minDelay;
-    private int _attempts;
 
     /// <summary>
     /// Gets the next delay duration.
@@ -20,13 +18,13 @@ public class BackoffTimer(TimeSpan minDelay, TimeSpan maxDelay)
     public TimeSpan NextDelay()
     {
         var delay = _currentDelay;
-        _attempts++;
+        Attempts++;
 
         // Exponential backoff
         _currentDelay = TimeSpan.FromTicks(_currentDelay.Ticks * 2);
-        if (_currentDelay > _maxDelay)
+        if (_currentDelay > maxDelay)
         {
-            _currentDelay = _maxDelay;
+            _currentDelay = maxDelay;
         }
 
         return delay;
@@ -38,11 +36,11 @@ public class BackoffTimer(TimeSpan minDelay, TimeSpan maxDelay)
     public void Reset()
     {
         _currentDelay = _minDelay;
-        _attempts = 0;
+        Attempts = 0;
     }
 
     /// <summary>
     /// Gets the number of attempts.
     /// </summary>
-    public int Attempts => _attempts;
+    public int Attempts { get; private set; }
 }

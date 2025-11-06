@@ -41,25 +41,23 @@ public class ProbeManager
             return null;
         }
         
-        // Move to next probe index
+        // Move to the next probe index
         _probeIndex = (_probeIndex + 1) % nodes.Count;
         
         var node = nodes[_probeIndex];
         
         // Skip ourselves
-        if (node.Name == localNodeName)
+        if (node.Name != localNodeName) return node;
+        _probeIndex = (_probeIndex + 1) % nodes.Count;
+        if (_probeIndex < nodes.Count)
         {
-            _probeIndex = (_probeIndex + 1) % nodes.Count;
-            if (_probeIndex < nodes.Count)
-            {
-                node = nodes[_probeIndex];
-            }
-            else
-            {
-                return null;
-            }
+            node = nodes[_probeIndex];
         }
-        
+        else
+        {
+            return null;
+        }
+
         return node;
     }
     
@@ -134,7 +132,7 @@ public class ProbeManager
         {
             SeqNo = seqNo,
             Node = node.Name,
-            SourceNode = _memberlist._config.Name,
+            SourceNode = _memberlist.Config.Name,
             SourceAddr = _memberlist.GetAdvertiseAddr().Address.GetAddressBytes(),
             SourcePort = (ushort)_memberlist.GetAdvertiseAddr().Port
         };
@@ -144,8 +142,8 @@ public class ProbeManager
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         cts.CancelAfter(timeout);
         
-        _memberlist._ackHandlers.TryAdd(seqNo, new AckNackHandler(_logger));
-        _memberlist._ackHandlers[seqNo].SetAckHandler(
+        _memberlist.AckHandlers.TryAdd(seqNo, new AckNackHandler(_logger));
+        _memberlist.AckHandlers[seqNo].SetAckHandler(
             seqNo,
             (payload, timestamp) =>
             {
@@ -179,7 +177,7 @@ public class ProbeManager
         }
         finally
         {
-            _memberlist._ackHandlers.TryRemove(seqNo, out _);
+            _memberlist.AckHandlers.TryRemove(seqNo, out _);
         }
     }
     
@@ -192,7 +190,7 @@ public class ProbeManager
         {
             SeqNo = seqNo,
             Node = node.Name,
-            SourceNode = _memberlist._config.Name,
+            SourceNode = _memberlist.Config.Name,
             SourceAddr = _memberlist.GetAdvertiseAddr().Address.GetAddressBytes(),
             SourcePort = (ushort)_memberlist.GetAdvertiseAddr().Port
         };

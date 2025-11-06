@@ -98,18 +98,18 @@ public class PushPullTests : IDisposable
             Node = new Node
             {
                 Name = "Test 0",
-                Addr = IPAddress.Parse(m._config.BindAddr),
-                Port = (ushort)m._config.BindPort
+                Addr = IPAddress.Parse(m.Config.BindAddr),
+                Port = (ushort)m.Config.BindPort
             },
             Incarnation = 0,
             State = NodeStateType.Suspect,
             StateChange = DateTimeOffset.UtcNow.AddSeconds(-1)
         };
 
-        lock (m._nodeLock)
+        lock (m.NodeLock)
         {
-            m._nodes.Add(testNode);
-            m._nodeMap[testNode.Node.Name] = testNode;
+            m.Nodes.Add(testNode);
+            m.NodeMap[testNode.Node.Name] = testNode;
         }
 
         await Task.Delay(100); // Give memberlist time to initialize
@@ -118,7 +118,7 @@ public class PushPullTests : IDisposable
         // Get the actual bound address and port (since we use port 0 for auto-assign)
         var (advertiseAddr, advertisePort) = m.GetAdvertiseAddr();
         Console.WriteLine($"[TEST] Connecting to {advertiseAddr}:{advertisePort}");
-        Console.WriteLine($"[TEST] Config Label: '{m._config.Label}', SkipInboundLabelCheck: {m._config.SkipInboundLabelCheck}");
+        Console.WriteLine($"[TEST] Config Label: '{m.Config.Label}', SkipInboundLabelCheck: {m.Config.SkipInboundLabelCheck}");
 
         using var client = new TcpClient();
         await client.ConnectAsync(advertiseAddr.ToString(), advertisePort);
@@ -130,40 +130,40 @@ public class PushPullTests : IDisposable
             new PushNodeState
             {
                 Name = "Test 0",
-                Addr = IPAddress.Parse(m._config.BindAddr).GetAddressBytes(),
-                Port = (ushort)m._config.BindPort,
+                Addr = IPAddress.Parse(m.Config.BindAddr).GetAddressBytes(),
+                Port = (ushort)m.Config.BindPort,
                 Incarnation = 1,
                 State = NodeStateType.Alive,
                 Meta = Array.Empty<byte>(),
                 Vsn = new byte[] {
-                    ProtocolVersion.Min, ProtocolVersion.Max, m._config.ProtocolVersion,
-                    m._config.DelegateProtocolMin, m._config.DelegateProtocolMax, m._config.DelegateProtocolVersion
+                    ProtocolVersion.Min, ProtocolVersion.Max, m.Config.ProtocolVersion,
+                    m.Config.DelegateProtocolMin, m.Config.DelegateProtocolMax, m.Config.DelegateProtocolVersion
                 }
             },
             new PushNodeState
             {
                 Name = "Test 1",
-                Addr = IPAddress.Parse(m._config.BindAddr).GetAddressBytes(),
-                Port = (ushort)m._config.BindPort,
+                Addr = IPAddress.Parse(m.Config.BindAddr).GetAddressBytes(),
+                Port = (ushort)m.Config.BindPort,
                 Incarnation = 1,
                 State = NodeStateType.Alive,
                 Meta = Array.Empty<byte>(),
                 Vsn = new byte[] {
-                    ProtocolVersion.Min, ProtocolVersion.Max, m._config.ProtocolVersion,
-                    m._config.DelegateProtocolMin, m._config.DelegateProtocolMax, m._config.DelegateProtocolVersion
+                    ProtocolVersion.Min, ProtocolVersion.Max, m.Config.ProtocolVersion,
+                    m.Config.DelegateProtocolMin, m.Config.DelegateProtocolMax, m.Config.DelegateProtocolVersion
                 }
             },
             new PushNodeState
             {
                 Name = "Test 2",
-                Addr = IPAddress.Parse(m._config.BindAddr).GetAddressBytes(),
-                Port = (ushort)m._config.BindPort,
+                Addr = IPAddress.Parse(m.Config.BindAddr).GetAddressBytes(),
+                Port = (ushort)m.Config.BindPort,
                 Incarnation = 1,
                 State = NodeStateType.Alive,
                 Meta = Array.Empty<byte>(),
                 Vsn = new byte[] {
-                    ProtocolVersion.Min, ProtocolVersion.Max, m._config.ProtocolVersion,
-                    m._config.DelegateProtocolMin, m._config.DelegateProtocolMax, m._config.DelegateProtocolVersion
+                    ProtocolVersion.Min, ProtocolVersion.Max, m.Config.ProtocolVersion,
+                    m.Config.DelegateProtocolMin, m.Config.DelegateProtocolMax, m.Config.DelegateProtocolVersion
                 }
             }
         };
@@ -323,8 +323,8 @@ public class PushPullTests : IDisposable
             Node = new Node
             {
                 Name = "node1",
-                Addr = IPAddress.Parse(m1._config.BindAddr),
-                Port = (ushort)m1._config.BindPort
+                Addr = IPAddress.Parse(m1.Config.BindAddr),
+                Port = (ushort)m1.Config.BindPort
             },
             Incarnation = 1,
             State = NodeStateType.Alive
@@ -335,25 +335,25 @@ public class PushPullTests : IDisposable
             Node = new Node
             {
                 Name = "node2",
-                Addr = IPAddress.Parse(m2._config.BindAddr),
-                Port = (ushort)m2._config.BindPort
+                Addr = IPAddress.Parse(m2.Config.BindAddr),
+                Port = (ushort)m2.Config.BindPort
             },
             Incarnation = 1,
             State = NodeStateType.Alive
         };
 
-        lock (m1._nodeLock)
+        lock (m1.NodeLock)
         {
-            m1._nodes.Add(node1State);
-            m1._nodeMap[node1State.Node.Name] = node1State;
-            m1._nodes.Add(node2State);
-            m1._nodeMap[node2State.Node.Name] = node2State;
+            m1.Nodes.Add(node1State);
+            m1.NodeMap[node1State.Node.Name] = node1State;
+            m1.Nodes.Add(node2State);
+            m1.NodeMap[node2State.Node.Name] = node2State;
         }
 
         // Act - Trigger push/pull from m1 to m2
         var addr = new NSerf.Memberlist.Transport.Address
         {
-            Addr = $"{m2._config.BindAddr}:{m2._config.BindPort}",
+            Addr = $"{m2.Config.BindAddr}:{m2.Config.BindPort}",
             Name = "node2"
         };
 
@@ -383,7 +383,7 @@ public class PushPullTests : IDisposable
         await Task.Delay(200);
 
         // Act - Join m2 to m1 (this should trigger push/pull with join=true)
-        var (numJoined, error) = await m2.JoinAsync(new[] { $"{m1._config.BindAddr}:{m1._config.BindPort}" });
+        var (numJoined, error) = await m2.JoinAsync(new[] { $"{m1.Config.BindAddr}:{m1.Config.BindPort}" });
 
         // Assert
         error.Should().BeNull("join should succeed");
@@ -430,11 +430,11 @@ public class PushPullTests : IDisposable
 
         await Task.Delay(200); // Allow initialization
 
-        Console.WriteLine($"[TEST] Node1 encryption enabled: {m1._config.EncryptionEnabled()}");
-        Console.WriteLine($"[TEST] Node2 encryption enabled: {m2._config.EncryptionEnabled()}");
+        Console.WriteLine($"[TEST] Node1 encryption enabled: {m1.Config.EncryptionEnabled()}");
+        Console.WriteLine($"[TEST] Node2 encryption enabled: {m2.Config.EncryptionEnabled()}");
 
         // Act - Join m2 to m1 (this triggers encrypted push-pull)
-        var (numJoined, error) = await m2.JoinAsync(new[] { $"{m1._config.BindAddr}:{m1._config.BindPort}" });
+        var (numJoined, error) = await m2.JoinAsync(new[] { $"{m1.Config.BindAddr}:{m1.Config.BindPort}" });
 
         // Assert - Join should succeed
         error.Should().BeNull("encrypted join should succeed with matching keys");
@@ -508,7 +508,7 @@ public class PushPullTests : IDisposable
         await Task.Delay(200);
 
         // Act - Try to join with mismatched keys
-        var (numJoined, error) = await m2.JoinAsync(new[] { $"{m1._config.BindAddr}:{m1._config.BindPort}" });
+        var (numJoined, error) = await m2.JoinAsync(new[] { $"{m1.Config.BindAddr}:{m1.Config.BindPort}" });
 
         // Assert - Join should fail or nodes should not see each other properly
         // Note: The join might technically succeed (UDP ping works) but encrypted state exchange fails
@@ -542,7 +542,7 @@ public class PushPullTests : IDisposable
         await Task.Delay(100);
 
         // Act - Perform push-pull between nodes with minimal state
-        var (numJoined, error) = await m2.JoinAsync(new[] { $"{m1._config.BindAddr}:{m1._config.BindPort}" });
+        var (numJoined, error) = await m2.JoinAsync(new[] { $"{m1.Config.BindAddr}:{m1.Config.BindPort}" });
 
         // Assert
         error.Should().BeNull("join should succeed even with empty state");
@@ -582,20 +582,20 @@ public class PushPullTests : IDisposable
                     Meta = Array.Empty<byte>(),
                     PMin = ProtocolVersion.Min,
                     PMax = ProtocolVersion.Max,
-                    PCur = m1._config.ProtocolVersion,
-                    DMin = m1._config.DelegateProtocolMin,
-                    DMax = m1._config.DelegateProtocolMax,
-                    DCur = m1._config.DelegateProtocolVersion
+                    PCur = m1.Config.ProtocolVersion,
+                    DMin = m1.Config.DelegateProtocolMin,
+                    DMax = m1.Config.DelegateProtocolMax,
+                    DCur = m1.Config.DelegateProtocolVersion
                 },
                 Incarnation = (uint)i,
                 State = i % 3 == 0 ? NodeStateType.Suspect : NodeStateType.Alive,
                 StateChange = DateTimeOffset.UtcNow.AddSeconds(-i)
             };
 
-            lock (m1._nodeLock)
+            lock (m1.NodeLock)
             {
-                m1._nodes.Add(nodeState);
-                m1._nodeMap[nodeState.Node.Name] = nodeState;
+                m1.Nodes.Add(nodeState);
+                m1.NodeMap[nodeState.Node.Name] = nodeState;
             }
             nodeStates.Add(nodeState);
         }
@@ -603,10 +603,10 @@ public class PushPullTests : IDisposable
         var m2 = CreateMemberlist("joining-node");
         await Task.Delay(100);
 
-        Console.WriteLine($"[TEST] m1 has {m1._nodes.Count} nodes before join");
+        Console.WriteLine($"[TEST] m1 has {m1.Nodes.Count} nodes before join");
 
         // Act - Join m2 to m1, triggering push-pull with large state
-        var (numJoined, error) = await m2.JoinAsync(new[] { $"{m1._config.BindAddr}:{m1._config.BindPort}" });
+        var (numJoined, error) = await m2.JoinAsync(new[] { $"{m1.Config.BindAddr}:{m1.Config.BindPort}" });
 
         // Assert
         error.Should().BeNull("join should succeed with large state");
@@ -651,29 +651,29 @@ public class PushPullTests : IDisposable
                     Meta = new byte[100], // Add metadata to increase payload size
                     PMin = ProtocolVersion.Min,
                     PMax = ProtocolVersion.Max,
-                    PCur = m1._config.ProtocolVersion,
-                    DMin = m1._config.DelegateProtocolMin,
-                    DMax = m1._config.DelegateProtocolMax,
-                    DCur = m1._config.DelegateProtocolVersion
+                    PCur = m1.Config.ProtocolVersion,
+                    DMin = m1.Config.DelegateProtocolMin,
+                    DMax = m1.Config.DelegateProtocolMax,
+                    DCur = m1.Config.DelegateProtocolVersion
                 },
                 Incarnation = (uint)i,
                 State = NodeStateType.Alive,
                 StateChange = DateTimeOffset.UtcNow
             };
 
-            lock (m1._nodeLock)
+            lock (m1.NodeLock)
             {
-                m1._nodes.Add(nodeState);
-                m1._nodeMap[nodeState.Node.Name] = nodeState;
+                m1.Nodes.Add(nodeState);
+                m1.NodeMap[nodeState.Node.Name] = nodeState;
             }
         }
 
         await Task.Delay(200);
 
-        Console.WriteLine($"[TEST] m1 has {m1._nodes.Count} nodes with compression enabled");
+        Console.WriteLine($"[TEST] m1 has {m1.Nodes.Count} nodes with compression enabled");
 
         // Act - Perform compressed push-pull
-        var (numJoined, error) = await m2.JoinAsync(new[] { $"{m1._config.BindAddr}:{m1._config.BindPort}" });
+        var (numJoined, error) = await m2.JoinAsync(new[] { $"{m1.Config.BindAddr}:{m1.Config.BindPort}" });
 
         // Assert - Compression is transparent, join should work
         Console.WriteLine($"[TEST] Join result: numJoined={numJoined}, error={error?.Message}");
@@ -733,19 +733,19 @@ public class PushPullTests : IDisposable
             StateChange = DateTimeOffset.UtcNow.AddMinutes(-5)
         };
 
-        lock (m1._nodeLock)
+        lock (m1.NodeLock)
         {
-            m1._nodes.Add(aliveNode);
-            m1._nodeMap[aliveNode.Node.Name] = aliveNode;
-            m1._nodes.Add(deadNode);
-            m1._nodeMap[deadNode.Node.Name] = deadNode;
+            m1.Nodes.Add(aliveNode);
+            m1.NodeMap[aliveNode.Node.Name] = aliveNode;
+            m1.Nodes.Add(deadNode);
+            m1.NodeMap[deadNode.Node.Name] = deadNode;
         }
 
         var m2 = CreateMemberlist("receiver-node");
         await Task.Delay(100);
 
         // Act - Perform push-pull
-        var (numJoined, error) = await m2.JoinAsync(new[] { $"{m1._config.BindAddr}:{m1._config.BindPort}" });
+        var (numJoined, error) = await m2.JoinAsync(new[] { $"{m1.Config.BindAddr}:{m1.Config.BindPort}" });
 
         // Assert
         error.Should().BeNull("join should succeed");
@@ -806,30 +806,30 @@ public class PushPullTests : IDisposable
                     Meta = new byte[50],
                     PMin = ProtocolVersion.Min,
                     PMax = ProtocolVersion.Max,
-                    PCur = m1._config.ProtocolVersion,
-                    DMin = m1._config.DelegateProtocolMin,
-                    DMax = m1._config.DelegateProtocolMax,
-                    DCur = m1._config.DelegateProtocolVersion
+                    PCur = m1.Config.ProtocolVersion,
+                    DMin = m1.Config.DelegateProtocolMin,
+                    DMax = m1.Config.DelegateProtocolMax,
+                    DCur = m1.Config.DelegateProtocolVersion
                 },
                 Incarnation = (uint)i,
                 State = NodeStateType.Alive,
                 StateChange = DateTimeOffset.UtcNow
             };
 
-            lock (m1._nodeLock)
+            lock (m1.NodeLock)
             {
-                m1._nodes.Add(nodeState);
-                m1._nodeMap[nodeState.Node.Name] = nodeState;
+                m1.Nodes.Add(nodeState);
+                m1.NodeMap[nodeState.Node.Name] = nodeState;
             }
         }
 
         await Task.Delay(200);
 
         Console.WriteLine("[TEST] Testing encryption + compression combination");
-        Console.WriteLine($"[TEST] m1 has {m1._nodes.Count} nodes");
+        Console.WriteLine($"[TEST] m1 has {m1.Nodes.Count} nodes");
 
         // Act - Join with both encryption and compression
-        var (numJoined, error) = await m2.JoinAsync(new[] { $"{m1._config.BindAddr}:{m1._config.BindPort}" });
+        var (numJoined, error) = await m2.JoinAsync(new[] { $"{m1.Config.BindAddr}:{m1.Config.BindPort}" });
 
         // Assert
         Console.WriteLine($"[TEST] Join result: numJoined={numJoined}, error={error?.Message}");

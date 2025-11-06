@@ -128,7 +128,7 @@ public static class MessageEncoder
         }
 
         var numParts = buffer[0];
-        buffer = buffer.Slice(1);
+        buffer = buffer[1..];
 
         // Check we have enough bytes for all length prefixes
         if (buffer.Length < numParts * 2)
@@ -138,17 +138,17 @@ public static class MessageEncoder
 
         // Read all message lengths
         var lengths = new ushort[numParts];
-        for (int i = 0; i < numParts; i++)
+        for (var i = 0; i < numParts; i++)
         {
             lengths[i] = (ushort)((buffer[i * 2] << 8) | buffer[i * 2 + 1]);
         }
-        buffer = buffer.Slice(numParts * 2);
+        buffer = buffer[(numParts * 2)..];
 
         // Extract each message
         var parts = new List<byte[]>();
         var truncated = 0;
 
-        for (int i = 0; i < lengths.Length; i++)
+        for (var i = 0; i < lengths.Length; i++)
         {
             var msgLen = lengths[i];
 

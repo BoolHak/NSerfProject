@@ -37,7 +37,7 @@ public class NetTransport : INodeAwareTransport
     private bool _disposed;
 
     // Static lock and port counter for thread-safe port allocation across instances
-    private static readonly object _portLock = new();
+    private static readonly object PortLock = new();
     private static int _nextPort = 20000; // Start above Windows reserved ranges
 
     private NetTransport(NetTransportConfig config)
@@ -75,7 +75,7 @@ public class NetTransport : INodeAwareTransport
 
     private void Initialize()
     {
-        int port = _config.BindPort;
+        var port = _config.BindPort;
 
         // On Windows, if port is 0, try to get a port from safe range to avoid reserved ports
         if (port == 0 && RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
@@ -139,7 +139,7 @@ public class NetTransport : INodeAwareTransport
         }
 
         // Start background listeners
-        for (int i = 0; i < _config.BindAddrs.Count; i++)
+        for (var i = 0; i < _config.BindAddrs.Count; i++)
         {
             var tcpListener = _tcpListeners[i];
             var udpListener = _udpListeners[i];
@@ -157,13 +157,13 @@ public class NetTransport : INodeAwareTransport
     /// </summary>
     private int GetAvailablePortOnWindows()
     {
-        lock (_portLock)
+        lock (PortLock)
         {
             const int maxAttempts = 100;
             const int minPort = 20000; // Above Windows reserved ranges
             const int maxPort = 30000; // Stay within safe range
 
-            for (int attempt = 0; attempt < maxAttempts; attempt++)
+            for (var attempt = 0; attempt < maxAttempts; attempt++)
             {
                 var port = _nextPort++;
 
@@ -231,12 +231,7 @@ public class NetTransport : INodeAwareTransport
             // If bound to 0.0.0.0, try to get a specific interface address
             if (advertiseAddr.Equals(IPAddress.Any))
             {
-                // Try to get a private IP
-                var privateIp = GetPrivateIP();
-                if (privateIp != null)
-                {
-                    advertiseAddr = privateIp;
-                }
+                advertiseAddr = GetPrivateIp();
             }
 
             advertisePort = GetAutoBindPort();
@@ -328,9 +323,9 @@ public class NetTransport : INodeAwareTransport
 
     private async Task TcpListenAsync(TcpListener listener)
     {
-        const int BaseDelayMs = 5;
-        const int MaxDelayMs = 1000;
-        int delayMs = 0;
+        const int baseDelayMs = 5;
+        const int maxDelayMs = 1000;
+        var delayMs = 0;
 
         while (!_shutdownCts.Token.IsCancellationRequested)
         {
@@ -356,7 +351,7 @@ public class NetTransport : INodeAwareTransport
                 _logger?.LogError(ex, "Error accepting TCP connection");
 
                 // Exponential backoff
-                delayMs = delayMs == 0 ? BaseDelayMs : Math.Min(delayMs * 2, MaxDelayMs);
+                delayMs = delayMs == 0 ? baseDelayMs : Math.Min(delayMs * 2, maxDelayMs);
                 await Task.Delay(delayMs, _shutdownCts.Token);
             }
         }
@@ -403,7 +398,7 @@ public class NetTransport : INodeAwareTransport
         }
     }
 
-    private static IPAddress? GetPrivateIP()
+    private static IPAddress GetPrivateIp()
     {
         try
         {
@@ -412,22 +407,20 @@ public class NetTransport : INodeAwareTransport
 
             foreach (var ip in host.AddressList)
             {
-                if (ip.AddressFamily == AddressFamily.InterNetwork)
+                if (ip.AddressFamily != AddressFamily.InterNetwork) continue;
+                // Check if it's a private IP
+                var bytes = ip.GetAddressBytes();
+                if (bytes[0] == 10 ||
+                    (bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31) ||
+                    (bytes[0] == 192 && bytes[1] == 168))
                 {
-                    // Check if it's a private IP
-                    var bytes = ip.GetAddressBytes();
-                    if (bytes[0] == 10 ||
-                        (bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31) ||
-                        (bytes[0] == 192 && bytes[1] == 168))
-                    {
-                        return ip;
-                    }
+                    return ip;
+                }
 
-                    // Save loopback address as fallback (127.x.x.x)
-                    if (bytes[0] == 127)
-                    {
-                        loopbackFallback = ip;
-                    }
+                // Save loopback address as fallback (127.x.x.x)
+                if (bytes[0] == 127)
+                {
+                    loopbackFallback = ip;
                 }
             }
 
@@ -448,12 +441,10 @@ public class NetTransport : INodeAwareTransport
 
     public void Dispose()
     {
-        if (!_disposed)
-        {
-            _disposed = true;
-            ShutdownAsync().GetAwaiter().GetResult();
-            _shutdownCts.Dispose();
-            GC.SuppressFinalize(this);
-        }
+        if (_disposed) return;
+        _disposed = true;
+        ShutdownAsync().GetAwaiter().GetResult();
+        _shutdownCts.Dispose();
+        GC.SuppressFinalize(this);
     }
 }

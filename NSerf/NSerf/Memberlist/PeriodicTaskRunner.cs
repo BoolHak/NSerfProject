@@ -13,7 +13,6 @@ public class PeriodicTaskRunner(ILogger? logger = null) : IDisposable
 {
     private readonly List<(Timer Timer, string Name)> _timers = [];
     private readonly object _lock = new();
-    private readonly ILogger? _logger = logger;
     private bool _disposed;
 
     /// <summary>
@@ -23,25 +22,27 @@ public class PeriodicTaskRunner(ILogger? logger = null) : IDisposable
     {
         lock (_lock)
         {
-            if (_disposed)
+            if (!_disposed)
+            {
+                var timer = new Timer(_ =>
+                {
+                    try
+                    {
+                        action();
+                    }
+                    catch (Exception ex)
+                    {
+                        logger?.LogError(ex, "Error in periodic task {Task}", name);
+                    }
+                }, null, interval, interval);
+
+                _timers.Add((timer, name));
+                logger?.LogDebug("Scheduled periodic task {Task} with interval {Interval}", name, interval);
+            }
+            else
             {
                 throw new ObjectDisposedException(nameof(PeriodicTaskRunner));
             }
-
-            var timer = new Timer(_ =>
-            {
-                try
-                {
-                    action();
-                }
-                catch (Exception ex)
-                {
-                    _logger?.LogError(ex, "Error in periodic task {Task}", name);
-                }
-            }, null, interval, interval);
-
-            _timers.Add((timer, name));
-            _logger?.LogDebug("Scheduled periodic task {Task} with interval {Interval}", name, interval);
         }
     }
 
@@ -55,7 +56,7 @@ public class PeriodicTaskRunner(ILogger? logger = null) : IDisposable
             foreach (var (timer, name) in _timers)
             {
                 timer.Dispose();
-                _logger?.LogDebug("Stopped periodic task {Task}", name);
+                logger?.LogDebug("Stopped periodic task {Task}", name);
             }
             _timers.Clear();
         }
@@ -66,5 +67,6 @@ public class PeriodicTaskRunner(ILogger? logger = null) : IDisposable
         if (_disposed) return;
         _disposed = true;
         StopAll();
+        GC.SuppressFinalize(this);   
     }
 }

@@ -249,9 +249,9 @@ public class UdpEncryptionTests : IAsyncLifetime
         var withLabel = LabelHandler.AddLabelHeaderToPacket(encrypted, "testlabel");
 
         // Send via transport
-        var targetAddr = new Address { Addr = $"{m1._config.BindAddr}:{m1._config.BindPort}", Name = "" };
+        var targetAddr = new Address { Addr = $"{m1.Config.BindAddr}:{m1.Config.BindPort}", Name = "" };
         using var sender = new UdpClient();
-        var endpoint = new IPEndPoint(IPAddress.Parse("127.0.0.1"), m1._config.BindPort);
+        var endpoint = new IPEndPoint(IPAddress.Parse("127.0.0.1"), m1.Config.BindPort);
         await sender.SendAsync(withLabel, endpoint);
 
         // Wait for packet processing
@@ -287,9 +287,9 @@ public class UdpEncryptionTests : IAsyncLifetime
         var encrypted = Security.EncryptPayload(1, wrongKey, packet, authData);
         var withLabel = LabelHandler.AddLabelHeaderToPacket(encrypted, "testlabel");
 
-        var targetAddr = new Address { Addr = $"{m1._config.BindAddr}:{m1._config.BindPort}", Name = "" };
+        var targetAddr = new Address { Addr = $"{m1.Config.BindAddr}:{m1.Config.BindPort}", Name = "" };
         using var sender = new UdpClient();
-        var endpoint = new IPEndPoint(IPAddress.Parse("127.0.0.1"), m1._config.BindPort);
+        var endpoint = new IPEndPoint(IPAddress.Parse("127.0.0.1"), m1.Config.BindPort);
         await sender.SendAsync(withLabel, endpoint);
 
         // Wait for packet processing
@@ -297,7 +297,7 @@ public class UdpEncryptionTests : IAsyncLifetime
 
         // Assert - Packet should be rejected (no crash)
         // The memberlist should still be functional
-        m1._config.Name.Should().Be("udp-wrong-key-test");
+        m1.Config.Name.Should().Be("udp-wrong-key-test");
     }
 
     [Fact]
@@ -321,16 +321,16 @@ public class UdpEncryptionTests : IAsyncLifetime
 
         var withLabel = LabelHandler.AddLabelHeaderToPacket(packet, "testlabel");
 
-        var targetAddr = new Address { Addr = $"{m1._config.BindAddr}:{m1._config.BindPort}", Name = "" };
+        var targetAddr = new Address { Addr = $"{m1.Config.BindAddr}:{m1.Config.BindPort}", Name = "" };
         using var sender = new UdpClient();
-        var endpoint = new IPEndPoint(IPAddress.Parse("127.0.0.1"), m1._config.BindPort);
+        var endpoint = new IPEndPoint(IPAddress.Parse("127.0.0.1"), m1.Config.BindPort);
         await sender.SendAsync(withLabel, endpoint);
 
         // Wait for packet processing
         await Task.Delay(200);
 
         // Assert - Should accept plaintext when GossipVerifyIncoming=false
-        m1._config.Name.Should().Be("udp-no-verify-incoming");
+        m1.Config.Name.Should().Be("udp-no-verify-incoming");
     }
 
     // ============================================================================
@@ -404,7 +404,7 @@ public class UdpEncryptionTests : IAsyncLifetime
         });
 
         // Act - Join the cluster
-        var (joined, error) = await m2.JoinAsync(new[] { $"{m1._config.BindAddr}:{m1._config.BindPort}" });
+        var (joined, error) = await m2.JoinAsync(new[] { $"{m1.Config.BindAddr}:{m1.Config.BindPort}" });
 
         // Wait for gossip
         await Task.Delay(500);
@@ -447,7 +447,7 @@ public class UdpEncryptionTests : IAsyncLifetime
         });
 
         // Act
-        var (joined, error) = await m2.JoinAsync(new[] { $"{m1._config.BindAddr}:{m1._config.BindPort}" });
+        var (joined, error) = await m2.JoinAsync(new[] { $"{m1.Config.BindAddr}:{m1.Config.BindPort}" });
 
         await Task.Delay(1000);
 
@@ -485,7 +485,7 @@ public class UdpEncryptionTests : IAsyncLifetime
         });
 
         // Act
-        var (joined, error) = await m2.JoinAsync(new[] { $"{m1._config.BindAddr}:{m1._config.BindPort}" });
+        var (joined, error) = await m2.JoinAsync(new[] { $"{m1.Config.BindAddr}:{m1.Config.BindPort}" });
 
         await Task.Delay(500);
 
@@ -628,13 +628,13 @@ public class UdpEncryptionTests : IAsyncLifetime
         var withLabel = LabelHandler.AddLabelHeaderToPacket(encrypted, "multikey");
 
         using var sender = new UdpClient();
-        var endpoint = new IPEndPoint(IPAddress.Parse("127.0.0.1"), receiver._config.BindPort);
+        var endpoint = new IPEndPoint(IPAddress.Parse("127.0.0.1"), receiver.Config.BindPort);
         await sender.SendAsync(withLabel, endpoint);
 
         await Task.Delay(200);
 
         // Assert - Should decrypt successfully even though encrypted with non-primary key
-        receiver._config.Name.Should().Be("multi-key-receiver");
+        receiver.Config.Name.Should().Be("multi-key-receiver");
     }
 
     [Fact]
@@ -721,13 +721,13 @@ public class UdpEncryptionTests : IAsyncLifetime
 
         // Act - Send corrupted packet
         using var sender = new UdpClient();
-        var endpoint = new IPEndPoint(IPAddress.Parse("127.0.0.1"), m1._config.BindPort);
+        var endpoint = new IPEndPoint(IPAddress.Parse("127.0.0.1"), m1.Config.BindPort);
         await sender.SendAsync(withLabel, endpoint);
 
         await Task.Delay(200);
 
         // Assert - Should not crash (packet rejected silently)
-        m1._config.Name.Should().Be("corrupt-test");
+        m1.Config.Name.Should().Be("corrupt-test");
     }
 
     [Fact]
@@ -757,13 +757,13 @@ public class UdpEncryptionTests : IAsyncLifetime
 
         // Act - Send truncated packet
         using var sender = new UdpClient();
-        var endpoint = new IPEndPoint(IPAddress.Parse("127.0.0.1"), m1._config.BindPort);
+        var endpoint = new IPEndPoint(IPAddress.Parse("127.0.0.1"), m1.Config.BindPort);
         await sender.SendAsync(truncated, endpoint);
 
         await Task.Delay(200);
 
         // Assert - Should not crash
-        m1._config.Name.Should().Be("truncate-test");
+        m1.Config.Name.Should().Be("truncate-test");
     }
 
     [Fact]
@@ -792,13 +792,13 @@ public class UdpEncryptionTests : IAsyncLifetime
 
         // Act - Send packet with mismatched auth data
         using var sender = new UdpClient();
-        var endpoint = new IPEndPoint(IPAddress.Parse("127.0.0.1"), m1._config.BindPort);
+        var endpoint = new IPEndPoint(IPAddress.Parse("127.0.0.1"), m1.Config.BindPort);
         await sender.SendAsync(withLabel, endpoint);
 
         await Task.Delay(200);
 
         // Assert - Should reject (authentication failure)
-        m1._config.Name.Should().Be("authdata-test");
+        m1.Config.Name.Should().Be("authdata-test");
     }
 
     // ============================================================================

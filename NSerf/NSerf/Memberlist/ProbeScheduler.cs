@@ -14,9 +14,7 @@ public class ProbeScheduler(
     SwimProtocol swimProtocol,
     ILogger? logger = null)
 {
-    private readonly TimeSpan _interval = interval;
     private readonly SwimProtocol _swimProtocol = swimProtocol;
-    private readonly ILogger? _logger = logger;
     private Timer? _timer;
     private bool _isRunning;
 
@@ -37,9 +35,9 @@ public class ProbeScheduler(
             {
                 await probeAction();
             }
-        }, null, _interval, _interval);
+        }, null, interval, interval);
 
-        _logger?.LogInformation("Probe scheduler started with interval {Interval}", _interval);
+        logger?.LogInformation("Probe scheduler started with interval {Interval}", interval);
     }
 
     /// <summary>
@@ -56,7 +54,7 @@ public class ProbeScheduler(
         _timer?.Dispose();
         _timer = null;
 
-        _logger?.LogInformation("Probe scheduler stopped");
+        logger?.LogInformation("Probe scheduler stopped");
     }
 
     /// <summary>

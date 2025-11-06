@@ -15,7 +15,6 @@ public class NodeLifecycleManager(ILogger? logger = null)
     private readonly Dictionary<string, NodeState> _nodeMap = [];
     private readonly List<NodeState> _nodes = [];
     private readonly object _lock = new();
-    private readonly ILogger? _logger = logger;
 
     /// <summary>
     /// Adds or updates a node.
@@ -37,7 +36,7 @@ public class NodeLifecycleManager(ILogger? logger = null)
             {
                 _nodes.Add(node);
                 _nodeMap[node.Name] = node;
-                _logger?.LogInformation("Added new node {Node}", node.Name);
+                logger?.LogInformation("Added new node {Node}", node.Name);
             }
         }
     }
@@ -49,7 +48,7 @@ public class NodeLifecycleManager(ILogger? logger = null)
     {
         lock (_lock)
         {
-            return _nodeMap.TryGetValue(name, out var node) ? node : null;
+            return _nodeMap.GetValueOrDefault(name);
         }
     }
 
@@ -82,13 +81,10 @@ public class NodeLifecycleManager(ILogger? logger = null)
     {
         lock (_lock)
         {
-            if (_nodeMap.Remove(name, out var node))
-            {
-                _nodes.Remove(node);
-                _logger?.LogInformation("Removed node {Node}", name);
-                return true;
-            }
-            return false;
+            if (!_nodeMap.Remove(name, out var node)) return false;
+            _nodes.Remove(node);
+            logger?.LogInformation("Removed node {Node}", name);
+            return true;
         }
     }
 

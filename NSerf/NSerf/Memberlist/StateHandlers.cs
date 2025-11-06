@@ -26,7 +26,7 @@ public class StateHandlers(Memberlist memberlist, ILogger? logger)
     {
         lock (_incLock)
         {
-            if (!memberlist._nodeMap.TryGetValue(memberlist._config.Name, out var local))
+            if (!memberlist.NodeMap.TryGetValue(memberlist.Config.Name, out var local))
                 return;
 
             // Ensure strictly greater than both our current and the remote's
@@ -61,22 +61,22 @@ public class StateHandlers(Memberlist memberlist, ILogger? logger)
     /// </summary>
     public void HandleAliveNode(Alive alive, bool bootstrap, TaskCompletionSource<bool>? notify = null)
     {
-        lock (memberlist._nodeLock)
+        lock (memberlist.NodeLock)
         {
-            var state = memberlist._nodeMap.TryGetValue(alive.Node, out var existingState) ? existingState : null;
+            var state = memberlist.NodeMap.GetValueOrDefault(alive.Node);
 
             // Don't process if we've left and this is about us
-            if (memberlist.IsLeaving && alive.Node == memberlist._config.Name)
+            if (memberlist.IsLeaving && alive.Node == memberlist.Config.Name)
             {
                 return;
             }
 
             // Validate protocol versions (vsn[0]=pmin, vsn[1]=pmax, vsn[2]=pcur)
-            if (alive.Vsn != null && alive.Vsn.Length >= 3)
+            if (alive.Vsn is { Length: >= 3 })
             {
-                byte pMin = alive.Vsn[0];
-                byte pMax = alive.Vsn[1];
-                byte pCur = alive.Vsn[2];
+                var pMin = alive.Vsn[0];
+                var pMax = alive.Vsn[1];
+                var pCur = alive.Vsn[2];
 
                 if (pMin == 0 || pMax == 0 || pMin > pMax)
                 {
@@ -88,7 +88,7 @@ public class StateHandlers(Memberlist memberlist, ILogger? logger)
             }
 
             // Invoke Alive delegate for custom filtering
-            if (memberlist._config.Alive != null)
+            if (memberlist.Config.Alive != null)
             {
                 if (alive.Vsn == null || alive.Vsn.Length < 6)
                 {
@@ -114,7 +114,7 @@ public class StateHandlers(Memberlist memberlist, ILogger? logger)
 
                 try
                 {
-                    memberlist._config.Alive.NotifyAlive(node);
+                    memberlist.Config.Alive.NotifyAlive(node);
                 }
                 catch (Exception ex)
                 {
@@ -124,25 +124,17 @@ public class StateHandlers(Memberlist memberlist, ILogger? logger)
                 }
             }
 
-            bool updatesNode = false;
-            bool isNew = state == null;
+            var updatesNode = false;
+            var isNew = state == null;
 
-            // Create new node if we've never seen it
+            // Create a new node if we've never seen it
             if (isNew)
             {
-                // Check IP allowlist
-                if (memberlist._config.CIDRsAllowed != null && memberlist._config.CIDRsAllowed.Count > 0)
+                // Check the IP allowlist
+                if (memberlist.Config.CIDRsAllowed.Count > 0)
                 {
                     var ip = new IPAddress(alive.Addr);
-                    bool allowed = false;
-                    foreach (var network in memberlist._config.CIDRsAllowed)
-                    {
-                        if (network.Contains(ip))
-                        {
-                            allowed = true;
-                            break;
-                        }
-                    }
+                    var allowed = memberlist.Config.CIDRsAllowed.Any(network => network.Contains(ip));
 
                     if (!allowed)
                     {
@@ -177,21 +169,21 @@ public class StateHandlers(Memberlist memberlist, ILogger? logger)
                 }
 
                 // Add to map
-                memberlist._nodeMap[alive.Node] = state;
+                memberlist.NodeMap[alive.Node] = state;
 
                 // Add to nodes list at random position (for better failure detection distribution)
-                int n = memberlist._nodes.Count;
-                int offset = MemberlistMath.RandomOffset(n);
+                var n = memberlist.Nodes.Count;
+                var offset = MemberlistMath.RandomOffset(n);
 
-                memberlist._nodes.Add(state);
+                memberlist.Nodes.Add(state);
                 if (offset < n)
                 {
                     // Swap with element at offset
-                    (memberlist._nodes[offset], memberlist._nodes[n]) = (memberlist._nodes[n], memberlist._nodes[offset]);
+                    (memberlist.Nodes[offset], memberlist.Nodes[n]) = (memberlist.Nodes[n], memberlist.Nodes[offset]);
                 }
 
                 // Update node count
-                Interlocked.Increment(ref memberlist._numNodes);
+                Interlocked.Increment(ref memberlist.NumNodes);
             }
             else
             {
@@ -201,18 +193,10 @@ public class StateHandlers(Memberlist memberlist, ILogger? logger)
                 if (addressChanged || portChanged)
                 {
                     // Check IP allowlist for new address
-                    if (memberlist._config.CIDRsAllowed != null && memberlist._config.CIDRsAllowed.Count > 0)
+                    if (memberlist.Config.CIDRsAllowed.Count > 0)
                     {
                         var ip = new IPAddress(alive.Addr);
-                        bool allowed = false;
-                        foreach (var network in memberlist._config.CIDRsAllowed)
-                        {
-                            if (network.Contains(ip))
-                            {
-                                allowed = true;
-                                break;
-                            }
-                        }
+                        var allowed = memberlist.Config.CIDRsAllowed.Any(network => network.Contains(ip));
 
                         if (!allowed)
                         {
@@ -226,9 +210,9 @@ public class StateHandlers(Memberlist memberlist, ILogger? logger)
                     // 1. Node is Left, OR
                     // 2. Node is Dead and reclaim time elapsed, OR
                     // 3. Incarnation is strictly greater (rejoin scenario)
-                    bool canReclaim = memberlist._config.DeadNodeReclaimTime > TimeSpan.Zero &&
-                        (DateTimeOffset.UtcNow - state.StateChange) > memberlist._config.DeadNodeReclaimTime;
-                    bool higherIncarnation = alive.Incarnation > state.Incarnation;
+                    var canReclaim = memberlist.Config.DeadNodeReclaimTime > TimeSpan.Zero &&
+                                     (DateTimeOffset.UtcNow - state.StateChange) > memberlist.Config.DeadNodeReclaimTime;
+                    var higherIncarnation = alive.Incarnation > state.Incarnation;
 
                     if (state.State == NodeStateType.Left || (state.State == NodeStateType.Dead && canReclaim) || higherIncarnation)
                     {
@@ -245,27 +229,25 @@ public class StateHandlers(Memberlist memberlist, ILogger? logger)
                             state.Node.Name, state.Node.Addr, state.Node.Port, newIp, alive.Port, state.State);
 
                         // Notify conflict delegate
-                        if (memberlist._config.Conflict != null)
+                        if (memberlist.Config.Conflict == null) return;
+                        var otherNode = new Node
                         {
-                            var otherNode = new Node
-                            {
-                                Name = alive.Node,
-                                Addr = new IPAddress(alive.Addr),
-                                Port = alive.Port,
-                                Meta = alive.Meta ?? []
-                            };
-                            memberlist._config.Conflict.NotifyConflict(state.Node, otherNode);
-                        }
+                            Name = alive.Node,
+                            Addr = new IPAddress(alive.Addr),
+                            Port = alive.Port,
+                            Meta = alive.Meta ?? []
+                        };
+                        memberlist.Config.Conflict.NotifyConflict(state.Node, otherNode);
                         return;
                     }
                 }
             }
 
             // Check incarnation numbers
-            bool isLocalNode = state.Node.Name == memberlist._config.Name;
+            var isLocalNode = state.Node.Name == memberlist.Config.Name;
 
             // Allow Left nodes to rejoin with ANY incarnation (even lower) - they've been removed
-            // Bail if incarnation is older (strict less than), UNLESS node is Left (rejoining)
+            // Bail if the incarnation is older (strict less than), UNLESS the node is Left (rejoining)
             if (alive.Incarnation < state.Incarnation && !isLocalNode && !updatesNode && state.State != NodeStateType.Left)
             {
                 return;
@@ -284,7 +266,7 @@ public class StateHandlers(Memberlist memberlist, ILogger? logger)
             }
 
             // Clear any suspicion timer
-            if (memberlist._nodeTimers.TryRemove(alive.Node, out var timerObj) && timerObj is Suspicion suspicion)
+            if (memberlist.NodeTimers.TryRemove(alive.Node, out var timerObj) && timerObj is Suspicion suspicion)
             {
                 try
                 {
@@ -303,11 +285,11 @@ public class StateHandlers(Memberlist memberlist, ILogger? logger)
             if (!bootstrap && isLocalNode)
             {
                 // Build version vector
-                byte[] versions = new byte[]
-                {
+                byte[] versions =
+                [
                     state.Node.PMin, state.Node.PMax, state.Node.PCur,
                     state.Node.DMin, state.Node.DMax, state.Node.DCur
-                };
+                ];
 
                 // If same incarnation, check if values match
                 if (alive.Incarnation == state.Incarnation &&
@@ -317,8 +299,8 @@ public class StateHandlers(Memberlist memberlist, ILogger? logger)
                     return; // Exact match, ignore
                 }
 
-                // Refute if incarnation is higher OR if same incarnation with different meta/version
-                // This handles the case where cluster has a higher incarnation for us (e.g., after restart)
+                // Refute if incarnation is higher OR if the same incarnation with different meta/version
+                // This handles the case where the cluster has a higher incarnation for us (e.g., after restart)
                 RefuteNode(state, alive.Incarnation);
                 var ip = new IPAddress(alive.Addr);
 
@@ -343,7 +325,7 @@ public class StateHandlers(Memberlist memberlist, ILogger? logger)
                 notify?.TrySetResult(true); // Signal completion immediately for now
 
                 // Update protocol versions
-                if (alive.Vsn != null && alive.Vsn.Length >= 6)
+                if (alive.Vsn is { Length: >= 6 })
                 {
                     state.Node.PMin = alive.Vsn[0];
                     state.Node.PMax = alive.Vsn[1];
@@ -367,18 +349,16 @@ public class StateHandlers(Memberlist memberlist, ILogger? logger)
             }
 
             // Notify event delegate
-            if (memberlist._config.Events != null)
+            if (memberlist.Config.Events == null) return;
+            if (oldState is NodeStateType.Dead or NodeStateType.Left)
             {
-                if (oldState == NodeStateType.Dead || oldState == NodeStateType.Left)
-                {
-                    // Dead/Left -> Alive = Join
-                    memberlist._config.Events.NotifyJoin(state.Node);
-                }
-                else if (oldMeta != null && !oldMeta.SequenceEqual(state.Node.Meta))
-                {
-                    // Meta changed = Update
-                    memberlist._config.Events.NotifyUpdate(state.Node);
-                }
+                // Dead/Left -> Alive = Join
+                memberlist.Config.Events.NotifyJoin(state.Node);
+            }
+            else if (!oldMeta.SequenceEqual(state.Node.Meta))
+            {
+                // Meta changed = Update
+                memberlist.Config.Events.NotifyUpdate(state.Node);
             }
         }
     }
@@ -389,9 +369,9 @@ public class StateHandlers(Memberlist memberlist, ILogger? logger)
     /// </summary>
     public void HandleSuspectNode(Suspect suspect)
     {
-        lock (memberlist._nodeLock)
+        lock (memberlist.NodeLock)
         {
-            if (!memberlist._nodeMap.TryGetValue(suspect.Node, out var state))
+            if (!memberlist.NodeMap.TryGetValue(suspect.Node, out var state))
             {
                 // Never heard of this node, ignore
                 return;
@@ -404,7 +384,7 @@ public class StateHandlers(Memberlist memberlist, ILogger? logger)
             }
 
             // Check if there's an existing suspicion timer we can confirm
-            if (memberlist._nodeTimers.TryGetValue(suspect.Node, out var timerObj))
+            if (memberlist.NodeTimers.TryGetValue(suspect.Node, out var timerObj))
             {
                 if (timerObj is Suspicion existingSuspicion && existingSuspicion.Confirm(suspect.From))
                 {
@@ -421,7 +401,7 @@ public class StateHandlers(Memberlist memberlist, ILogger? logger)
             }
 
             // If this is us, refute it
-            if (state.Node.Name == memberlist._config.Name)
+            if (state.Node.Name == memberlist.Config.Name)
             {
                 RefuteNode(state, suspect.Incarnation);
                 logger?.LogWarning("Refuting suspect message from {From}", suspect.From);
@@ -439,10 +419,10 @@ public class StateHandlers(Memberlist memberlist, ILogger? logger)
             var changeTime = DateTimeOffset.UtcNow;
             state.StateChange = changeTime;
 
-            // Setup suspicion timer
+            // Set up suspicion timer
             // k = expected confirmations (suspicionMult - 2, to account for timing)
-            int k = memberlist._config.SuspicionMult - 2;
-            int n = memberlist.EstNumNodes();
+            var k = memberlist.Config.SuspicionMult - 2;
+            var n = memberlist.EstNumNodes();
 
             // If not enough nodes for confirmations, set k=0
             if (n - 2 < k)
@@ -451,21 +431,21 @@ public class StateHandlers(Memberlist memberlist, ILogger? logger)
             }
 
             // Compute timeouts
-            var min = MemberlistMath.SuspicionTimeout(memberlist._config.SuspicionMult, n, memberlist._config.ProbeInterval);
-            var max = TimeSpan.FromTicks(min.Ticks * memberlist._config.SuspicionMaxTimeoutMult);
+            var min = MemberlistMath.SuspicionTimeout(memberlist.Config.SuspicionMult, n, memberlist.Config.ProbeInterval);
+            var max = TimeSpan.FromTicks(min.Ticks * memberlist.Config.SuspicionMaxTimeoutMult);
 
             // Timeout function - marks node as dead
             void TimeoutFn(int numConfirmations)
             {
                 Dead? deadMsg = null;
 
-                lock (memberlist._nodeLock)
+                lock (memberlist.NodeLock)
                 {
-                    if (memberlist._nodeMap.TryGetValue(suspect.Node, out var currentState))
+                    if (memberlist.NodeMap.TryGetValue(suspect.Node, out var currentState))
                     {
-                        // Only mark dead if still suspect and state hasn't changed
-                        bool shouldMarkDead = currentState.State == NodeStateType.Suspect &&
-                            currentState.StateChange == changeTime;
+                        // Only mark the dead if still suspect and the state hasn't changed
+                        var shouldMarkDead = currentState.State == NodeStateType.Suspect &&
+                                             currentState.StateChange == changeTime;
 
                         if (shouldMarkDead)
                         {
@@ -473,31 +453,29 @@ public class StateHandlers(Memberlist memberlist, ILogger? logger)
                             {
                                 Incarnation = currentState.Incarnation,
                                 Node = currentState.Node.Name,
-                                From = memberlist._config.Name
+                                From = memberlist.Config.Name
                             };
                         }
                     }
                 }
 
-                if (deadMsg != null)
+                if (deadMsg == null) return;
+                if (k > 0 && numConfirmations < k)
                 {
-                    if (k > 0 && numConfirmations < k)
-                    {
-                        // Log degraded state - metrics can be added via delegate if needed
-                        logger?.LogDebug("Suspect timeout reached with fewer confirmations than expected: {Actual} < {Expected}",
-                            numConfirmations, k);
-                    }
-
-                    logger?.LogInformation("Marking {Node} as failed, suspect timeout reached ({Confirmations} peer confirmations)",
-                        state.Node.Name, numConfirmations);
-
-                    HandleDeadNode(deadMsg);
+                    // Log degraded state - metrics can be added via delegate if needed
+                    logger?.LogDebug("Suspect timeout reached with fewer confirmations than expected: {Actual} < {Expected}",
+                        numConfirmations, k);
                 }
+
+                logger?.LogInformation("Marking {Node} as failed, suspect timeout reached ({Confirmations} peer confirmations)",
+                    state.Node.Name, numConfirmations);
+
+                HandleDeadNode(deadMsg);
             }
 
             // Create and store suspicion timer
             var newSuspicion = new Suspicion(suspect.From, k, min, max, TimeoutFn);
-            memberlist._nodeTimers[suspect.Node] = newSuspicion;
+            memberlist.NodeTimers[suspect.Node] = newSuspicion;
         }
     }
 
@@ -510,9 +488,9 @@ public class StateHandlers(Memberlist memberlist, ILogger? logger)
         logger?.LogDebug("[HandleDeadNode] Received: Node={Node}, From={From}, Inc={Inc}",
             dead.Node, dead.From, dead.Incarnation);
 
-        lock (memberlist._nodeLock)
+        lock (memberlist.NodeLock)
         {
-            if (!memberlist._nodeMap.TryGetValue(dead.Node, out var state))
+            if (!memberlist.NodeMap.TryGetValue(dead.Node, out var state))
             {
                 // Never heard of this node, ignore
                 logger?.LogDebug("[HandleDeadNode] Unknown node {Node}, ignoring", dead.Node);
@@ -528,7 +506,7 @@ public class StateHandlers(Memberlist memberlist, ILogger? logger)
             }
 
             // Clear any suspicion timer
-            if (memberlist._nodeTimers.TryRemove(dead.Node, out var timerObj))
+            if (memberlist.NodeTimers.TryRemove(dead.Node, out var timerObj))
             {
                 if (timerObj is Suspicion suspicion)
                 {
@@ -543,23 +521,20 @@ public class StateHandlers(Memberlist memberlist, ILogger? logger)
                 }
             }
 
-            // Check if already in final state
-            // CRITICAL: Allow graceful leave (Node==From) to override Dead state
-            // This handles the case where failure detector marks node Dead before graceful leave arrives
-            if (state.State == NodeStateType.Left)
+            switch (state.State)
             {
-                // Already left, nothing to do
-                return;
-            }
-
-            if (state.State == NodeStateType.Dead && dead.Node != dead.From)
-            {
+                // Check if already in final state
+                // CRITICAL: Allow graceful leave (Node==From) to override Dead state
+                // This handles the case where the failure detector marks node Dead before graceful leave arrives
+                case NodeStateType.Left:
                 // Already dead from failure, and this is not a graceful leave override
-                return;
+                case NodeStateType.Dead when dead.Node != dead.From:
+                    // Already left, nothing to do
+                    return;
             }
 
             // Check if this is us
-            if (state.Node.Name == memberlist._config.Name)
+            if (state.Node.Name == memberlist.Config.Name)
             {
                 // If this is NOT a graceful leave (Node != From) and we're not leaving, refute it
                 if (dead.Node != dead.From && !memberlist.IsLeaving)
@@ -570,13 +545,10 @@ public class StateHandlers(Memberlist memberlist, ILogger? logger)
                 }
 
                 // If it's a graceful leave (Node==From) or we're leaving, broadcast and continue processing
-                memberlist.EncodeAndBroadcast(dead.Node, Messages.MessageType.Dead, dead);
             }
-            else
-            {
-                // Broadcast the dead message for other nodes
-                memberlist.EncodeAndBroadcast(dead.Node, Messages.MessageType.Dead, dead);
-            }
+
+            // Broadcast the dead message for other nodes
+            memberlist.EncodeAndBroadcast(dead.Node, Messages.MessageType.Dead, dead);
 
             // Update state
             state.Incarnation = dead.Incarnation;
@@ -585,14 +557,10 @@ public class StateHandlers(Memberlist memberlist, ILogger? logger)
             if (dead.Node == dead.From)
             {
                 var wasAlreadyDead = state.State == NodeStateType.Dead;
-                if (wasAlreadyDead)
-                {
-                    logger?.LogInformation("[HandleDeadNode] Graceful leave OVERRIDING failure: {Node} Dead→Left", dead.Node);
-                }
-                else
-                {
-                    logger?.LogInformation("[HandleDeadNode] Graceful leave detected (Node==From): {Node} → Left", dead.Node);
-                }
+                logger?.LogInformation(
+                    wasAlreadyDead
+                        ? "[HandleDeadNode] Graceful leave OVERRIDING failure: {Node} Dead→Left"
+                        : "[HandleDeadNode] Graceful leave detected (Node==From): {Node} → Left", dead.Node);
                 state.State = NodeStateType.Left;
                 state.Node.State = NodeStateType.Left; // CRITICAL: Update Node.State too
             }
@@ -610,7 +578,7 @@ public class StateHandlers(Memberlist memberlist, ILogger? logger)
             // The count only decrements when nodes are actually removed from _nodeMap.
 
             // Notify event delegate
-            memberlist._config.Events?.NotifyLeave(state.Node);
+            memberlist.Config.Events?.NotifyLeave(state.Node);
         }
     }
 
@@ -620,8 +588,8 @@ public class StateHandlers(Memberlist memberlist, ILogger? logger)
     /// </summary>
     public void RefuteNode(NodeState nodeState, uint accusedIncarnation)
     {
-        // Make sure incarnation number beats the accusation
-        uint inc = memberlist.NextIncarnation();
+        // Make sure the incarnation number beats the accusation
+        var inc = memberlist.NextIncarnation();
         if (accusedIncarnation >= inc)
         {
             inc = memberlist.SkipIncarnation(accusedIncarnation - inc + 1);
@@ -629,7 +597,7 @@ public class StateHandlers(Memberlist memberlist, ILogger? logger)
         nodeState.Incarnation = inc;
 
         // Decrease health (being accused is bad for our health)
-        memberlist._awareness.ApplyDelta(1);
+        memberlist.Awareness.ApplyDelta(1);
 
         // Format and broadcast alive message
         var alive = new Alive
@@ -659,12 +627,11 @@ public class StateHandlers(Memberlist memberlist, ILogger? logger)
     public void MergeRemoteState(List<PushNodeState> remoteNodes)
     {
         // This will bump our incarnation and broadcast an Alive message to break the tombstone.
-        var ourState = remoteNodes.FirstOrDefault(n => n.Name == memberlist._config.Name);
+        var ourState = remoteNodes.FirstOrDefault(n => n.Name == memberlist.Config.Name);
 
         if (
-            ourState != null &&
-            (ourState.State == NodeStateType.Dead || ourState.State == NodeStateType.Left) &&
-            memberlist._nodeMap.TryGetValue(memberlist._config.Name, out var localState) &&
+            ourState is { State: NodeStateType.Dead or NodeStateType.Left } &&
+            memberlist.NodeMap.TryGetValue(memberlist.Config.Name, out var localState) &&
             ourState.Incarnation >= localState.Incarnation
             )
         {
@@ -693,7 +660,7 @@ public class StateHandlers(Memberlist memberlist, ILogger? logger)
                     break;
 
                 case NodeStateType.Left:
-                    // Left nodes send dead message from themselves
+                    // Left nodes send a dead message from themselves
                     var left = new Dead
                     {
                         Incarnation = remote.Incarnation,
@@ -712,7 +679,7 @@ public class StateHandlers(Memberlist memberlist, ILogger? logger)
                     {
                         Incarnation = remote.Incarnation,
                         Node = remote.Name,
-                        From = memberlist._config.Name
+                        From = memberlist.Config.Name
                     };
                     HandleSuspectNode(suspect);
                     break;

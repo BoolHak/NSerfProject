@@ -16,7 +16,6 @@ namespace NSerf.Memberlist;
 public class Awareness(int maxMultiplier)
 {
     private readonly object _lock = new();
-    private readonly int _max = maxMultiplier;
     private int _score = 0;
 
     /// <summary>
@@ -29,7 +28,7 @@ public class Awareness(int maxMultiplier)
     {
         lock (_lock)
         {
-            _score = Math.Clamp(_score + delta, 0, _max - 1);
+            _score = Math.Clamp(_score + delta, 0, maxMultiplier - 1);
         }
     }
 

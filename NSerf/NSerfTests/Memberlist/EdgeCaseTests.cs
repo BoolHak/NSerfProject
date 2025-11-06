@@ -57,7 +57,7 @@ public class EdgeCaseTests
             
             stateHandler.HandleAliveNode(alive, false, null);
             
-            m._nodeMap.Should().ContainKey("");
+            m.NodeMap.Should().ContainKey("");
         }
         finally
         {
@@ -93,7 +93,7 @@ public class EdgeCaseTests
             
             stateHandler.HandleAliveNode(alive, false, null);
             
-            m._nodeMap.TryGetValue("test-node", out _).Should().BeTrue();
+            m.NodeMap.TryGetValue("test-node", out _).Should().BeTrue();
         }
         finally
         {
@@ -129,7 +129,7 @@ public class EdgeCaseTests
             
             stateHandler.HandleAliveNode(alive, false, null);
             
-            m._nodeMap["high-inc-node"].Incarnation.Should().Be(uint.MaxValue - 100);
+            m.NodeMap["high-inc-node"].Incarnation.Should().Be(uint.MaxValue - 100);
         }
         finally
         {
@@ -165,7 +165,7 @@ public class EdgeCaseTests
             
             stateHandler.HandleAliveNode(alive, false, null);
             
-            m._nodeMap.TryGetValue("zero-inc", out var state).Should().BeTrue();
+            m.NodeMap.TryGetValue("zero-inc", out var state).Should().BeTrue();
             state!.Incarnation.Should().Be(0);
         }
         finally
@@ -202,7 +202,7 @@ public class EdgeCaseTests
             
             stateHandler.HandleAliveNode(alive, false, null);
             
-            m._nodeMap.ContainsKey("zero-port-node").Should().BeTrue();
+            m.NodeMap.ContainsKey("zero-port-node").Should().BeTrue();
         }
         finally
         {
@@ -240,7 +240,7 @@ public class EdgeCaseTests
             
             stateHandler.HandleAliveNode(alive, false, null);
             
-            m._nodeMap["large-meta-node"].Node.Meta.Should().HaveCount(512);
+            m.NodeMap["large-meta-node"].Node.Meta.Should().HaveCount(512);
         }
         finally
         {
@@ -285,7 +285,7 @@ public class EdgeCaseTests
                 }
             }
             
-            m._nodeMap["rapid-node"].Incarnation.Should().Be(49);
+            m.NodeMap["rapid-node"].Incarnation.Should().Be(49);
         }
         finally
         {
@@ -334,8 +334,8 @@ public class EdgeCaseTests
             };
             stateHandler.HandleAliveNode(alive2, false, null);
             
-            m._nodeMap["dup-node"].Incarnation.Should().Be(5);
-            m._nodeMap["dup-node"].Node.Meta.Should().BeEquivalentTo(new byte[] { 2 });
+            m.NodeMap["dup-node"].Incarnation.Should().Be(5);
+            m.NodeMap["dup-node"].Node.Meta.Should().BeEquivalentTo(new byte[] { 2 });
         }
         finally
         {

@@ -17,26 +17,16 @@ public static class NodeStateManager
     /// </summary>
     public static int MoveDeadNodes(List<NodeState> nodes, TimeSpan gossipToTheDeadTime)
     {
-        int numDead = 0;
-        int n = nodes.Count;
+        var numDead = 0;
+        var n = nodes.Count;
         
-        for (int i = 0; i < n - numDead; i++)
+        for (var i = 0; i < n - numDead; i++)
         {
-            if (!nodes[i].DeadOrLeft())
-            {
+            if (!nodes[i].DeadOrLeft() || DateTimeOffset.UtcNow - nodes[i].StateChange <= gossipToTheDeadTime) 
                 continue;
-            }
-            
-            // Respect the gossip to the dead interval
-            if (DateTimeOffset.UtcNow - nodes[i].StateChange <= gossipToTheDeadTime)
-            {
-                continue;
-            }
             
             // Move this node to the end
-            var temp = nodes[i];
-            nodes[i] = nodes[n - numDead - 1];
-            nodes[n - numDead - 1] = temp;
+            (nodes[i], nodes[n - numDead - 1]) = (nodes[n - numDead - 1], nodes[i]);
             numDead++;
             i--;
         }
@@ -49,15 +39,12 @@ public static class NodeStateManager
     /// </summary>
     public static void ShuffleNodes(List<NodeState> nodes)
     {
-        int n = nodes.Count;
-        var random = new Random();
+        var n = nodes.Count;
         
-        for (int i = n - 1; i > 0; i--)
+        for (var i = n - 1; i > 0; i--)
         {
-            int j = random.Next(i + 1);
-            var temp = nodes[i];
-            nodes[i] = nodes[j];
-            nodes[j] = temp;
+            var j = Random.Shared.Next(i + 1);
+            (nodes[i], nodes[j]) = (nodes[j], nodes[i]);
         }
     }
     
@@ -67,38 +54,23 @@ public static class NodeStateManager
     /// </summary>
     public static List<Node> KRandomNodes(int k, List<NodeState> nodes, Func<NodeState, bool>? exclude = null)
     {
-        int n = nodes.Count;
+        var n = nodes.Count;
         var kNodes = new List<Node>(k);
         
         // Probe up to 3*n times, with large n this is not necessary
         // since k << n, but with small n we want search to be exhaustive
-        for (int i = 0; i < 3 * n && kNodes.Count < k; i++)
+        for (var i = 0; i < 3 * n && kNodes.Count < k; i++)
         {
-            // Get random node state using shared Random.Shared (thread-safe in .NET 6+)
-            int idx = Random.Shared.Next(n);
+            var idx = Random.Shared.Next(n);
             var state = nodes[idx];
             
             // Give the filter a shot at it
-            if (exclude != null && exclude(state))
-            {
-                continue;
-            }
+            if (exclude != null && exclude(state)) continue;
             
             // Check if we have this node already
-            bool found = false;
-            for (int j = 0; j < kNodes.Count; j++)
-            {
-                if (state.Name == kNodes[j].Name)
-                {
-                    found = true;
-                    break;
-                }
-            }
-            
-            if (found)
-            {
-                continue;
-            }
+            var found = kNodes.Any(t => state.Name == t.Name);
+
+            if (found) continue;
             
             // Append the node
             kNodes.Add(state.ToNode());
@@ -110,14 +82,5 @@ public static class NodeStateManager
     /// <summary>
     /// Returns a random offset between 0 and n-1.
     /// </summary>
-    public static int RandomOffset(int n)
-    {
-        if (n == 0)
-        {
-            return 0;
-        }
-        
-        var random = new Random();
-        return random.Next(n);
-    }
+    public static int RandomOffset(int n) => n == 0 ? 0 : Random.Shared.Next(n);
 }

@@ -58,21 +58,13 @@ public class IPNetwork(IPAddress baseAddress, int prefixLength)
         var addrBytes = address.GetAddressBytes();
         var maskBytes = Mask.GetAddressBytes();
 
-        for (int i = 0; i < baseBytes.Length; i++)
-        {
-            if ((baseBytes[i] & maskBytes[i]) != (addrBytes[i] & maskBytes[i]))
-            {
-                return false;
-            }
-        }
-
-        return true;
+        return !baseBytes.Where((t, i) => (t & maskBytes[i]) != (addrBytes[i] & maskBytes[i])).Any();
     }
 
     private static IPAddress CreateMask(int prefixLength, AddressFamily family)
     {
-        int totalBits = family == AddressFamily.InterNetwork ? 32 : 128;
-        int byteCount = totalBits / 8;
+        var totalBits = family == AddressFamily.InterNetwork ? 32 : 128;
+        var byteCount = totalBits / 8;
 
         if (prefixLength < 0 || prefixLength > totalBits)
         {
@@ -80,23 +72,23 @@ public class IPNetwork(IPAddress baseAddress, int prefixLength)
         }
 
         var maskBytes = new byte[byteCount];
-        int remainingBits = prefixLength;
+        var remainingBits = prefixLength;
 
-        for (int i = 0; i < byteCount; i++)
+        for (var i = 0; i < byteCount; i++)
         {
-            if (remainingBits >= 8)
+            switch (remainingBits)
             {
-                maskBytes[i] = 0xFF;
-                remainingBits -= 8;
-            }
-            else if (remainingBits > 0)
-            {
-                maskBytes[i] = (byte)(0xFF << (8 - remainingBits));
-                remainingBits = 0;
-            }
-            else
-            {
-                maskBytes[i] = 0x00;
+                case >= 8:
+                    maskBytes[i] = 0xFF;
+                    remainingBits -= 8;
+                    break;
+                case > 0:
+                    maskBytes[i] = (byte)(0xFF << (8 - remainingBits));
+                    remainingBits = 0;
+                    break;
+                default:
+                    maskBytes[i] = 0x00;
+                    break;
             }
         }
 

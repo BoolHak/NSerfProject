@@ -34,7 +34,7 @@ public class SuspicionTracker
     {
         lock (_lock)
         {
-            return _suspicions.TryGetValue(nodeId, out var suspicion) ? suspicion : null;
+            return _suspicions.GetValueOrDefault(nodeId);
         }
     }
 

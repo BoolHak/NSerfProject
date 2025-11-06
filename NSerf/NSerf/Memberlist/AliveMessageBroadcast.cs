@@ -19,19 +19,15 @@ public class AliveMessageBroadcast(string node, byte[] message, BroadcastNotifyC
 
     public bool Invalidates(IBroadcast other)
     {
-        if (other is AliveMessageBroadcast alive && alive.Node == Node)
+        switch (other)
         {
-            return true;
+            case AliveMessageBroadcast alive when alive.Node == Node:
+            case SuspectMessageBroadcast suspect when suspect.Node == Node:
+            case DeadMessageBroadcast dead when dead.Node == Node:
+                return true;
+            default:
+                return false;
         }
-        else if (other is SuspectMessageBroadcast suspect && suspect.Node == Node)
-        {
-            return true;
-        }
-        else if (other is DeadMessageBroadcast dead && dead.Node == Node)
-        {
-            return true;
-        }
-        return false;
     }
 
     public byte[] Message() => _message;
@@ -52,14 +48,7 @@ public class SuspectMessageBroadcast(string node, byte[] message, BroadcastNotif
 
     public string Node { get; } = node;
 
-    public bool Invalidates(IBroadcast other)
-    {
-        if (other is SuspectMessageBroadcast suspect && suspect.Node == Node)
-        {
-            return true;
-        }
-        return false;
-    }
+    public bool Invalidates(IBroadcast other) => other is SuspectMessageBroadcast suspect && suspect.Node == Node;
 
     public byte[] Message() => _message;
 
@@ -81,20 +70,15 @@ public class DeadMessageBroadcast(string node, byte[] message, BroadcastNotifyCh
 
     public bool Invalidates(IBroadcast other)
     {
-        if (other is DeadMessageBroadcast dead && dead.Node == Node)
+        switch (other)
         {
-            return true;
+            case DeadMessageBroadcast dead when dead.Node == Node:
+            case SuspectMessageBroadcast suspect when suspect.Node == Node:
+            case AliveMessageBroadcast alive when alive.Node == Node:
+                return true;
+            default:
+                return false;
         }
-        else if (other is SuspectMessageBroadcast suspect && suspect.Node == Node)
-        {
-            return true;
-        }
-        else if (other is AliveMessageBroadcast alive && alive.Node == Node)
-        {
-            // Dead broadcast invalidates Alive broadcast for the same node
-            return true;
-        }
-        return false;
     }
 
     public byte[] Message() => _message;

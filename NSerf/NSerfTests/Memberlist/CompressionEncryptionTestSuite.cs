@@ -257,7 +257,7 @@ public class CompressionEncryptionTestSuite : IAsyncLifetime
         });
 
         // Act
-        var (joined, error) = await m2.JoinAsync(new[] { $"{m1._config.BindAddr}:{m1._config.BindPort}" });
+        var (joined, error) = await m2.JoinAsync(new[] { $"{m1.Config.BindAddr}:{m1.Config.BindPort}" });
 
         // Assert
         error.Should().BeNull("nodes with same key should communicate");
@@ -291,7 +291,7 @@ public class CompressionEncryptionTestSuite : IAsyncLifetime
         });
 
         // Act
-        var (joined, error) = await m2.JoinAsync(new[] { $"{m1._config.BindAddr}:{m1._config.BindPort}" });
+        var (joined, error) = await m2.JoinAsync(new[] { $"{m1.Config.BindAddr}:{m1.Config.BindPort}" });
 
         await Task.Delay(500); // Wait for potential communication
 
@@ -317,7 +317,7 @@ public class CompressionEncryptionTestSuite : IAsyncLifetime
         var m2 = CreateMemberlist("no-enc-node2"); // No encryption
 
         // Act
-        var (joined, error) = await m2.JoinAsync(new[] { $"{m1._config.BindAddr}:{m1._config.BindPort}" });
+        var (joined, error) = await m2.JoinAsync(new[] { $"{m1.Config.BindAddr}:{m1.Config.BindPort}" });
 
         await Task.Delay(500);
 
@@ -367,31 +367,31 @@ public class CompressionEncryptionTestSuite : IAsyncLifetime
                     Meta = new byte[100],
                     PMin = ProtocolVersion.Min,
                     PMax = ProtocolVersion.Max,
-                    PCur = m1._config.ProtocolVersion,
-                    DMin = m1._config.DelegateProtocolMin,
-                    DMax = m1._config.DelegateProtocolMax,
-                    DCur = m1._config.DelegateProtocolVersion
+                    PCur = m1.Config.ProtocolVersion,
+                    DMin = m1.Config.DelegateProtocolMin,
+                    DMax = m1.Config.DelegateProtocolMax,
+                    DCur = m1.Config.DelegateProtocolVersion
                 },
                 State = NodeStateType.Alive,
                 Incarnation = (uint)i,
                 StateChange = DateTimeOffset.UtcNow
             };
 
-            lock (m1._nodeLock)
+            lock (m1.NodeLock)
             {
-                m1._nodes.Add(nodeState);
-                m1._nodeMap[nodeState.Node.Name] = nodeState;
+                m1.Nodes.Add(nodeState);
+                m1.NodeMap[nodeState.Node.Name] = nodeState;
             }
         }
 
         // Act
-        _output.WriteLine($"m1: {m1._config.Name} at {m1._config.BindAddr}:{m1._config.BindPort}");
-        _output.WriteLine($"m1 compression: {m1._config.EnableCompression}, encryption: {m1._config.EncryptionEnabled()}");
-        _output.WriteLine($"m2: {m2._config.Name} at {m2._config.BindAddr}:{m2._config.BindPort}");
-        _output.WriteLine($"m2 compression: {m2._config.EnableCompression}, encryption: {m2._config.EncryptionEnabled()}");
-        _output.WriteLine($"m1 has {m1._nodes.Count} nodes before join");
+        _output.WriteLine($"m1: {m1.Config.Name} at {m1.Config.BindAddr}:{m1.Config.BindPort}");
+        _output.WriteLine($"m1 compression: {m1.Config.EnableCompression}, encryption: {m1.Config.EncryptionEnabled()}");
+        _output.WriteLine($"m2: {m2.Config.Name} at {m2.Config.BindAddr}:{m2.Config.BindPort}");
+        _output.WriteLine($"m2 compression: {m2.Config.EnableCompression}, encryption: {m2.Config.EncryptionEnabled()}");
+        _output.WriteLine($"m1 has {m1.Nodes.Count} nodes before join");
         
-        var (joined, error) = await m2.JoinAsync(new[] { $"{m1._config.BindAddr}:{m1._config.BindPort}" });
+        var (joined, error) = await m2.JoinAsync(new[] { $"{m1.Config.BindAddr}:{m1.Config.BindPort}" });
 
         _output.WriteLine($"Join result: joined={joined}, error={error?.Message}");
         await Task.Delay(1000);
@@ -432,7 +432,7 @@ public class CompressionEncryptionTestSuite : IAsyncLifetime
         });
 
         // Act
-        var (joined, error) = await m2.JoinAsync(new[] { $"{m1._config.BindAddr}:{m1._config.BindPort}" });
+        var (joined, error) = await m2.JoinAsync(new[] { $"{m1.Config.BindAddr}:{m1.Config.BindPort}" });
 
         await Task.Delay(500);
 
@@ -481,27 +481,27 @@ public class CompressionEncryptionTestSuite : IAsyncLifetime
                     Meta = largeMeta,
                     PMin = ProtocolVersion.Min,
                     PMax = ProtocolVersion.Max,
-                    PCur = m1._config.ProtocolVersion,
-                    DMin = m1._config.DelegateProtocolMin,
-                    DMax = m1._config.DelegateProtocolMax,
-                    DCur = m1._config.DelegateProtocolVersion
+                    PCur = m1.Config.ProtocolVersion,
+                    DMin = m1.Config.DelegateProtocolMin,
+                    DMax = m1.Config.DelegateProtocolMax,
+                    DCur = m1.Config.DelegateProtocolVersion
                 },
                 State = NodeStateType.Alive,
                 Incarnation = (uint)i,
                 StateChange = DateTimeOffset.UtcNow
             };
 
-            lock (m1._nodeLock)
+            lock (m1.NodeLock)
             {
-                m1._nodes.Add(nodeState);
-                m1._nodeMap[nodeState.Node.Name] = nodeState;
+                m1.Nodes.Add(nodeState);
+                m1.NodeMap[nodeState.Node.Name] = nodeState;
             }
         }
 
-        _output.WriteLine($"Created {m1._nodes.Count} nodes with large metadata");
+        _output.WriteLine($"Created {m1.Nodes.Count} nodes with large metadata");
 
         // Act
-        var (joined, error) = await m2.JoinAsync(new[] { $"{m1._config.BindAddr}:{m1._config.BindPort}" });
+        var (joined, error) = await m2.JoinAsync(new[] { $"{m1.Config.BindAddr}:{m1.Config.BindPort}" });
 
         await Task.Delay(2000); // More time for large transfer
 
@@ -657,7 +657,7 @@ public class CompressionEncryptionTestSuite : IAsyncLifetime
                     c.GossipVerifyOutgoing = true;
                 });
 
-                await m.JoinAsync(new[] { $"{m1._config.BindAddr}:{m1._config.BindPort}" });
+                await m.JoinAsync(new[] { $"{m1.Config.BindAddr}:{m1.Config.BindPort}" });
             }));
         }
 

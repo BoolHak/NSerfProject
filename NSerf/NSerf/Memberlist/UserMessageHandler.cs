@@ -35,7 +35,7 @@ public class UserMessageHandler(IDelegate? delegateHandler = null, ILogger? logg
     {
         try
         {
-            return delegateHandler?.GetBroadcasts(overhead, limit) ?? new List<byte[]>();
+            return delegateHandler?.GetBroadcasts(overhead, limit) ?? [];
         }
         catch (Exception ex)
         {

@@ -105,11 +105,7 @@ public class Address
     /// </summary>
     public override string ToString()
     {
-        if (!string.IsNullOrEmpty(Name))
-        {
-            return $"{Name} ({Addr})";
-        }
-        return Addr;
+        return !string.IsNullOrEmpty(Name) ? $"{Name} ({Addr})" : Addr;
     }
 }
 
