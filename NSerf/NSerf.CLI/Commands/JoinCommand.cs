@@ -48,11 +48,11 @@ public static class JoinCommand
             var replay = parseResult.GetValue(replayOption);
             var rpcAddr = parseResult.GetValue(rpcAddrOption)!;
             var rpcAuth = parseResult.GetValue(rpcAuthOption);
-            var addresses = parseResult.GetValue(addressesArgument) ?? Array.Empty<string>();
+            var addresses = parseResult.GetValue(addressesArgument) ?? [];
 
             if (addresses.Length == 0)
             {
-                Console.Error.WriteLine("Error: At least one address to join must be specified.");
+                await Console.Error.WriteLineAsync("Error: At least one address to join must be specified.");
                 return 1;
             }
 
@@ -63,7 +63,7 @@ public static class JoinCommand
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"Error connecting to Serf agent: {ex.Message}");
+                await Console.Error.WriteLineAsync($"Error connecting to Serf agent: {ex.Message}");
                 return 1;
             }
         });
@@ -78,7 +78,7 @@ public static class JoinCommand
         bool replay,
         CancellationToken cancellationToken)
     {
-        using var client = await RpcHelper.ConnectAsync(rpcAddr, rpcAuth, cancellationToken);
+        await using var client = await RpcHelper.ConnectAsync(rpcAddr, rpcAuth, cancellationToken);
 
         var n = await client.JoinAsync(addresses, replay, cancellationToken);
         Console.WriteLine($"Successfully joined cluster by contacting {n} nodes.");

@@ -49,7 +49,7 @@ public static class MonitorCommand
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"Error: {ex.Message}");
+                await Console.Error.WriteLineAsync($"Error: {ex.Message}");
                 throw;
             }
         });
@@ -63,7 +63,7 @@ public static class MonitorCommand
         string logLevel,
         CancellationToken cancellationToken)
     {
-        using var client = await RpcHelper.ConnectAsync(rpcAddr, rpcAuth, cancellationToken);
+        await using var client = await RpcHelper.ConnectAsync(rpcAddr, rpcAuth, cancellationToken);
 
         Console.WriteLine($"Streaming logs at level: {logLevel}");
 

@@ -2,9 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 using System.CommandLine;
-using System.Text.RegularExpressions;
 using NSerf.CLI.Helpers;
-using NSerf.Client;
 using NSerf.Client.Responses;
 
 namespace NSerf.CLI.Commands;
@@ -72,7 +70,7 @@ public static class MembersCommand
             var format = parseResult.GetValue(formatOption)!;
             var name = parseResult.GetValue(nameOption);
             var status = parseResult.GetValue(statusOption);
-            var tags = parseResult.GetValue(tagOption) ?? Array.Empty<string>();
+            var tags = parseResult.GetValue(tagOption) ?? [];
             var rpcAddr = parseResult.GetValue(rpcAddrOption)!;
             var rpcAuth = parseResult.GetValue(rpcAuthOption);
 
@@ -92,7 +90,7 @@ public static class MembersCommand
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"Error: {ex.Message}");
+                await Console.Error.WriteLineAsync($"Error: {ex.Message}");
                 return 1;
             }
         });
@@ -110,7 +108,7 @@ public static class MembersCommand
         bool detailed,
         CancellationToken cancellationToken)
     {
-        using var client = await RpcHelper.ConnectAsync(rpcAddr, rpcAuth, cancellationToken);
+        await using var client = await RpcHelper.ConnectAsync(rpcAddr, rpcAuth, cancellationToken);
 
         var tags = ParseTagFilters(tagFilters);
         

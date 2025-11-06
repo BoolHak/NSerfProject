@@ -51,7 +51,7 @@ public static class InfoCommand
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"Error querying agent: {ex.Message}");
+                await Console.Error.WriteLineAsync($"Error querying agent: {ex.Message}");
                 return 1;
             }
         });
@@ -65,7 +65,7 @@ public static class InfoCommand
         OutputFormatter.OutputFormat format,
         CancellationToken cancellationToken)
     {
-        using var client = await RpcHelper.ConnectAsync(rpcAddr, rpcAuth, cancellationToken);
+        await using var client = await RpcHelper.ConnectAsync(rpcAddr, rpcAuth, cancellationToken);
 
         var statsDict = await client.StatsAsync(cancellationToken);
 

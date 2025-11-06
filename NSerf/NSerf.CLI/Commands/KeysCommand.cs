@@ -42,7 +42,7 @@ public static class KeysCommand
             
             try
             {
-                using var client = await RpcHelper.ConnectAsync(addr, auth, cancellationToken);
+                await using var client = await RpcHelper.ConnectAsync(addr, auth, cancellationToken);
                 var response = await client.ListKeysAsync(cancellationToken);
                 
                 Console.WriteLine($"Keys in cluster: {response.Keys.Count}");
@@ -58,7 +58,7 @@ public static class KeysCommand
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"Error: {ex.Message}");
+                await Console.Error.WriteLineAsync($"Error: {ex.Message}");
                 return 1;
             }
         });
@@ -79,26 +79,25 @@ public static class KeysCommand
             
             try
             {
-                using var client = await RpcHelper.ConnectAsync(addr, auth, cancellationToken);
+                await using var client = await RpcHelper.ConnectAsync(addr, auth, cancellationToken);
                 var response = await client.InstallKeyAsync(key, cancellationToken);
                 
                 Console.WriteLine("Successfully installed key");
                 Console.WriteLine($"Nodes: {response.NumNodes}, Responses: {response.NumResp}");
+
+                if (response.Messages.Length <= 0) return 0;
                 
-                if (response.Messages != null && response.Messages.Length > 0)
+                Console.WriteLine("Messages:");
+                foreach (var msg in response.Messages)
                 {
-                    Console.WriteLine("Messages:");
-                    foreach (var msg in response.Messages)
-                    {
-                        Console.WriteLine($"  {msg}");
-                    }
+                    Console.WriteLine($"  {msg}");
                 }
-                
+
                 return 0;
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"Error: {ex.Message}");
+                await Console.Error.WriteLineAsync($"Error: {ex.Message}");
                 return 1;
             }
         });
@@ -119,7 +118,7 @@ public static class KeysCommand
             
             try
             {
-                using var client = await RpcHelper.ConnectAsync(addr, auth, cancellationToken);
+                await using var client = await RpcHelper.ConnectAsync(addr, auth, cancellationToken);
                 var response = await client.UseKeyAsync(key, cancellationToken);
                 
                 Console.WriteLine("Successfully changed primary key");
@@ -129,7 +128,7 @@ public static class KeysCommand
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"Error: {ex.Message}");
+                await Console.Error.WriteLineAsync($"Error: {ex.Message}");
                 return 1;
             }
         });
@@ -150,7 +149,7 @@ public static class KeysCommand
             
             try
             {
-                using var client = await RpcHelper.ConnectAsync(addr, auth, cancellationToken);
+                await using var client = await RpcHelper.ConnectAsync(addr, auth, cancellationToken);
                 var response = await client.RemoveKeyAsync(key, cancellationToken);
                 
                 Console.WriteLine("Successfully removed key");
@@ -160,7 +159,7 @@ public static class KeysCommand
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"Error removing key: {ex.Message}");
+                await Console.Error.WriteLineAsync($"Error removing key: {ex.Message}");
                 return 1;
             }
         });

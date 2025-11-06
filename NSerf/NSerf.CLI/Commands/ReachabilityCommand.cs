@@ -45,7 +45,7 @@ public static class ReachabilityCommand
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"Error: {ex.Message}");
+                await Console.Error.WriteLineAsync($"Error: {ex.Message}");
                 throw;
             }
         });
@@ -59,18 +59,11 @@ public static class ReachabilityCommand
         string node,
         CancellationToken cancellationToken)
     {
-        using var client = await RpcHelper.ConnectAsync(rpcAddr, rpcAuth, cancellationToken);
+        await using var client = await RpcHelper.ConnectAsync(rpcAddr, rpcAuth, cancellationToken);
 
         var members = await client.MembersAsync(cancellationToken);
         var member = members.FirstOrDefault(m => m.Name == node);
 
-        if (member != null)
-        {
-            Console.WriteLine($"{node} is {member.Status}");
-        }
-        else
-        {
-            Console.WriteLine($"{node} not found in cluster");
-        }
+        Console.WriteLine(member != null ? $"{node} is {member.Status}" : $"{node} not found in cluster");
     }
 }

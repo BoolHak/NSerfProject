@@ -83,7 +83,7 @@ public static class QueryCommand
             var noAck = parseResult.GetValue(noAckOption);
             var timeout = parseResult.GetValue(timeoutOption);
             var node = parseResult.GetValue(nodeOption);
-            var tags = parseResult.GetValue(tagOption) ?? Array.Empty<string>();
+            var tags = parseResult.GetValue(tagOption) ?? [];
             var rpcAddr = parseResult.GetValue(rpcAddrOption)!;
             var rpcAuth = parseResult.GetValue(rpcAuthOption);
             var name = parseResult.GetValue(nameArgument)!;
@@ -96,7 +96,7 @@ public static class QueryCommand
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"Error: {ex.Message}");
+                await Console.Error.WriteLineAsync($"Error: {ex.Message}");
                 throw;
             }
         });
@@ -116,7 +116,7 @@ public static class QueryCommand
         OutputFormatter.OutputFormat format,
         CancellationToken cancellationToken)
     {
-        using var client = await RpcHelper.ConnectAsync(rpcAddr, rpcAuth, cancellationToken);
+        await using var client = await RpcHelper.ConnectAsync(rpcAddr, rpcAuth, cancellationToken);
 
         byte[]? payloadBytes = null;
         if (!string.IsNullOrEmpty(payload))

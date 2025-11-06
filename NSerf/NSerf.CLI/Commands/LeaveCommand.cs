@@ -42,7 +42,7 @@ public static class LeaveCommand
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"Error connecting to Serf agent: {ex.Message}");
+                await Console.Error.WriteLineAsync($"Error connecting to Serf agent: {ex.Message}");
                 return 1;
             }
         });
@@ -55,7 +55,7 @@ public static class LeaveCommand
         string? rpcAuth,
         CancellationToken cancellationToken)
     {
-        using var client = await RpcHelper.ConnectAsync(rpcAddr, rpcAuth, cancellationToken);
+        await using var client = await RpcHelper.ConnectAsync(rpcAddr, rpcAuth, cancellationToken);
 
         await client.LeaveAsync(cancellationToken);
         Console.WriteLine("Graceful leave complete");

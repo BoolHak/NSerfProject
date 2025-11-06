@@ -48,7 +48,7 @@ public static class RttCommand
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"Error: {ex.Message}");
+                await Console.Error.WriteLineAsync($"Error: {ex.Message}");
                 throw;
             }
         });
@@ -62,7 +62,7 @@ public static class RttCommand
         string node,
         CancellationToken cancellationToken)
     {
-        using var client = await RpcHelper.ConnectAsync(rpcAddr, rpcAuth, cancellationToken);
+        await using var client = await RpcHelper.ConnectAsync(rpcAddr, rpcAuth, cancellationToken);
 
         var coordinate = await client.GetCoordinateAsync(node, cancellationToken);
 

@@ -66,7 +66,7 @@ public static class EventCommand
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"Error: {ex.Message}");
+                await Console.Error.WriteLineAsync($"Error: {ex.Message}");
                 return 1;
             }
         });
@@ -82,7 +82,7 @@ public static class EventCommand
         bool coalesce,
         CancellationToken cancellationToken)
     {
-        using var client = await RpcHelper.ConnectAsync(rpcAddr, rpcAuth, cancellationToken);
+        await using var client = await RpcHelper.ConnectAsync(rpcAddr, rpcAuth, cancellationToken);
 
         byte[]? payloadBytes = null;
         if (!string.IsNullOrEmpty(payload))

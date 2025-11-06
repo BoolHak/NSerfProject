@@ -11,6 +11,11 @@ namespace NSerf.CLI.Helpers;
 /// </summary>
 public static class OutputFormatter
 {
+    public static readonly JsonSerializerOptions JsonSerializerOptions = new JsonSerializerOptions
+    {
+        WriteIndented = true
+    };
+    
     public enum OutputFormat
     {
         Text,
@@ -43,11 +48,11 @@ public static class OutputFormatter
     {
         if (format == OutputFormat.Json)
         {
-            // Convert members to JSON-friendly format (Addr is byte[] which needs conversion)
+            // Convert members to JSON-friendly format (Addr is a byte[] which needs conversion)
             var jsonMembers = members.Select(m => new
             {
                 name = m.Name,
-                addr = m.Addr != null && m.Addr.Length > 0 ? new System.Net.IPAddress(m.Addr).ToString() : "",
+                addr = m.Addr.Length > 0 ? new System.Net.IPAddress(m.Addr).ToString() : "",
                 port = m.Port,
                 tags = m.Tags,
                 status = m.Status,
@@ -59,40 +64,36 @@ public static class OutputFormatter
                 delegate_cur = m.DelegateCur
             }).ToArray();
             
-            var json = JsonSerializer.Serialize(new { members = jsonMembers }, new JsonSerializerOptions
-            {
-                WriteIndented = true
-            });
+            var json = JsonSerializer.Serialize(new { members = jsonMembers }, JsonSerializerOptions);
             Console.WriteLine(json);
             return;
         }
 
         // Text format - table
-        var membersList = members;
-        if (membersList.Length == 0)
+        if (members.Length == 0)
         {
             Console.WriteLine("No members found.");
             return;
         }
 
         // Calculate column widths
-        var nameWidth = Math.Max(20, membersList.Max(m => m.Name.Length) + 2);
-        var addrWidth = Math.Max(20, membersList.Max(m =>
+        var nameWidth = Math.Max(20, members.Max(m => m.Name.Length) + 2);
+        var addrWidth = Math.Max(20, members.Max(m =>
         {
-            var ipAddr = m.Addr != null && m.Addr.Length > 0 ? new System.Net.IPAddress(m.Addr).ToString() : "";
+            var ipAddr = m.Addr.Length > 0 ? new System.Net.IPAddress(m.Addr).ToString() : "";
             return $"{ipAddr}:{m.Port}".Length;
         }) + 2);
-        var statusWidth = 10;
+        const int statusWidth = 10;
 
         // Header
-        Console.WriteLine($"{"Name".PadRight(nameWidth)}{"Address".PadRight(addrWidth)}{"Status".PadRight(statusWidth)}Tags");
+        Console.WriteLine($"{"Name".PadRight(nameWidth)}{"Address".PadRight(addrWidth)}{"Status",-statusWidth}Tags");
         Console.WriteLine(new string('-', nameWidth + addrWidth + statusWidth + 40));
 
         // Rows
-        foreach (var member in membersList)
+        foreach (var member in members)
         {
             var name = member.Name.PadRight(nameWidth);
-            var ipAddr = member.Addr != null && member.Addr.Length > 0 ? new System.Net.IPAddress(member.Addr).ToString() : "";
+            var ipAddr = member.Addr.Length > 0 ? new System.Net.IPAddress(member.Addr).ToString() : "";
             var addr = $"{ipAddr}:{member.Port}".PadRight(addrWidth);
             var status = member.Status.PadRight(statusWidth);
             var tags = string.Join(",", member.Tags.Select(t => $"{t.Key}={t.Value}"));
@@ -117,10 +118,7 @@ public static class OutputFormatter
     {
         if (format == OutputFormat.Json)
         {
-            var json = JsonSerializer.Serialize(stats, new JsonSerializerOptions
-            {
-                WriteIndented = true
-            });
+            var json = JsonSerializer.Serialize(stats, JsonSerializerOptions);
             Console.WriteLine(json);
             return;
         }
@@ -138,10 +136,7 @@ public static class OutputFormatter
     /// </summary>
     public static void FormatJson<T>(T obj)
     {
-        var json = JsonSerializer.Serialize(obj, new JsonSerializerOptions
-        {
-            WriteIndented = true
-        });
+        var json = JsonSerializer.Serialize(obj, JsonSerializerOptions);
         Console.WriteLine(json);
     }
 }

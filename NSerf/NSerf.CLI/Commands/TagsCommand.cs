@@ -46,14 +46,14 @@ public static class TagsCommand
 
         command.SetAction(async (parseResult, cancellationToken) =>
         {
-            var setTags = parseResult.GetValue(setOption) ?? Array.Empty<string>();
-            var deleteTags = parseResult.GetValue(deleteOption) ?? Array.Empty<string>();
+            var setTags = parseResult.GetValue(setOption) ?? [];
+            var deleteTags = parseResult.GetValue(deleteOption) ?? [];
             var rpcAddr = parseResult.GetValue(rpcAddrOption)!;
             var rpcAuth = parseResult.GetValue(rpcAuthOption);
 
             if (setTags.Length == 0 && deleteTags.Length == 0)
             {
-                Console.Error.WriteLine("Error: At least one --set or --delete operation must be specified");
+                await Console.Error.WriteLineAsync("Error: At least one --set or --delete operation must be specified");
                 return 1;
             }
 
@@ -64,7 +64,7 @@ public static class TagsCommand
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"Error setting tags: {ex.Message}");
+                await Console.Error.WriteLineAsync($"Error setting tags: {ex.Message}");
                 return 1;
             }
         });
@@ -79,7 +79,7 @@ public static class TagsCommand
         string[] deleteTags,
         CancellationToken cancellationToken)
     {
-        using var client = await RpcHelper.ConnectAsync(rpcAddr, rpcAuth, cancellationToken);
+        await using var client = await RpcHelper.ConnectAsync(rpcAddr, rpcAuth, cancellationToken);
 
         var tagsToSet = new Dictionary<string, string>();
         foreach (var tag in setTags)

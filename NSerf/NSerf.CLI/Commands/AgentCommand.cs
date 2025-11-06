@@ -2,8 +2,6 @@
 // SPDX-License-Identifier: MPL-2.0
 
 using System.CommandLine;
-using System.IO;
-using System.Linq;
 using NSerf.Agent;
 
 namespace NSerf.CLI.Commands;
@@ -90,7 +88,7 @@ public static class AgentCommand
         command.Add(configFileOption);
         command.Add(eventHandlerOption);
 
-        command.SetAction(async (parseResult, cancellationToken) =>
+        command.SetAction(async (parseResult, _) =>
         {
             var nodeName = parseResult.GetValue(nodeOption);
             var bindAddr = parseResult.GetValue(bindOption)!;
@@ -122,7 +120,7 @@ public static class AgentCommand
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"Error: {ex.Message}");
+                await Console.Error.WriteLineAsync($"Error: {ex.Message}");
                 return 1;
             }
         });
@@ -157,8 +155,8 @@ public static class AgentCommand
             EventHandlers = handlerSpecs?.ToList() ?? []
         };
 
-        // Load config file or directory if provided, then merge with CLI where CLI overrides file
-        AgentConfig finalConfig = cliConfig;
+        // Load the config file or directory if provided, then merge with CLI where CLI overrides a file
+        var finalConfig = cliConfig;
         if (!string.IsNullOrWhiteSpace(configPath))
         {
             AgentConfig loaded;
@@ -179,7 +177,7 @@ public static class AgentCommand
             finalConfig = AgentConfig.Merge(loaded, cliConfig);
         }
 
-        // Create and start agent
+        // Create and start an agent
         var agent = new SerfAgent(finalConfig);
 
         try
@@ -191,12 +189,12 @@ public static class AgentCommand
                 if (signal != Signal.SIGHUP)
                     return;
 
-                // Fire-and-forget to avoid blocking signal thread
+                // Fire-and-forget to avoid blocking a signal thread
                 _ = Task.Run(async () =>
                 {
                     try
                     {
-                        AgentConfig reloaded = cliConfig; // base
+                        var reloaded = cliConfig; // base
                         if (!string.IsNullOrWhiteSpace(configPath))
                         {
                             AgentConfig loaded;
@@ -215,9 +213,9 @@ public static class AgentCommand
                     }
                     catch (Exception ex)
                     {
-                        Console.Error.WriteLine($"Reload failed: {ex.Message}");
+                        await Console.Error.WriteLineAsync($"Reload failed: {ex.Message}");
                     }
-                });
+                }, shutdownToken);
             });
 
             await agent.StartAsync(shutdownToken);
@@ -227,17 +225,17 @@ public static class AgentCommand
             {
                 try
                 {
-                    var joinResult = await agent.Serf!.JoinAsync(new[] { joinAddr }, replay);
+                    var joinResult = await agent.Serf!.JoinAsync([joinAddr], replay);
                     if (joinResult == 0)
                     {
-                        Console.Error.WriteLine($"Failed to join any nodes at {joinAddr}");
+                        await Console.Error.WriteLineAsync($"Failed to join any nodes at {joinAddr}");
                         return 1;
                     }
                     Console.WriteLine($"Successfully joined {joinResult} node(s)");
                 }
                 catch (Exception ex)
                 {
-                    Console.Error.WriteLine($"Failed to join any nodes ({ex.Message})");
+                    await Console.Error.WriteLineAsync($"Failed to join any nodes ({ex.Message})");
                     return 1;
                 }
             }
@@ -246,7 +244,7 @@ public static class AgentCommand
             Console.WriteLine($"RPC endpoint: {rpcAddr}");
             Console.WriteLine("Press Ctrl+C to shutdown");
 
-            // Wait for shutdown signal
+            // Wait for a shutdown signal
             await Task.Delay(Timeout.Infinite, shutdownToken);
 
             return 0;
@@ -261,7 +259,7 @@ public static class AgentCommand
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"Agent error: {ex.Message}");
+            await Console.Error.WriteLineAsync($"Agent error: {ex.Message}");
             await agent.ShutdownAsync();
             await agent.DisposeAsync();
             return 1;

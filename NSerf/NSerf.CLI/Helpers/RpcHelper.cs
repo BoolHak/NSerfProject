@@ -19,7 +19,7 @@ public static class RpcHelper
     }
 
     /// <summary>
-    /// Gets the default RPC auth key from environment.
+    /// Gets the default RPC auth key from the environment.
     /// </summary>
     public static string? GetDefaultRpcAuth()
     {
@@ -52,7 +52,7 @@ public static class RpcHelper
         }
         catch (Exception ex)
         {
-            client.Dispose();
+            await client.DisposeAsync();
             throw new InvalidOperationException(
                 $"Failed to connect to Serf agent at {address}: {ex.Message}", ex);
         }
