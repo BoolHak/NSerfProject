@@ -265,7 +265,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
         // Step 2: Always create a query handler for internal queries (key management, conflict resolution, etc.)
         // It wraps current eventDestination (snapshotter or config.EventCh can be null)
         serf.Logger?.LogInformation("[Serf/InternalQuery] Setting up internal query handler");
-        var (queryInputCh, queryHandler) = SerfQueries.Create(
+        var (queryInputCh, _queryHandler) = SerfQueries.Create(
             serf,
             eventDestination,  // Query handler wraps snapshotter or config.EventCh (can be null)
             serf._shutdownCts.Token);
@@ -315,7 +315,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
 
             if (config.MemberlistConfig.Transport == null)
             {
-                var transportConfig = new NSerf.Memberlist.Transport.NetTransportConfig
+                var transportConfig = new Memberlist.Transport.NetTransportConfig
                 {
                     BindAddrs = [config.MemberlistConfig.BindAddr],
                     BindPort = config.MemberlistConfig.BindPort,
@@ -364,7 +364,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
 
         serf.StartBackgroundTasks();
 
-        if (previousNodes != null && previousNodes.Count > 0)
+        if (previousNodes is { Count: > 0 })
         {
             serf.Logger?.LogInformation("[Serf/AutoRejoin] Starting auto-rejoin task for {Count} nodes", previousNodes.Count);
 
@@ -696,7 +696,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
             return;
         }
 
-        if (!_shutdownCts.IsCancellationRequested) _shutdownCts.Cancel();
+        if (!_shutdownCts.IsCancellationRequested) await _shutdownCts.CancelAsync();
 
         if (_reapTask != null)
         {
@@ -867,7 +867,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
             () => DecodeTags(node?.Meta ?? []));
 
         var shouldCheckFlap = false;
-        MemberStatus? oldStatus = null;
+        MemberStatus? oldStatus;
         DateTimeOffset? leaveTime = null;
 
         if (node != null)
@@ -910,7 +910,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
             tempEvents,
             Clock,
             Logger,
-            () => DecodeTags(node?.Meta ?? []));
+            () => DecodeTags(node.Meta));
 
         try
         {
@@ -1057,7 +1057,6 @@ public partial class Serf : IDisposable, IAsyncDisposable
                 catch (Exception ex)
                 {
                     Logger?.LogError(ex, "[Serf] Failed to decode conflict query response");
-                    continue;
                 }
             }
 

@@ -19,6 +19,7 @@ public class AgentCommand : IAsyncDisposable
 
     private SerfAgent? _agent;
     private RPC.RpcServer? _rpcServer;
+    private AgentMdns? _mdns;
     private Task? _retryJoinTask;
     private GatedWriter? _gatedWriter;
     private LogWriter? _logWriter;
@@ -85,6 +86,42 @@ public class AgentCommand : IAsyncDisposable
             if (_config.RetryJoin.Length > 0)
             {
                 _retryJoinTask = Task.Run(() => RetryJoinAsync(_shutdownCts.Token), _shutdownCts.Token);
+            }
+
+            // Start mDNS discovery if configured
+            if (!string.IsNullOrEmpty(_config.Discover) && _agent.Serf?.Memberlist != null)
+            {
+                var localNode = _agent.Serf.Memberlist.LocalNode;
+                var bindAddr = localNode.Addr;
+                var bindPort = localNode.Port;
+
+                // Get mDNS interface (use mdns-specific interface if set, otherwise fall back to main interface)
+                System.Net.NetworkInformation.NetworkInterface? mdnsInterface = null;
+                var interfaceName = _config.Mdns.Interface ?? _config.Interface;
+                if (!string.IsNullOrEmpty(interfaceName))
+                {
+                    mdnsInterface = System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
+                        .FirstOrDefault(i => i.Name.Equals(interfaceName, StringComparison.OrdinalIgnoreCase));
+                    
+                    if (mdnsInterface == null)
+                    {
+                        _logger?.LogWarning("[Agent] mDNS interface '{Interface}' not found, using default", interfaceName);
+                    }
+                }
+
+                _logger?.LogInformation("[Agent] Starting mDNS listener for cluster: {Cluster}", _config.Discover);
+                
+                _mdns = new AgentMdns(
+                    _agent,
+                    replay: _config.ReplayOnJoin,
+                    node: _config.NodeName,
+                    discover: _config.Discover,
+                    bind: bindAddr,
+                    port: bindPort,
+                    disableIPv4: _config.Mdns.DisableIPv4,
+                    disableIPv6: _config.Mdns.DisableIPv6,
+                    logger: _logger
+                );
             }
 
             _logger?.LogInformation("[Agent] Serf agent running!");
@@ -282,6 +319,9 @@ public class AgentCommand : IAsyncDisposable
                 // Expected when shutdown token is canceled
             }
         }
+
+        // Dispose mDNS first to stop discovery
+        _mdns?.Dispose();
 
         if (_rpcServer != null)
         {

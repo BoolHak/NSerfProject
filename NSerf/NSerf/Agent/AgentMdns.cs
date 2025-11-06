@@ -1,227 +1,320 @@
 // Copyright (c) BoolHak, Inc.
 // SPDX-License-Identifier: MPL-2.0
 
+using Makaretu.Dns;
 using Microsoft.Extensions.Logging;
+using System.Collections.Concurrent;
 using System.Net;
-using System.Net.Sockets;
 
 namespace NSerf.Agent;
 
 /// <summary>
-/// mDNS discovery for automatic cluster joining.
-/// Maps to: Go's discover.go
+/// AgentMdns is used to advertise ourselves using mDNS and to
+/// attempt to join peers periodically using mDNS queries.
+/// Maps to: Go's mdns.go
 /// </summary>
-public sealed class AgentMdns(string service, string domain = "local", int port = 5353, ILogger? logger = null) : IDisposable
+public sealed class AgentMdns : IDisposable
 {
+    private const int MdnsPollInterval = 60; // seconds
+    private const int MdnsQuietInterval = 100; // milliseconds
+
+    private static readonly Lazy<MulticastService> SharedMdns = new(() =>
+    {
+        var mdns = new MulticastService();
+        mdns.Start();
+        return mdns;
+    });
+
+    private readonly SerfAgent _agent;
+    private readonly string _discover;
+    private readonly ILogger? _logger;
+    private readonly ConcurrentDictionary<string, byte> _seen = new();
+    private readonly ServiceDiscovery _serviceDiscovery;
+    private readonly ServiceProfile _serviceProfile;
+    private readonly bool _replay;
+    private readonly bool _disableIPv4;
+    private readonly bool _disableIPv6;
+    private readonly string _ourAddress;
     private readonly CancellationTokenSource _cts = new();
-    private UdpClient? _client;
-    private Task? _listenerTask;
+    private readonly Task? _runTask;
     private bool _disposed;
 
-    private const int MdnsPort = 5353;
-    //This address is defined in RFC 6762 for local network discovery
-    private const string MdnsAddress = "224.0.0.251";
-
     /// <summary>
-    /// Gets the service name used for mDNS discovery.
+    /// Creates a new AgentMdns instance.
     /// </summary>
-    public string ServiceName => service;
-
-    /// <summary>
-    /// Gets the domain used for mDNS discovery.
-    /// </summary>
-    public string Domain => domain;
-
-    /// <summary>
-    /// Gets whether the mDNS service is started.
-    /// </summary>
-    public bool IsStarted => _client != null && _listenerTask != null && !_disposed;
-
-    /// <summary>
-    /// Start mDNS discovery.
-    /// </summary>
-    /// <returns>True if started successfully, false otherwise</returns>
-    public bool Start()
+    /// <param name="agent">The Serf agent to join discovered peers to</param>
+    /// <param name="replay">Whether to replay user events on join</param>
+    /// <param name="node">The node name to advertise</param>
+    /// <param name="discover">The cluster name for discovery</param>
+    /// <param name="bind">IP address to bind to</param>
+    /// <param name="port">Port number to advertise</param>
+    /// <param name="disableIPv4">Disable IPv4 support</param>
+    /// <param name="disableIPv6">Disable IPv6 support</param>
+    /// <param name="logger">Logger instance</param>
+    public AgentMdns(
+        SerfAgent agent,
+        bool replay,
+        string node,
+        string discover,
+        IPAddress bind,
+        int port,
+        bool disableIPv4 = false,
+        bool disableIPv6 = false,
+        ILogger? logger = null)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
+        _agent = agent ?? throw new ArgumentNullException(nameof(agent));
+        _discover = discover ?? throw new ArgumentNullException(nameof(discover));
+        _logger = logger;
+        _replay = replay;
+        _disableIPv4 = disableIPv4;
+        _disableIPv6 = disableIPv6;
+        _ourAddress = $"{bind}:{port}";
 
-        // Check if already started
-        if (_client != null && _listenerTask != null)
-            return false;
+        // Create the service profile
+        var serviceName = MdnsName(discover);
+        _serviceProfile = new ServiceProfile(
+            instanceName: node,
+            serviceName: serviceName,
+            port: (ushort)port,
+            addresses: [bind]
+        );
 
-        try
-        {
-            _client = new UdpClient(port);
+        // Add TXT record with cluster info
+        _serviceProfile.AddProperty("cluster", $"Serf '{discover}' cluster");
 
-            // Only join a multicast group if using a real port (not 0)
-            if (port != 0)
-            {
-                _client.JoinMulticastGroup(IPAddress.Parse(MdnsAddress));
-            }
+        // Use shared multicast service and create service discovery
+        var mdns = SharedMdns.Value;
+        _serviceDiscovery = new ServiceDiscovery(mdns);
 
-            _listenerTask = Task.Run(() => ListenAsync(_cts.Token), _cts.Token);
+        // Start advertising
+        _serviceDiscovery.Advertise(_serviceProfile);
+        
+        _logger?.LogInformation("[mDNS] Advertising service: {ServiceName} on {Bind}:{Port}", serviceName, bind, port);
 
-            logger?.LogInformation("[mDNS] Started discovery for service: {Service} on port: {Port}", service, port);
-            return true;
-        }
-        catch (Exception ex)
-        {
-            logger?.LogWarning(ex, "[mDNS] Failed to start discovery");
-            return false;
-        }
+        // Start the background worker
+        _runTask = Task.Run(() => RunAsync(_cts.Token), _cts.Token);
+
+        _logger?.LogInformation("[mDNS] Started discovery for cluster: {Discover}", discover);
     }
 
     /// <summary>
-    /// Discover peers via mDNS.
+    /// Background worker that scans for new hosts periodically.
     /// </summary>
-    public async Task<string[]> DiscoverPeersAsync(TimeSpan timeout)
+    private async Task RunAsync(CancellationToken cancellationToken)
     {
-        if (_disposed || _client == null) return [];
+        var hosts = new ConcurrentQueue<ServiceInstanceDiscoveryEventArgs>();
+        Timer? quietTimer = null;
+        var joinList = new List<string>();
+        var joinLock = new object();
 
-        var peers = new List<string>();
-        using var cts = new CancellationTokenSource(timeout);
+        // Subscribe to service instance discovered events
+        EventHandler<ServiceInstanceDiscoveryEventArgs> discoveryHandler = (_, e) =>
+        {
+            _logger?.LogDebug("[mDNS] Service instance discovered: {ServiceName}", e.ServiceInstanceName);
+            hosts.Enqueue(e);
+        };
+        
+        _serviceDiscovery.ServiceInstanceDiscovered += discoveryHandler;
 
+        // Initial poll
+        _ = Task.Run(() => Poll(cancellationToken), cancellationToken);
+
+        var lastPollTime = DateTime.UtcNow;
+        
         try
         {
-            // Send mDNS query
-            var query = BuildMdnsQuery();
-            var endpoint = new IPEndPoint(IPAddress.Parse(MdnsAddress), MdnsPort);
-            await _client.SendAsync(query, query.Length, endpoint);
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                // Process discovered hosts
+                while (hosts.TryDequeue(out var host))
+                {
+                    var addr = FormatAddress(host);
+                    if (addr == null || addr == _ourAddress || _seen.ContainsKey(addr)) continue;
 
-            logger?.LogDebug("[mDNS] Sent discovery query for {Service}", service);
+                    _logger?.LogDebug("[mDNS] Queueing host for join: {Address}", addr);
 
-            // Wait for responses (collected in ListenAsync)
-            await Task.Delay(timeout, cts.Token);
+                    // Queue for handling
+                    lock (joinLock)
+                    {
+                        joinList.Add(addr);
+                    }
+
+                    // Reset quiet timer
+                    if(quietTimer != null) await quietTimer.DisposeAsync();
+                    quietTimer = new Timer(async void (_) =>
+                    {
+                        List<string> toJoin;
+                        lock (joinLock)
+                        {
+                            toJoin = new List<string>(joinList);
+                            joinList.Clear();
+                        }
+
+                        if (toJoin.Count <= 0) return;
+                        _logger?.LogDebug("[mDNS] Attempting to join {Count} hosts after quiet interval", toJoin.Count);
+                        await AttemptJoinAsync(toJoin);
+                    }, null, MdnsQuietInterval, Timeout.Infinite);
+                }
+
+                // Check if it's time to poll again (every 60 seconds)
+                var now = DateTime.UtcNow;
+                if ((now - lastPollTime).TotalSeconds >= MdnsPollInterval)
+                {
+                    lastPollTime = now;
+                    _ = Task.Run(() => Poll(cancellationToken), cancellationToken);
+                }
+
+                // Short delay before next iteration
+                await Task.Delay(100, cancellationToken);
+            }
         }
         catch (OperationCanceledException)
         {
-            // Timeout reached
+            // Expected during shutdown
+        }
+        finally
+        {
+            quietTimer?.Dispose();
+            _serviceDiscovery.ServiceInstanceDiscovered -= discoveryHandler;
+        }
+    }
+
+    /// <summary>
+    /// Polls for new hosts using mDNS query.
+    /// </summary>
+    private void Poll(CancellationToken cancellationToken)
+    {
+        if (cancellationToken.IsCancellationRequested)
+            return;
+
+        try
+        {
+            var serviceName = MdnsName(_discover);
+            _serviceDiscovery.QueryServiceInstances(serviceName);
+            _logger?.LogDebug("[mDNS] Polling for service: {Service}", serviceName);
         }
         catch (Exception ex)
         {
-            logger?.LogWarning(ex, "[mDNS] Discovery error");
-        }
-
-        return [.. peers];
-    }
-
-    private async Task ListenAsync(CancellationToken cancellationToken)
-    {
-        if (_client == null)
-            return;
-
-        while (!cancellationToken.IsCancellationRequested && !_disposed)
-        {
-            try
-            {
-                var result = await _client.ReceiveAsync(cancellationToken);
-                ProcessMdnsResponse(result.Buffer);
-            }
-            catch (OperationCanceledException)
-            {
-                break;
-            }
-            catch (Exception ex)
-            {
-                logger?.LogWarning(ex, "[mDNS] Listener error");
-            }
+            _logger?.LogError(ex, "[mDNS] Failed to poll for new hosts");
         }
     }
 
-    private void ProcessMdnsResponse(byte[] data)
+    /// <summary>
+    /// Attempts to join the discovered hosts.
+    /// </summary>
+    private async Task AttemptJoinAsync(List<string> hosts)
     {
         try
         {
-            //TODO: Implement this using a proper DNS library
-            // Basic mDNS response parsing
-            // In production would use full DNS parser
-            logger?.LogTrace("[mDNS] Received {Bytes} bytes", data.Length);
+            _logger?.LogInformation("[mDNS] Attempting to join {Count} hosts: {Hosts}", hosts.Count, string.Join(", ", hosts));
+            var joined = await _agent.Serf!.JoinAsync(hosts.ToArray(), !_replay);
+            _logger?.LogInformation("[mDNS] Successfully joined {Joined}/{Total} hosts", joined, hosts.Count);
+
+            // Mark all as seen
+            foreach (var host in hosts)
+            {
+                _seen.TryAdd(host, 0);
+            }
         }
         catch (Exception ex)
         {
-            logger?.LogWarning(ex, "[mDNS] Failed to process response");
+            _logger?.LogError(ex, "[mDNS] Failed to join hosts: {Hosts}", string.Join(", ", hosts));
         }
     }
 
-    private byte[] BuildMdnsQuery()
+    /// <summary>
+    /// Formats a service instance address as "IP:Port".
+    /// </summary>
+    private string? FormatAddress(ServiceInstanceDiscoveryEventArgs args)
     {
-        // Basic mDNS query packet
-        // Format: [Header][Question]
-        // In production, would use a proper DNS library
-
-        var query = new List<byte>();
-
-        // Transaction ID (2 bytes)
-        query.AddRange(BitConverter.GetBytes((ushort)0x0000));
-
-        // Flags (2 bytes) - Standard query
-        query.AddRange(BitConverter.GetBytes((ushort)0x0000));
-
-        // Question count (2 bytes)
-        query.AddRange(BitConverter.GetBytes((ushort)0x0001));
-
-        // Answer count (2 bytes)
-        query.AddRange(BitConverter.GetBytes((ushort)0x0000));
-
-        // Authority count (2 bytes)
-        query.AddRange(BitConverter.GetBytes((ushort)0x0000));
-
-        // Additional count (2 bytes)
-        query.AddRange(BitConverter.GetBytes((ushort)0x0000));
-
-        // Question: _service._tcp.local.
-        var serviceName = $"{service}._tcp.{domain}";
-        foreach (var label in serviceName.Split('.'))
+        try
         {
-            if (string.IsNullOrEmpty(label))
-                continue;
+            // Get the first A or AAAA record from Answers or AdditionalRecords
+            var addressRecord = args.Message.Answers
+                .OfType<AddressRecord>()
+                .FirstOrDefault();
 
-            query.Add((byte)label.Length);
-            query.AddRange(System.Text.Encoding.UTF8.GetBytes(label));
+            if (addressRecord == null)
+            {
+                addressRecord = args.Message.AdditionalRecords
+                    .OfType<AddressRecord>()
+                    .FirstOrDefault();
+            }
+
+            if (addressRecord == null)
+            {
+                return null;
+            }
+
+            // Filter by IP version
+            if (_disableIPv4 && addressRecord.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+            {
+                return null;
+            }
+            
+            if (_disableIPv6 && addressRecord.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
+            {
+                return null;
+            }
+
+            // Get the SRV record for port from Answers or AdditionalRecords
+            var srvRecord = args.Message.Answers
+                .OfType<SRVRecord>()
+                .FirstOrDefault();
+
+            if (srvRecord == null)
+            {
+                srvRecord = args.Message.AdditionalRecords
+                    .OfType<SRVRecord>()
+                    .FirstOrDefault();
+            }
+
+            if (srvRecord == null)
+            {
+                return null;
+            }
+
+            var result = $"{addressRecord.Address}:{srvRecord.Port}";
+            _logger?.LogDebug("[mDNS] Discovered peer at {Address}", result);
+            return result;
         }
-        query.Add(0x00); // End of name
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "[mDNS] Failed to format address");
+            return null;
+        }
+    }
 
-        // Type (2 bytes) - PTR (12)
-        query.AddRange(BitConverter.GetBytes((ushort)0x000C));
-
-        // Class (2 bytes) - IN (1)
-        query.AddRange(BitConverter.GetBytes((ushort)0x0001));
-
-        return [.. query];
+    /// <summary>
+    /// Returns the mDNS service name to register and lookup.
+    /// </summary>
+    private static string MdnsName(string discover)
+    {
+        return $"_serf_{discover}._tcp";
     }
 
     public void Dispose()
     {
-        Dispose(true);
-    }
-
-    private void Dispose(bool disposing)
-    {
         if (_disposed)
             return;
 
-        if (disposing)
+        _disposed = true;
+
+        _cts.Cancel();
+
+        try
         {
-            // Dispose of managed resources
-            _cts.Cancel();
-
-            try
-            {
-                _listenerTask?.Wait(TimeSpan.FromSeconds(1));
-            }
-            catch
-            {
-                // Ignore cleanup errors
-            }
-
-            _client?.Close();
-            _client?.Dispose();
-            _cts.Dispose();
+            _runTask?.Wait(TimeSpan.FromSeconds(2));
+        }
+        catch
+        {
+            // Ignore cleanup errors
         }
 
-        // Free unmanaged resources here (none in this case)
+        _serviceDiscovery.Unadvertise(_serviceProfile);
+        _serviceDiscovery.Dispose();
+        _cts.Dispose();
 
-        _disposed = true;
-        logger?.LogInformation("[mDNS] Stopped discovery");
+        _logger?.LogInformation("[mDNS] Stopped discovery");
     }
 }

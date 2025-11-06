@@ -59,6 +59,7 @@ public class AgentConfig(bool replayOnJoin = false)
     // Discovery
     public string? Interface { get; set; }
     public string? Discover { get; set; }  // mDNS discovery
+    public MdnsConfig Mdns { get; set; } = new();
 
     // Event Handlers
     public List<string> EventHandlers { get; set; } = [];
@@ -157,6 +158,11 @@ public class AgentConfig(bool replayOnJoin = false)
         result.Discover = GetValueOrDefault(a, b, c => c.Discover);
         result.StatsiteAddr = GetValueOrDefault(a, b, c => c.StatsiteAddr);
         result.StatsdAddr = GetValueOrDefault(a, b, c => c.StatsdAddr);
+
+        // Merge mDNS configuration
+        result.Mdns.Interface = GetValueOrDefault(a, b, c => c.Mdns.Interface);
+        result.Mdns.DisableIPv4 = b.Mdns.DisableIPv4 || a.Mdns.DisableIPv4;
+        result.Mdns.DisableIPv6 = b.Mdns.DisableIPv6 || a.Mdns.DisableIPv6;
 
         result.Protocol = b.Protocol != 0 ? b.Protocol : a.Protocol;
     }
