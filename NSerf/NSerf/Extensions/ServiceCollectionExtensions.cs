@@ -114,7 +114,7 @@ public static class ServiceCollectionExtensions
         if (string.IsNullOrWhiteSpace(configurationSectionPath))
             throw new ArgumentException("Configuration section path cannot be empty", nameof(configurationSectionPath));
 
-        // Bind configuration section to SerfOptions
+        // Bind the configuration section to SerfOptions
         services.Configure<NSerfOptions>(configuration.GetSection(configurationSectionPath));
 
         // Register SerfAgent as singleton

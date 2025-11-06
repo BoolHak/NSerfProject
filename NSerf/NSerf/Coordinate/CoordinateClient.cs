@@ -5,7 +5,7 @@
 namespace NSerf.Coordinate;
 
 /// <summary>
-/// CoordinateClient manages the estimated network coordinate for a given node, and adjusts
+/// CoordinateClient manages the estimated network coordinate for a given node and adjusts
 /// it as the node observes round trip times and estimated coordinates from other nodes.
 /// The core algorithm is based on Vivaldi.
 /// </summary>
@@ -85,7 +85,7 @@ public class CoordinateClient
     }
 
     /// <summary>
-    /// Returns an error if the coordinate isn't compatible with this client,
+    /// Returns an error if the coordinate isn't compatible with this client
     /// or if the coordinate itself isn't valid.
     /// </summary>
     private void CheckCoordinate(Coordinate coord)
@@ -158,7 +158,7 @@ public class CoordinateClient
     }
 
     /// <summary>
-    /// Updates the adjustment portion of the client's coordinate, if the feature is enabled.
+    /// Updates the adjustment portion of the client's coordinate if the feature is enabled.
     /// </summary>
     private void UpdateAdjustment(Coordinate other, double rttSeconds)
     {
@@ -168,7 +168,7 @@ public class CoordinateClient
         }
 
         // Note that the existing adjustment factors don't figure in to this
-        // calculation so we use the raw distance here.
+        // calculation, so we use the raw distance here.
         var dist = _coord.RawDistanceTo(other);
         _adjustmentSamples[_adjustmentIndex] = rttSeconds - dist;
         _adjustmentIndex = (_adjustmentIndex + 1) % _config.AdjustmentWindowSize;
@@ -193,7 +193,7 @@ public class CoordinateClient
     }
 
     /// <summary>
-    /// Takes other, a coordinate for another node, and rtt, a round trip
+    /// Takes other, a coordinate for another node, and rtt, a round-trip
     /// time observation for a ping to that node, and updates the estimated position of
     /// the client's coordinate. Returns the updated coordinate.
     /// </summary>
@@ -244,7 +244,7 @@ public class CoordinateClient
 public struct ClientStats
 {
     /// <summary>
-    /// Resets is incremented any time we reset our local coordinate because
+    /// Resets are incremented any time we reset our local coordinate because
     /// our calculations have resulted in an invalid state.
     /// </summary>
     public int Resets { get; set; }

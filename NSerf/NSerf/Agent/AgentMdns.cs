@@ -143,16 +143,23 @@ public sealed class AgentMdns : IDisposable
                     if(quietTimer != null) await quietTimer.DisposeAsync();
                     quietTimer = new Timer(async void (_) =>
                     {
-                        List<string> toJoin;
-                        lock (joinLock)
+                        try
                         {
-                            toJoin = new List<string>(joinList);
-                            joinList.Clear();
-                        }
+                            List<string> toJoin;
+                            lock (joinLock)
+                            {
+                                toJoin = new List<string>(joinList);
+                                joinList.Clear();
+                            }
 
-                        if (toJoin.Count <= 0) return;
-                        _logger?.LogDebug("[mDNS] Attempting to join {Count} hosts after quiet interval", toJoin.Count);
-                        await AttemptJoinAsync(toJoin);
+                            if (toJoin.Count <= 0) return;
+                            _logger?.LogDebug("[mDNS] Attempting to join {Count} hosts after quiet interval", toJoin.Count);
+                            await AttemptJoinAsync(toJoin);
+                        }
+                        catch (Exception e)
+                        {
+                            _logger?.LogError(e,"[mDNS] error in timer: {Error}", e.Message);
+                        }
                     }, null, MdnsQuietInterval, Timeout.Infinite);
                 }
 
@@ -174,7 +181,7 @@ public sealed class AgentMdns : IDisposable
         }
         finally
         {
-            quietTimer?.Dispose();
+            if(quietTimer != null ) await quietTimer.DisposeAsync();
             _serviceDiscovery.ServiceInstanceDiscovered -= discoveryHandler;
         }
     }
@@ -241,21 +248,7 @@ public sealed class AgentMdns : IDisposable
                     .FirstOrDefault();
             }
 
-            if (addressRecord == null)
-            {
-                return null;
-            }
-
-            // Filter by IP version
-            if (_disableIPv4 && addressRecord.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
-            {
-                return null;
-            }
-            
-            if (_disableIPv6 && addressRecord.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
-            {
-                return null;
-            }
+            if (CanNotBeFormatted(addressRecord)) return null;
 
             // Get the SRV record for port from Answers or AdditionalRecords
             var srvRecord = args.Message.Answers
@@ -269,12 +262,9 @@ public sealed class AgentMdns : IDisposable
                     .FirstOrDefault();
             }
 
-            if (srvRecord == null)
-            {
-                return null;
-            }
+            if (srvRecord == null) return null;
 
-            var result = $"{addressRecord.Address}:{srvRecord.Port}";
+            var result = $"{addressRecord!.Address}:{srvRecord.Port}";
             _logger?.LogDebug("[mDNS] Discovered peer at {Address}", result);
             return result;
         }
@@ -285,13 +275,15 @@ public sealed class AgentMdns : IDisposable
         }
     }
 
+    private bool CanNotBeFormatted(AddressRecord? addressRecord) =>
+        addressRecord == null  
+        || (_disableIPv4 && addressRecord.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork) 
+        || (_disableIPv6 && addressRecord.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6);
+
     /// <summary>
     /// Returns the mDNS service name to register and lookup.
     /// </summary>
-    private static string MdnsName(string discover)
-    {
-        return $"_serf_{discover}._tcp";
-    }
+    private static string MdnsName(string discover) => $"_serf_{discover}._tcp";
 
     public void Dispose()
     {

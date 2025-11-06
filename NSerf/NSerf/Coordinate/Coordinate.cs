@@ -117,11 +117,9 @@ public class Coordinate
         var (unit, mag) = UnitVectorAt(Vec, other.Vec);
         ret.Vec = Add(ret.Vec, Mul(unit, force));
 
-        if (mag > ZeroThreshold)
-        {
-            ret.Height = (ret.Height + other.Height) * force / mag + ret.Height;
-            ret.Height = Math.Max(ret.Height, config.HeightMin);
-        }
+        if (!(mag > ZeroThreshold)) return ret;
+        ret.Height = (ret.Height + other.Height) * force / mag + ret.Height;
+        ret.Height = Math.Max(ret.Height, config.HeightMin);
 
         return ret;
     }
@@ -138,10 +136,8 @@ public class Coordinate
 
         var dist = RawDistanceTo(other);
         var adjustedDist = dist + Adjustment + other.Adjustment;
-        if (adjustedDist > 0.0)
-        {
-            dist = adjustedDist;
-        }
+        
+        if (adjustedDist > 0.0) dist = adjustedDist;
 
         // Handle NaN/Infinity - return zero if invalid
         if (double.IsNaN(dist) || double.IsInfinity(dist) || dist < 0)
@@ -169,7 +165,7 @@ public class Coordinate
     private static double[] Add(double[] vec1, double[] vec2)
     {
         var ret = new double[vec1.Length];
-        for (int i = 0; i < ret.Length; i++)
+        for (var i = 0; i < ret.Length; i++)
         {
             ret[i] = vec1[i] + vec2[i];
         }
@@ -182,7 +178,7 @@ public class Coordinate
     private static double[] Diff(double[] vec1, double[] vec2)
     {
         var ret = new double[vec1.Length];
-        for (int i = 0; i < ret.Length; i++)
+        for (var i = 0; i < ret.Length; i++)
         {
             ret[i] = vec1[i] - vec2[i];
         }
@@ -195,7 +191,7 @@ public class Coordinate
     private static double[] Mul(double[] vec, double factor)
     {
         var ret = new double[vec.Length];
-        for (int i = 0; i < vec.Length; i++)
+        for (var i = 0; i < vec.Length; i++)
         {
             ret[i] = vec[i] * factor;
         }
@@ -207,24 +203,20 @@ public class Coordinate
     /// </summary>
     private static double Magnitude(double[] vec)
     {
-        double sum = 0.0;
-        foreach (var component in vec)
-        {
-            sum += component * component;
-        }
+        var sum = vec.Sum(component => component * component);
         return Math.Sqrt(sum);
     }
 
     /// <summary>
     /// Returns a unit vector pointing at vec1 from vec2. If the two
-    /// positions are the same then a random unit vector is returned.
+    /// positions are the same, then a random unit vector is returned.
     /// Also returns the distance between the points.
     /// </summary>
     private static (double[] unitVector, double magnitude) UnitVectorAt(double[] vec1, double[] vec2)
     {
         var ret = Diff(vec1, vec2);
 
-        // If the coordinates aren't on top of each other we can normalize.
+        // If the coordinates aren't on top of each other, we can normalize.
         var mag = Magnitude(ret);
         if (mag > ZeroThreshold)
         {
@@ -233,7 +225,7 @@ public class Coordinate
 
         // Otherwise, just return a random unit vector.
         var random = new Random();
-        for (int i = 0; i < ret.Length; i++)
+        for (var i = 0; i < ret.Length; i++)
         {
             ret[i] = random.NextDouble() - 0.5;
         }
@@ -255,10 +247,4 @@ public class Coordinate
 /// <summary>
 /// Exception thrown when you try to perform operations with incompatible dimensions.
 /// </summary>
-public class DimensionalityConflictException : Exception
-{
-    public DimensionalityConflictException()
-        : base("coordinate dimensionality does not match")
-    {
-    }
-}
+public class DimensionalityConflictException() : Exception("coordinate dimensionality does not match");

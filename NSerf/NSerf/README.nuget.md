@@ -29,7 +29,7 @@ using NSerf.Extensions;
 var builder = WebApplication.CreateBuilder(args);
 
 // Add Serf with default configuration
-builder.Services.AddSerf(options =>
+builder.Services.AddNSerf(options =>
 {
     options.NodeName = "web-server-1";
     options.BindAddr = "0.0.0.0:7946";
@@ -105,7 +105,7 @@ public class CustomEventHandler : IEventHandler
 ## 🔧 Configuration Options
 
 ```csharp
-builder.Services.AddSerf(options =>
+builder.Services.AddNSerf(options =>
 {
     options.NodeName = "web-server-1";          // Unique node name
     options.BindAddr = "0.0.0.0:7946";          // Bind address
@@ -136,7 +136,7 @@ builder.Services.AddSerf(options =>
 
 ## 🧪 Battle-Tested
 
-- ✅ 1230+ comprehensive tests
+- ✅ 1260+ comprehensive tests
 - ✅ Full Serf 1.6.x protocol compatibility
 - ✅ Production-ready encryption
 - ✅ Cross-platform support (Windows, Linux, macOS)

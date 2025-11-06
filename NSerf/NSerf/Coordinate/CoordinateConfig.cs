@@ -18,7 +18,7 @@ public class CoordinateConfig
 {
     /// <summary>
     /// The dimensionality of the coordinate system. As discussed in [2], more
-    /// dimensions improves the accuracy of the estimates up to a point. Per [2]
+    /// dimensions improve the accuracy of the estimates up to a point. Per [2]
     /// we chose 8 dimensions plus a non-Euclidean height.
     /// </summary>
     public uint Dimensionality { get; set; } = 8;
@@ -58,7 +58,7 @@ public class CoordinateConfig
 
     /// <summary>
     /// LatencyFilterSize is the maximum number of samples that are retained
-    /// per node, to compute a median. The intent is to ride out blips
+    /// per node to compute a median. The intent is to ride out blips
     /// but still keep the delay low. See [2] for more details.
     /// </summary>
     public uint LatencyFilterSize { get; set; } = 3;
