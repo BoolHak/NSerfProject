@@ -83,7 +83,7 @@ Install-Package NSerf
 Or add directly to your `.csproj` file:
 
 ```xml
-<PackageReference Include="NSerf" Version="0.1.2-beta" />
+<PackageReference Include="NSerf" Version="0.1.3-beta" />
 ```
 
 **Latest Version**: [![NuGet](https://img.shields.io/nuget/v/NSerf.svg)](https://www.nuget.org/packages/NSerf/)
@@ -108,13 +108,13 @@ dotnet build NSerf.sln
 
 2. **Run the agent locally**
    ```powershell
-   dotnet run --project NSerf.CLI -- agent
+   dotnet run --project NSerf.CLI --agent
    ```
 
 3. **Invoke commands against a running agent**
    ```powershell
-   dotnet run --project NSerf.CLI -- members
-   dotnet run --project NSerf.CLI -- query "ping" --payload "hello"
+   dotnet run --project NSerf.CLI --members
+   dotnet run --project NSerf.CLI --query "ping" --payload "hello"
    ```
 
 ---
@@ -131,7 +131,7 @@ Add Serf to your application with default settings:
 using NSerf.Extensions;
 
 var builder = WebApplication.CreateBuilder(args);
-builder.Services.AddSerf();
+builder.Services.AddNSerf();
 
 var app = builder.Build();
 app.Run();
@@ -140,7 +140,7 @@ app.Run();
 ### Custom Configuration
 
 ```csharp
-builder.Services.AddSerf(options =>
+builder.Services.AddNSerf(options =>
 {
     options.NodeName = "web-server-1";
     options.BindAddr = "0.0.0.0:7946";
@@ -174,7 +174,7 @@ builder.Services.AddSerf(options =>
 
 **Program.cs:**
 ```csharp
-builder.Services.AddSerf(builder.Configuration, "Serf");
+builder.Services.AddNSerf(builder.Configuration, "Serf");
 ```
 
 ### Using Serf in Your Services
@@ -532,8 +532,6 @@ This example demonstrates that **NSerf provides enterprise-grade service discove
 - **Production-ready** - Used patterns from HashiCorp and Netflix
 - **Simple integration** - < 200 lines of integration code
 - **Zero external dependencies** - Everything in your .NET stack
-
-**This is the killer feature that makes NSerf indispensable for .NET cloud-native applications!**
 
 For detailed documentation, see [`NSerf.YarpExample/README.md`](NSerf/NSerf.YarpExample/README.md).
 
