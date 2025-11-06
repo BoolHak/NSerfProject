@@ -400,7 +400,7 @@ public class RpcSession : IAsyncDisposable
                 return false;
 
             if (tagRegexes == null) return true;
-            
+
             foreach (var tagRegex in tagRegexes)
             {
                 if (!m.Tags.TryGetValue(tagRegex.Key, out var value) || !tagRegex.Value.IsMatch(value))
@@ -518,7 +518,7 @@ public class RpcSession : IAsyncDisposable
 
         // Start with existing tags
         var currentTags = _agent.Serf?.Config.Tags ?? [];
-        
+
         foreach (var tag in currentTags
                      .Where(tag => !request.DeleteTags.Contains(tag.Key)))
         {
@@ -755,7 +755,6 @@ public class RpcSession : IAsyncDisposable
             return;
         }
 
-        //TODO: Loglevel filtering is not yet implemented
         var request = MessagePackSerializer.Deserialize<Client.Requests.MonitorRequest>(requestBytes.Value, MsgPackOptions, cancellationToken);
 
         // Send success response
@@ -773,8 +772,11 @@ public class RpcSession : IAsyncDisposable
         }
 
         // Register log handler and stream logs
-        var logHandler = new RpcLogHandler(_stream!, _writeLock, cancellationToken);
-        _agent.LogWriter?.RegisterHandler(logHandler);
+        // Apply log-level filtering as requested by the client
+        var requestedLevel = LogLevelExtensions.FromString(request.LogLevel ?? "INFO");
+        var baseHandler = new RpcLogHandler(_stream!, _writeLock, cancellationToken);
+        var filteredHandler = new FilteredLogHandler(baseHandler, requestedLevel);
+        _agent.LogWriter?.RegisterHandler(filteredHandler);
 
         try
         {
@@ -787,8 +789,8 @@ public class RpcSession : IAsyncDisposable
         }
         finally
         {
-            _agent.LogWriter?.DeregisterHandler(logHandler);
-            logHandler.Dispose();
+            _agent.LogWriter?.DeregisterHandler(filteredHandler);
+            baseHandler.Dispose();
         }
     }
 

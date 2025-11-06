@@ -400,6 +400,8 @@ FodyWeavers.xsd
 
 # SonarQube (project-specific)
 NSerf/NSerf/.sonarqube/
+.sonarqube/
 
+#refrence libs
 memberlist/
 serf/
