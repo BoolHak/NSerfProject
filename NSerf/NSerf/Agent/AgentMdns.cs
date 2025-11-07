@@ -5,6 +5,7 @@ using Makaretu.Dns;
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
 using System.Net;
+using MdnsServiceDiscovery = Makaretu.Dns.ServiceDiscovery;
 
 namespace NSerf.Agent;
 
@@ -29,7 +30,7 @@ public sealed class AgentMdns : IDisposable
     private readonly string _discover;
     private readonly ILogger? _logger;
     private readonly ConcurrentDictionary<string, byte> _seen = new();
-    private readonly ServiceDiscovery _serviceDiscovery;
+    private readonly MdnsServiceDiscovery _serviceDiscovery;
     private readonly ServiceProfile _serviceProfile;
     private readonly bool _replay;
     private readonly bool _disableIPv4;
@@ -84,7 +85,7 @@ public sealed class AgentMdns : IDisposable
 
         // Use shared multicast service and create service discovery
         var mdns = SharedMdns.Value;
-        _serviceDiscovery = new ServiceDiscovery(mdns);
+        _serviceDiscovery = new MdnsServiceDiscovery(mdns);
 
         // Start advertising
         _serviceDiscovery.Advertise(_serviceProfile);
