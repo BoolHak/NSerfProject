@@ -166,36 +166,4 @@ public static class MessageEncoder
 
         return (truncated, parts);
     }
-
-    /// <summary>
-    /// Encodes a PushPullHeader into bytes using MessagePack.
-    /// </summary>
-    public static byte[] EncodePushPullHeader(PushPullHeader header)
-    {
-        return MessagePackSerializer.Serialize(header);
-    }
-
-    /// <summary>
-    /// Decodes a PushPullHeader from bytes using MessagePack.
-    /// </summary>
-    public static PushPullHeader DecodePushPullHeader(byte[] buffer)
-    {
-        return MessagePackSerializer.Deserialize<PushPullHeader>(buffer);
-    }
-
-    /// <summary>
-    /// Encodes a PushNodeState into bytes using MessagePack.
-    /// </summary>
-    public static byte[] EncodePushNodeState(PushNodeState nodeState)
-    {
-        return MessagePackSerializer.Serialize(nodeState);
-    }
-
-    /// <summary>
-    /// Decodes a PushNodeState from bytes using MessagePack.
-    /// </summary>
-    public static PushNodeState DecodePushNodeState(byte[] buffer)
-    {
-        return MessagePackSerializer.Deserialize<PushNodeState>(buffer);
-    }
 }

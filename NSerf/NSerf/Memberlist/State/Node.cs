@@ -138,7 +138,7 @@ public class NodeState
     /// </summary>
     public bool DeadOrLeft()
     {
-        return State == NodeStateType.Dead || State == NodeStateType.Left;
+        return State is NodeStateType.Dead or NodeStateType.Left;
     }
 
     /// <summary>

@@ -8,6 +8,7 @@ using FluentAssertions;
 using NSerf.Memberlist;
 using NSerf.Serf;
 using NSerf.Memberlist.Configuration;
+using NSerf.Memberlist.Security;
 using Xunit;
 
 namespace NSerfTests.Serf;

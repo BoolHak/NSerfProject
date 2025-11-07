@@ -132,7 +132,7 @@ public class Suspicion : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
-        _timer?.Dispose();
+        _timer.Dispose();
         GC.SuppressFinalize(this);
     }
 }

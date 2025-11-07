@@ -3,18 +3,14 @@
 // UpdateNode() Port - TDD Tests
 // Based on: github.com/hashicorp/memberlist/memberlist_test.go - TestMemberlist_UpdateNode
 
-using System.Net;
-using FluentAssertions;
+
 using Microsoft.Extensions.Logging.Abstractions;
-using NSerf.Memberlist;
 using NSerf.Memberlist.Configuration;
 using NSerf.Memberlist.Delegates;
+using NSerf.Memberlist.Messages;
 using NSerf.Memberlist.State;
 using NSerf.Memberlist.Transport;
-using Xunit;
 
-// Import for MetaMaxSize constant
-using MessageConstants = NSerf.Memberlist.MessageConstants;
 
 namespace NSerfTests.Memberlist;
 

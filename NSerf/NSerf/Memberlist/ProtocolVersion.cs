@@ -5,7 +5,7 @@
 namespace NSerf.Memberlist;
 
 /// <summary>
-/// Protocol version constants for memberlist.
+/// Protocol version constants for the memberlist.
 /// </summary>
 public static class ProtocolVersion
 {
@@ -15,8 +15,8 @@ public static class ProtocolVersion
     public const byte Min = 1;
     
     /// <summary>
-    /// Version 3 added support for TCP pings but we kept the default
-    /// protocol version at 2 to ease transition to this new feature.
+    /// Version 3 added support for TCP pings, but we kept the default
+    /// protocol version at 2 to ease the transition to this new feature.
     /// </summary>
     public const byte Version2Compatible = 2;
     

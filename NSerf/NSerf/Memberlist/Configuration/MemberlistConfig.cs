@@ -5,6 +5,7 @@
 using System.Net;
 using Microsoft.Extensions.Logging;
 using NSerf.Memberlist.Delegates;
+using NSerf.Memberlist.Security;
 using NSerf.Memberlist.Transport;
 
 namespace NSerf.Memberlist.Configuration;

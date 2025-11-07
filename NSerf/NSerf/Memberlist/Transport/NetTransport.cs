@@ -254,7 +254,7 @@ public class NetTransport : INodeAwareTransport
 
         var endpoint = new IPEndPoint(IPAddress.Parse(host), port);
 
-        // Use first UDP listener to send
+        // Use the first UDP listener to send
         await _udpListeners[0].SendAsync(buffer, endpoint, cancellationToken);
 
         return DateTimeOffset.UtcNow;

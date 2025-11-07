@@ -1,6 +1,7 @@
 using FluentAssertions;
 using NSerf.Memberlist;
 using NSerf.Memberlist.Configuration;
+using NSerf.Memberlist.Handlers;
 using NSerf.Memberlist.Messages;
 using NSerf.Memberlist.Transport;
 using Xunit;

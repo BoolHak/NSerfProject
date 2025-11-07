@@ -7,7 +7,9 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using NSerf.Memberlist;
 using NSerf.Memberlist.Configuration;
+using NSerf.Memberlist.Handlers;
 using NSerf.Memberlist.Messages;
+using NSerf.Memberlist.Security;
 using NSerf.Memberlist.Transport;
 using Xunit.Abstractions;
 
@@ -243,7 +245,7 @@ public class UdpEncryptionTests : IAsyncLifetime
 
         // Encrypt the packet
         var authData = System.Text.Encoding.UTF8.GetBytes("testlabel");
-        var encrypted = Security.EncryptPayload(1, key, packet, authData);
+        var encrypted = SecurityTools.EncryptPayload(1, key, packet, authData);
 
         // Add label header
         var withLabel = LabelHandler.AddLabelHeaderToPacket(encrypted, "testlabel");
@@ -284,7 +286,7 @@ public class UdpEncryptionTests : IAsyncLifetime
         var packet = NSerf.Memberlist.Messages.MessageEncoder.Encode(MessageType.Ping, pingMsg);
 
         var authData = System.Text.Encoding.UTF8.GetBytes("testlabel");
-        var encrypted = Security.EncryptPayload(1, wrongKey, packet, authData);
+        var encrypted = SecurityTools.EncryptPayload(1, wrongKey, packet, authData);
         var withLabel = LabelHandler.AddLabelHeaderToPacket(encrypted, "testlabel");
 
         var targetAddr = new Address { Addr = $"{m1.Config.BindAddr}:{m1.Config.BindPort}", Name = "" };
@@ -348,10 +350,10 @@ public class UdpEncryptionTests : IAsyncLifetime
 
         // Act - Encrypt with label as auth data
         var authData = System.Text.Encoding.UTF8.GetBytes(label);
-        var encrypted = Security.EncryptPayload(1, key, message, authData);
+        var encrypted = SecurityTools.EncryptPayload(1, key, message, authData);
 
         // Assert - Decryption should succeed with same auth data
-        var decrypted = Security.DecryptPayload(new[] { key }, encrypted, authData);
+        var decrypted = SecurityTools.DecryptPayload(new[] { key }, encrypted, authData);
         decrypted.Should().BeEquivalentTo(message);
     }
 
@@ -367,11 +369,11 @@ public class UdpEncryptionTests : IAsyncLifetime
 
         // Act - Encrypt with correct label
         var correctAuthData = System.Text.Encoding.UTF8.GetBytes(correctLabel);
-        var encrypted = Security.EncryptPayload(1, key, message, correctAuthData);
+        var encrypted = SecurityTools.EncryptPayload(1, key, message, correctAuthData);
 
         // Assert - Decryption with wrong label should fail
         var wrongAuthData = System.Text.Encoding.UTF8.GetBytes(wrongLabel);
-        Action act = () => Security.DecryptPayload(new[] { key }, encrypted, wrongAuthData);
+        Action act = () => SecurityTools.DecryptPayload(new[] { key }, encrypted, wrongAuthData);
         act.Should().Throw<Exception>("wrong authenticated data should fail decryption");
     }
 
@@ -624,7 +626,7 @@ public class UdpEncryptionTests : IAsyncLifetime
         var packet = NSerf.Memberlist.Messages.MessageEncoder.Encode(MessageType.Ping, pingMsg);
         
         var authData = System.Text.Encoding.UTF8.GetBytes("multikey");
-        var encrypted = Security.EncryptPayload(1, key2, packet, authData); // Use key2
+        var encrypted = SecurityTools.EncryptPayload(1, key2, packet, authData); // Use key2
         var withLabel = LabelHandler.AddLabelHeaderToPacket(encrypted, "multikey");
 
         using var sender = new UdpClient();
@@ -713,7 +715,7 @@ public class UdpEncryptionTests : IAsyncLifetime
         var pingMsg = new PingMessage { SeqNo = 99, Node = "sender" };
         var packet = NSerf.Memberlist.Messages.MessageEncoder.Encode(MessageType.Ping, pingMsg);
         var authData = System.Text.Encoding.UTF8.GetBytes("test");
-        var encrypted = Security.EncryptPayload(1, key, packet, authData);
+        var encrypted = SecurityTools.EncryptPayload(1, key, packet, authData);
         var withLabel = LabelHandler.AddLabelHeaderToPacket(encrypted, "test");
 
         // Corrupt the ciphertext (flip bits in the middle)
@@ -749,7 +751,7 @@ public class UdpEncryptionTests : IAsyncLifetime
         var pingMsg = new PingMessage { SeqNo = 99, Node = "sender" };
         var packet = NSerf.Memberlist.Messages.MessageEncoder.Encode(MessageType.Ping, pingMsg);
         var authData = System.Text.Encoding.UTF8.GetBytes("test");
-        var encrypted = Security.EncryptPayload(1, key, packet, authData);
+        var encrypted = SecurityTools.EncryptPayload(1, key, packet, authData);
         var withLabel = LabelHandler.AddLabelHeaderToPacket(encrypted, "test");
 
         // Truncate the packet (remove last 10 bytes)
@@ -785,7 +787,7 @@ public class UdpEncryptionTests : IAsyncLifetime
         var pingMsg = new PingMessage { SeqNo = 99, Node = "sender" };
         var packet = NSerf.Memberlist.Messages.MessageEncoder.Encode(MessageType.Ping, pingMsg);
         var wrongAuthData = System.Text.Encoding.UTF8.GetBytes("wrong-label");
-        var encrypted = Security.EncryptPayload(1, key, packet, wrongAuthData);
+        var encrypted = SecurityTools.EncryptPayload(1, key, packet, wrongAuthData);
         
         // But send with correct label header (mismatch!)
         var withLabel = LabelHandler.AddLabelHeaderToPacket(encrypted, "correct-label");
@@ -819,14 +821,14 @@ public class UdpEncryptionTests : IAsyncLifetime
         var authData = System.Text.Encoding.UTF8.GetBytes("test");
 
         // Act
-        var encrypted = Security.EncryptPayload(1, key, largeData, authData);
+        var encrypted = SecurityTools.EncryptPayload(1, key, largeData, authData);
 
         // Assert - Should complete without error
         encrypted.Should().NotBeNull();
         encrypted.Length.Should().BeGreaterThan(largeData.Length, "encrypted is larger due to overhead");
 
         // Verify can decrypt
-        var decrypted = Security.DecryptPayload(new[] { key }, encrypted, authData);
+        var decrypted = SecurityTools.DecryptPayload(new[] { key }, encrypted, authData);
         decrypted.Should().BeEquivalentTo(largeData);
     }
 
@@ -840,14 +842,14 @@ public class UdpEncryptionTests : IAsyncLifetime
         var authData = Array.Empty<byte>();
 
         // Act
-        var encrypted = Security.EncryptPayload(1, key, minimalData, authData);
+        var encrypted = SecurityTools.EncryptPayload(1, key, minimalData, authData);
 
         // Assert
         encrypted.Should().NotBeNull();
         encrypted.Length.Should().Be(1 + 12 + 1 + 16); // version + nonce + data + tag = 30 bytes
 
         // Verify can decrypt
-        var decrypted = Security.DecryptPayload(new[] { key }, encrypted, authData);
+        var decrypted = SecurityTools.DecryptPayload(new[] { key }, encrypted, authData);
         decrypted.Should().BeEquivalentTo(minimalData);
     }
 
@@ -859,7 +861,7 @@ public class UdpEncryptionTests : IAsyncLifetime
         var emptyPacket = Array.Empty<byte>();
 
         // Act
-        Action act = () => Security.DecryptPayload(new[] { key }, emptyPacket, Array.Empty<byte>());
+        Action act = () => SecurityTools.DecryptPayload(new[] { key }, emptyPacket, Array.Empty<byte>());
 
         // Assert
         act.Should().Throw<Exception>()
@@ -880,14 +882,14 @@ public class UdpEncryptionTests : IAsyncLifetime
         var authData = Array.Empty<byte>();
 
         // Act - Version 0 uses PKCS7 padding
-        var encrypted = Security.EncryptPayload(0, key, message, authData);
+        var encrypted = SecurityTools.EncryptPayload(0, key, message, authData);
 
         // Assert - Version 0 has different overhead due to padding
-        var overhead = Security.EncryptOverhead(0);
+        var overhead = SecurityTools.EncryptOverhead(0);
         encrypted.Length.Should().BeGreaterOrEqualTo(1 + 12 + 5 + 16); // version + nonce + data + padding + tag
 
         // Verify decryption
-        var decrypted = Security.DecryptPayload(new[] { key }, encrypted, authData);
+        var decrypted = SecurityTools.DecryptPayload(new[] { key }, encrypted, authData);
         decrypted.Should().BeEquivalentTo(message);
     }
 
@@ -901,13 +903,13 @@ public class UdpEncryptionTests : IAsyncLifetime
         var authData = Array.Empty<byte>();
 
         // Act - Version 1 has no padding
-        var encrypted = Security.EncryptPayload(1, key, message, authData);
+        var encrypted = SecurityTools.EncryptPayload(1, key, message, authData);
 
         // Assert - Exact size: version(1) + nonce(12) + message(5) + tag(16) = 34
         encrypted.Length.Should().Be(34);
 
         // Verify decryption
-        var decrypted = Security.DecryptPayload(new[] { key }, encrypted, authData);
+        var decrypted = SecurityTools.DecryptPayload(new[] { key }, encrypted, authData);
         decrypted.Should().BeEquivalentTo(message);
     }
 
@@ -924,7 +926,7 @@ public class UdpEncryptionTests : IAsyncLifetime
         new Random().NextBytes(fakePacket.AsSpan(1));
 
         // Act
-        Action act = () => Security.DecryptPayload(new[] { key }, fakePacket, Array.Empty<byte>());
+        Action act = () => SecurityTools.DecryptPayload(new[] { key }, fakePacket, Array.Empty<byte>());
 
         // Assert
         act.Should().Throw<Exception>();

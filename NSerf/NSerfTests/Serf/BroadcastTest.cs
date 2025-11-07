@@ -5,6 +5,7 @@
 using NSerf.Serf;
 using NSerf.Memberlist;
 using System.Threading.Channels;
+using NSerf.Memberlist.Broadcast;
 
 namespace NSerfTests.Serf;
 

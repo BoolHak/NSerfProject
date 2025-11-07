@@ -6,6 +6,7 @@ using NSerf.Serf.Events;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using System.Threading.Channels;
+using NSerf.Memberlist.State;
 
 namespace NSerfTests.Integration;
 
@@ -159,7 +160,7 @@ public class LeaveEventBroadcastTests : IDisposable
         };
 
         // Trigger HandleDeadNode through state handler
-        var stateHandler = new NSerf.Memberlist.StateHandlers(memberlist, _logger);
+        var stateHandler = new StateHandlers(memberlist, _logger);
         stateHandler.HandleDeadNode(deadMsg);
 
         // ASSERT: Check node state
@@ -196,7 +197,7 @@ public class LeaveEventBroadcastTests : IDisposable
             Incarnation = 5
         };
 
-        var stateHandler = new NSerf.Memberlist.StateHandlers(memberlist1, _logger);
+        var stateHandler = new StateHandlers(memberlist1, _logger);
         stateHandler.HandleDeadNode(deadMsg);
 
         // ASSERT: Check node state
@@ -322,7 +323,7 @@ public class LeaveEventBroadcastTests : IDisposable
         await Task.Delay(500);
 
         var memberlist1 = serf1.Memberlist!;
-        var stateHandler = new NSerf.Memberlist.StateHandlers(memberlist1, _logger);
+        var stateHandler = new StateHandlers(memberlist1, _logger);
 
         // Simulate failure detection on proxy: backend-test reported dead by another node
         var failureMsg = new NSerf.Memberlist.Messages.Dead

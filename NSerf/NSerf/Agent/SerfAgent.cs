@@ -7,6 +7,7 @@ using NSerf.Serf.Events;
 using NSerf.Agent.RPC;
 using System.Text.Json;
 using System.Threading.Channels;
+using NSerf.Memberlist.Security;
 
 namespace NSerf.Agent;
 
@@ -26,7 +27,7 @@ public class SerfAgent : IAsyncDisposable
     private bool _disposed;
     private bool _started;
     private readonly SemaphoreSlim _shutdownLock = new(1, 1);
-    private Memberlist.Keyring? _loadedKeyring;
+    private Keyring? _loadedKeyring;
 
     /// <summary>
     /// Circular log writer for monitor command.
@@ -174,7 +175,7 @@ public class SerfAgent : IAsyncDisposable
             var keyBytes = _config.EncryptBytes();
             if (keyBytes == null) return;
             
-            config.MemberlistConfig.Keyring = Memberlist.Keyring.Create(null, keyBytes);
+            config.MemberlistConfig.Keyring = Keyring.Create(null, keyBytes);
             _logger?.LogDebug("[Agent] Configured keyring from EncryptKey");
         }
     }
@@ -449,7 +450,7 @@ public class SerfAgent : IAsyncDisposable
         {
             // The first key is primary, rest are secondary
             var secondaryKeys = keys.Count > 1 ? keys.Skip(1).ToArray() : null;
-            var keyring = Memberlist.Keyring.Create(secondaryKeys, keys[0]);
+            var keyring = Keyring.Create(secondaryKeys, keys[0]);
 
             // Store keyring to be used when building Serf config
             _loadedKeyring = keyring;

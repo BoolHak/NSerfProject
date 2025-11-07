@@ -4,6 +4,7 @@
 
 using System.Threading.Channels;
 using NSerf.Memberlist;
+using NSerf.Memberlist.Broadcast;
 
 namespace NSerf.Serf;
 

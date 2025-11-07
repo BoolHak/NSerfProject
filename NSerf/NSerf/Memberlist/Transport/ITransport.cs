@@ -33,16 +33,16 @@ public class Packet
 
 /// <summary>
 /// Transport abstracts over communicating with other peers.
-/// The packet interface is assumed to be best-effort and the stream interface
+/// The packet interface is assumed to be best-effort, and the stream interface
 /// is assumed to be reliable.
 /// </summary>
 public interface ITransport : IDisposable
 {
     /// <summary>
-    /// Gets the final advertise address given the user's configured values.
+    /// Gets the final advertisement address given the user's configured values.
     /// Returns the desired IP and port to advertise to the rest of the cluster.
     /// </summary>
-    /// <param name="ip">User-configured IP (may be empty).</param>
+    /// <param name="ip">User-configured IP (maybe empty).</param>
     /// <param name="port">User-configured port.</param>
     /// <returns>Tuple of (IP address, port).</returns>
     (IPAddress Ip, int Port) FinalAdvertiseAddr(string ip, int port);
@@ -80,7 +80,7 @@ public interface ITransport : IDisposable
     ChannelReader<NetworkStream> StreamChannel { get; }
 
     /// <summary>
-    /// Called when memberlist is shutting down to clean up listeners.
+    /// Called when the memberlist is shutting down to clean up listeners.
     /// </summary>
     Task ShutdownAsync();
 }
@@ -96,7 +96,7 @@ public class Address
     public string Addr { get; set; } = string.Empty;
 
     /// <summary>
-    /// Name of the node being addressed. Optional but some transports may require it.
+    /// The name of the node being addressed. Optional, but some transports may require it.
     /// </summary>
     public string Name { get; set; } = string.Empty;
 

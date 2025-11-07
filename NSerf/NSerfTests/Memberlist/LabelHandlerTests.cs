@@ -4,6 +4,7 @@
 
 using FluentAssertions;
 using NSerf.Memberlist;
+using NSerf.Memberlist.Handlers;
 using Xunit;
 
 namespace NSerfTests.Memberlist;

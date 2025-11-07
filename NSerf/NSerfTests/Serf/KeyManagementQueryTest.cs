@@ -7,6 +7,7 @@ using System.Threading.Channels;
 using FluentAssertions;
 using NSerf.Memberlist;
 using NSerf.Memberlist.Configuration;
+using NSerf.Memberlist.Security;
 using NSerf.Serf;
 using NSerf.Serf.Events;
 using Xunit;

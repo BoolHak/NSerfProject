@@ -5,6 +5,7 @@
 using FluentAssertions;
 using NSerf.Memberlist;
 using NSerf.Memberlist.Configuration;
+using NSerf.Memberlist.Security;
 using Xunit;
 using SerfSerf = NSerf.Serf.Serf;
 using Config = NSerf.Serf.Config;

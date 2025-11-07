@@ -2,6 +2,8 @@
 // Copyright (c) Boolhak, Inc.
 // SPDX-License-Identifier: MPL-2.0
 
+using NSerf.Memberlist.Broadcast;
+
 namespace NSerf.Memberlist;
 
 /// <summary>
@@ -250,7 +252,7 @@ internal class LimitedBroadcast
 }
 
 /// <summary>
-/// Comparer for LimitedBroadcast that prioritizes by transmit count, then message length, then ID.
+/// Comparer for LimitedBroadcast that prioritizes by transmitted count, then message length, then ID.
 /// </summary>
 internal class LimitedBroadcastComparer : IComparer<LimitedBroadcast>
 {

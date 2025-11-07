@@ -9,6 +9,7 @@ using NSerf.Serf.Managers;
 using NSerf.Serf.Helpers;
 using MessagePack;
 using System.Threading.Channels;
+using NSerf.Memberlist.Broadcast;
 
 namespace NSerf.Serf;
 

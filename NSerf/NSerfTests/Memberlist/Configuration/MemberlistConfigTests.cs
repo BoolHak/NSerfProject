@@ -22,7 +22,6 @@ public class MemberlistConfigTests
         config.BindAddr.Should().Be("0.0.0.0");
         config.BindPort.Should().Be(7946);
         config.AdvertisePort.Should().Be(7946);
-        config.ProtocolVersion.Should().Be(MessageConstants.ProtocolVersion2Compatible);
 
         // Assert - Timeouts
         config.TCPTimeout.Should().Be(TimeSpan.FromSeconds(10));

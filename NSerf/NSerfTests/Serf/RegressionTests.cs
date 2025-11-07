@@ -438,12 +438,12 @@ public class RegressionTests : IDisposable
             }
         };
 
-        using var s1 = await NSerf.Serf.Serf.CreateAsync(config1);
+        await using var s1 = await NSerf.Serf.Serf.CreateAsync(config1);
         var s2 = await NSerf.Serf.Serf.CreateAsync(config2);
         var s2Port = config2.MemberlistConfig.BindPort;
 
         // Step 1: Join
-        await s1.JoinAsync(new[] { $"127.0.0.1:{s2Port}" }, ignoreOld: false);
+        await s1.JoinAsync([$"127.0.0.1:{s2Port}"], ignoreOld: false);
         await Task.Delay(500);
         s1.NumMembers().Should().Be(2);
 
@@ -453,20 +453,18 @@ public class RegressionTests : IDisposable
         // Step 2: Graceful leave (tests leave intent handling)
         await s2.LeaveAsync();
         await s2.ShutdownAsync();
-        s2.Dispose();
+        await s2.DisposeAsync();
 
         // Wait for Left status
         var leftDetected = false;
-        for (int i = 0; i < 30; i++)
+        for (var i = 0; i < 30; i++)
         {
             await Task.Delay(100);
             var members = s1.Members();
             var node2 = members.FirstOrDefault(m => m.Name == "node2");
-            if (node2?.Status == MemberStatus.Left)
-            {
-                leftDetected = true;
-                break;
-            }
+            if (node2?.Status != MemberStatus.Left) continue;
+            leftDetected = true;
+            break;
         }
         leftDetected.Should().BeTrue("node2 should reach Left status");
 
@@ -483,11 +481,11 @@ public class RegressionTests : IDisposable
         // This is expected behavior: after graceful leave with cleared snapshot, rejoin doesn't work automatically.
         
         config2.MemberlistConfig.BindPort = s2Port;
-        using var s2Restarted = await NSerf.Serf.Serf.CreateAsync(config2);
+        await using var s2Restarted = await NSerf.Serf.Serf.CreateAsync(config2);
         await Task.Delay(300);
 
         // Attempt rejoin (will be rejected due to lower incarnation after Left)
-        await s2Restarted.JoinAsync(new[] { $"127.0.0.1:{config1.MemberlistConfig.BindPort}" }, ignoreOld: false);
+        await s2Restarted.JoinAsync([$"127.0.0.1:{config1.MemberlistConfig.BindPort}"], ignoreOld: false);
         
         // Wait for probing to detect failure
         await Task.Delay(1500);
@@ -500,12 +498,12 @@ public class RegressionTests : IDisposable
 
         node1Final.Status.Should().Be(MemberStatus.Alive, "node1 should be Alive");
         // After graceful leave with cleared snapshot, rejoin doesn't work - node becomes Failed
-        (node2Final.Status == MemberStatus.Left || node2Final.Status == MemberStatus.Failed)
+        (node2Final.Status is MemberStatus.Left or MemberStatus.Failed)
             .Should().BeTrue("node2 should be Left or Failed after rejected rejoin attempt");
 
         // Step 4: Verify Members() returns consistent status
         await Task.Delay(1500);
-        for (int i = 0; i < 3; i++)
+        for (var i = 0; i < 3; i++)
         {
             var membersFresh = s1.Members();
             var node2Fresh = membersFresh.FirstOrDefault(m => m.Name == "node2");

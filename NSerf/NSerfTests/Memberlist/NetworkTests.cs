@@ -6,6 +6,7 @@ using System.Net;
 using FluentAssertions;
 using NSerf.Memberlist;
 using NSerf.Memberlist.Configuration;
+using NSerf.Memberlist.Handlers;
 using NSerfTests.Memberlist.Transport;
 using Xunit;
 using MessageEncoder = NSerf.Memberlist.Messages.MessageEncoder;

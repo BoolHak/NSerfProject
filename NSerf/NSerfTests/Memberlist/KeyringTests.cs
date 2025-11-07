@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 using NSerf.Memberlist;
+using NSerf.Memberlist.Security;
 
 namespace NSerfTests.Memberlist;
 

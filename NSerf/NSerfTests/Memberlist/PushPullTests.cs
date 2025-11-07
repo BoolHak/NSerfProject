@@ -9,6 +9,7 @@ using NSerf.Memberlist;
 using NSerf.Memberlist.Configuration;
 using NSerf.Memberlist.Delegates;
 using NSerf.Memberlist.Messages;
+using NSerf.Memberlist.Security;
 using NSerf.Memberlist.State;
 using Xunit;
 
