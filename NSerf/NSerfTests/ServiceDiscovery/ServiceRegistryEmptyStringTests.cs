@@ -1,5 +1,4 @@
 using NSerf.ServiceDiscovery;
-using Xunit;
 
 namespace NSerfTests.ServiceDiscovery;
 

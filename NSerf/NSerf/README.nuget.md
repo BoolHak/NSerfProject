@@ -5,7 +5,7 @@ A complete C# port of [HashiCorp Serf](https://www.serf.io/) for decentralized c
 ## ✨ Features
 
 - ✅ **Full Serf Protocol** - Complete implementation of Serf 1.6.x
-- ✅ **SWIM Gossip** - Scalable, weakly-consistent infection-style dissemination
+- ✅ **SWIM Gossip** - Scalable, weakly consistent infection-style dissemination
 - ✅ **ASP.NET Core Integration** - First-class dependency injection support
 - ✅ **RPC Client/Server** - Complete RPC implementation with authentication
 - ✅ **Event Handlers** - Custom event processing and queries
@@ -111,8 +111,8 @@ builder.Services.AddNSerf(options =>
     options.BindAddr = "0.0.0.0:7946";          // Bind address
     options.EncryptKey = "base64-key";          // Optional encryption
     options.Tags["role"] = "web";               // Node metadata
-    options.StartJoin = new[] { "node1:7946" }; // Bootstrap nodes
-    options.RetryJoin = new[] { "node1:7946" }; // Auto-rejoin
+    options.StartJoin = ["node1:7946"]; // Bootstrap nodes
+    options.RetryJoin = ["node1:7946"]; // Auto-rejoin
     options.SnapshotPath = "/var/serf/snap";    // State persistence
     options.RejoinAfterLeave = true;            // Allow rejoin
 });

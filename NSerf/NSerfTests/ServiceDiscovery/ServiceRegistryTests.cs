@@ -5,8 +5,8 @@ namespace NSerfTests.ServiceDiscovery;
 
 public class ServiceRegistryTests
 {
-    [Fact]
-    public void RegisterInstanceAsync_NewInstance_RaisesRegisteredEvent()
+    [Fact(Timeout = 10000)]
+    public async Task RegisterInstanceAsync_NewInstance_RaisesRegisteredEvent()
     {
         // Arrange
         using var registry = new ServiceRegistry();
@@ -22,7 +22,7 @@ public class ServiceRegistryTests
         };
 
         // Act
-        registry.RegisterInstanceAsync(instance).Wait();
+        await registry.RegisterInstanceAsync(instance);
 
         // Assert
         Assert.NotNull(capturedEvent);
@@ -31,8 +31,8 @@ public class ServiceRegistryTests
         Assert.Equal(instance, capturedEvent.Instance);
     }
 
-    [Fact]
-    public void RegisterInstanceAsync_ExistingInstance_RaisesUpdatedEvent()
+    [Fact(Timeout = 10000)]
+    public async Task RegisterInstanceAsync_ExistingInstance_RaisesUpdatedEvent()
     {
         // Arrange
         using var registry = new ServiceRegistry();
@@ -45,7 +45,7 @@ public class ServiceRegistryTests
             HealthStatus = InstanceHealthStatus.Unknown
         };
 
-        registry.RegisterInstanceAsync(instance1).Wait();
+        await registry.RegisterInstanceAsync(instance1);
 
         ServiceChangedEventArgs? capturedEvent = null;
         registry.ServiceChanged += (s, e) => capturedEvent = e;
@@ -53,7 +53,7 @@ public class ServiceRegistryTests
         var instance2 = instance1 with { HealthStatus = InstanceHealthStatus.Healthy };
 
         // Act
-        registry.RegisterInstanceAsync(instance2).Wait();
+        await registry.RegisterInstanceAsync(instance2);
 
         // Assert
         Assert.NotNull(capturedEvent);
@@ -62,8 +62,8 @@ public class ServiceRegistryTests
         Assert.Equal(InstanceHealthStatus.Healthy, capturedEvent.Instance!.HealthStatus);
     }
 
-    [Fact]
-    public void DeregisterInstanceAsync_ExistingInstance_RaisesDeregisteredEvent()
+    [Fact(Timeout = 10000)]
+    public async Task DeregisterInstanceAsync_ExistingInstance_RaisesDeregisteredEvent()
     {
         // Arrange
         using var registry = new ServiceRegistry();
@@ -75,13 +75,13 @@ public class ServiceRegistryTests
             Port = 8080
         };
 
-        registry.RegisterInstanceAsync(instance).Wait();
+        await registry.RegisterInstanceAsync(instance);
 
         ServiceChangedEventArgs? capturedEvent = null;
         registry.ServiceChanged += (s, e) => capturedEvent = e;
 
         // Act
-        registry.DeregisterInstanceAsync("test-service", "instance1").Wait();
+        await registry.DeregisterInstanceAsync("test-service", "instance1");
 
         // Assert
         Assert.NotNull(capturedEvent);
@@ -90,8 +90,8 @@ public class ServiceRegistryTests
         Assert.Equal(instance.Id, capturedEvent.Instance!.Id);
     }
 
-    [Fact]
-    public void DeregisterInstanceAsync_NonExistentInstance_DoesNotRaiseEvent()
+    [Fact(Timeout = 10000)]
+    public async Task DeregisterInstanceAsync_NonExistentInstance_DoesNotRaiseEvent()
     {
         // Arrange
         using var registry = new ServiceRegistry();
@@ -99,14 +99,14 @@ public class ServiceRegistryTests
         registry.ServiceChanged += (s, e) => eventRaised = true;
 
         // Act
-        registry.DeregisterInstanceAsync("test-service", "nonexistent").Wait();
+        await registry.DeregisterInstanceAsync("test-service", "nonexistent");
 
         // Assert
         Assert.False(eventRaised);
     }
 
-    [Fact]
-    public void DeregisterInstanceAsync_LastInstance_RemovesService()
+    [Fact(Timeout = 10000)]
+    public async Task DeregisterInstanceAsync_LastInstance_RemovesService()
     {
         // Arrange
         using var registry = new ServiceRegistry();
@@ -118,18 +118,18 @@ public class ServiceRegistryTests
             Port = 8080
         };
 
-        registry.RegisterInstanceAsync(instance).Wait();
+        await registry.RegisterInstanceAsync(instance);
 
         // Act
-        registry.DeregisterInstanceAsync("test-service", "instance1").Wait();
+        await registry.DeregisterInstanceAsync("test-service", "instance1");
 
         // Assert
         var service = registry.GetService("test-service");
         Assert.Null(service);
     }
 
-    [Fact]
-    public void UpdateHealthStatusAsync_ExistingInstance_UpdatesStatusAndRaisesEvent()
+    [Fact(Timeout = 10000)]
+    public async Task UpdateHealthStatusAsync_ExistingInstance_UpdatesStatusAndRaisesEvent()
     {
         // Arrange
         using var registry = new ServiceRegistry();
@@ -142,13 +142,13 @@ public class ServiceRegistryTests
             HealthStatus = InstanceHealthStatus.Unknown
         };
 
-        registry.RegisterInstanceAsync(instance).Wait();
+        await registry.RegisterInstanceAsync(instance);
 
         ServiceChangedEventArgs? capturedEvent = null;
         registry.ServiceChanged += (s, e) => capturedEvent = e;
 
         // Act
-        registry.UpdateHealthStatusAsync("test-service", "instance1", InstanceHealthStatus.Healthy).Wait();
+        await registry.UpdateHealthStatusAsync("test-service", "instance1", InstanceHealthStatus.Healthy);
 
         // Assert
         Assert.NotNull(capturedEvent);
@@ -160,8 +160,8 @@ public class ServiceRegistryTests
         Assert.Equal(InstanceHealthStatus.Healthy, instances[0].HealthStatus);
     }
 
-    [Fact]
-    public void UpdateHealthStatusAsync_NonExistentInstance_DoesNotRaiseEvent()
+    [Fact(Timeout = 10000)]
+    public async Task UpdateHealthStatusAsync_NonExistentInstance_DoesNotRaiseEvent()
     {
         // Arrange
         using var registry = new ServiceRegistry();
@@ -169,7 +169,7 @@ public class ServiceRegistryTests
         registry.ServiceChanged += (s, e) => eventRaised = true;
 
         // Act
-        registry.UpdateHealthStatusAsync("test-service", "nonexistent", InstanceHealthStatus.Healthy).Wait();
+        await registry.UpdateHealthStatusAsync("test-service", "nonexistent", InstanceHealthStatus.Healthy);
 
         // Assert
         Assert.False(eventRaised);
@@ -188,27 +188,27 @@ public class ServiceRegistryTests
         Assert.Empty(services);
     }
 
-    [Fact]
-    public void GetServices_MultipleServices_ReturnsAllServices()
+    [Fact(Timeout = 10000)]
+    public async Task GetServices_MultipleServices_ReturnsAllServices()
     {
         // Arrange
         using var registry = new ServiceRegistry();
-        
-        registry.RegisterInstanceAsync(new ServiceInstance
+
+        await registry.RegisterInstanceAsync(new ServiceInstance
         {
             Id = "instance1",
             ServiceName = "service1",
             Host = "localhost",
             Port = 8080
-        }).Wait();
+        });
 
-        registry.RegisterInstanceAsync(new ServiceInstance
+        await registry.RegisterInstanceAsync(new ServiceInstance
         {
             Id = "instance2",
             ServiceName = "service2",
             Host = "localhost",
             Port = 8081
-        }).Wait();
+        });
 
         // Act
         var services = registry.GetServices();
@@ -219,18 +219,18 @@ public class ServiceRegistryTests
         Assert.Contains(services, s => s.Name == "service2");
     }
 
-    [Fact]
-    public void GetService_ExistingService_ReturnsService()
+    [Fact(Timeout = 10000)]
+    public async Task GetService_ExistingService_ReturnsService()
     {
         // Arrange
         using var registry = new ServiceRegistry();
-        registry.RegisterInstanceAsync(new ServiceInstance
+        await registry.RegisterInstanceAsync(new ServiceInstance
         {
             Id = "instance1",
             ServiceName = "test-service",
             Host = "localhost",
             Port = 8080
-        }).Wait();
+        });
 
         // Act
         var service = registry.GetService("test-service");
@@ -254,27 +254,27 @@ public class ServiceRegistryTests
         Assert.Null(service);
     }
 
-    [Fact]
-    public void GetInstances_ExistingService_ReturnsAllInstances()
+    [Fact(Timeout = 10000)]
+    public async Task GetInstances_ExistingService_ReturnsAllInstances()
     {
         // Arrange
         using var registry = new ServiceRegistry();
-        
-        registry.RegisterInstanceAsync(new ServiceInstance
+
+        await registry.RegisterInstanceAsync(new ServiceInstance
         {
             Id = "instance1",
             ServiceName = "test-service",
             Host = "host1",
             Port = 8080
-        }).Wait();
+        });
 
-        registry.RegisterInstanceAsync(new ServiceInstance
+        await registry.RegisterInstanceAsync(new ServiceInstance
         {
             Id = "instance2",
             ServiceName = "test-service",
             Host = "host2",
             Port = 8080
-        }).Wait();
+        });
 
         // Act
         var instances = registry.GetInstances("test-service");
@@ -296,38 +296,38 @@ public class ServiceRegistryTests
         Assert.Empty(instances);
     }
 
-    [Fact]
-    public void GetHealthyInstances_MixedHealthStatuses_ReturnsOnlyHealthy()
+    [Fact(Timeout = 10000)]
+    public async Task GetHealthyInstances_MixedHealthStatuses_ReturnsOnlyHealthy()
     {
         // Arrange
         using var registry = new ServiceRegistry();
-        
-        registry.RegisterInstanceAsync(new ServiceInstance
+
+        await registry.RegisterInstanceAsync(new ServiceInstance
         {
             Id = "instance1",
             ServiceName = "test-service",
             Host = "host1",
             Port = 8080,
             HealthStatus = InstanceHealthStatus.Healthy
-        }).Wait();
+        });
 
-        registry.RegisterInstanceAsync(new ServiceInstance
+        await registry.RegisterInstanceAsync(new ServiceInstance
         {
             Id = "instance2",
             ServiceName = "test-service",
             Host = "host2",
             Port = 8080,
             HealthStatus = InstanceHealthStatus.Unhealthy
-        }).Wait();
+        });
 
-        registry.RegisterInstanceAsync(new ServiceInstance
+        await registry.RegisterInstanceAsync(new ServiceInstance
         {
             Id = "instance3",
             ServiceName = "test-service",
             Host = "host3",
             Port = 8080,
             HealthStatus = InstanceHealthStatus.Healthy
-        }).Wait();
+        });
 
         // Act
         var healthyInstances = registry.GetHealthyInstances("test-service");
@@ -337,20 +337,20 @@ public class ServiceRegistryTests
         Assert.All(healthyInstances, i => Assert.Equal(InstanceHealthStatus.Healthy, i.HealthStatus));
     }
 
-    [Fact]
-    public void GetHealthyInstances_NoHealthyInstances_ReturnsEmptyList()
+    [Fact(Timeout = 10000)]
+    public async Task GetHealthyInstances_NoHealthyInstances_ReturnsEmptyList()
     {
         // Arrange
         using var registry = new ServiceRegistry();
-        
-        registry.RegisterInstanceAsync(new ServiceInstance
+
+        await registry.RegisterInstanceAsync(new ServiceInstance
         {
             Id = "instance1",
             ServiceName = "test-service",
             Host = "host1",
             Port = 8080,
             HealthStatus = InstanceHealthStatus.Unhealthy
-        }).Wait();
+        });
 
         // Act
         var healthyInstances = registry.GetHealthyInstances("test-service");
@@ -359,21 +359,21 @@ public class ServiceRegistryTests
         Assert.Empty(healthyInstances);
     }
 
-    [Fact]
-    public void ServiceRegistry_ConcurrentReads_DoNotBlock()
+    [Fact(Timeout = 10000)]
+    public async Task ServiceRegistry_ConcurrentReads_DoNotBlock()
     {
         // Arrange
         using var registry = new ServiceRegistry();
         
         for (int i = 0; i < 10; i++)
         {
-            registry.RegisterInstanceAsync(new ServiceInstance
+            await  registry.RegisterInstanceAsync(new ServiceInstance
             {
                 Id = $"instance{i}",
                 ServiceName = "test-service",
                 Host = "localhost",
                 Port = 8080 + i
-            }).Wait();
+            });
         }
 
         // Act - Multiple concurrent reads
@@ -383,14 +383,14 @@ public class ServiceRegistryTests
             tasks[i] = Task.Run(() => registry.GetInstances("test-service"));
         }
 
-        Task.WaitAll(tasks);
+        await Task.WhenAll(tasks);
 
         // Assert - All reads should succeed
         Assert.All(tasks, t => Assert.Equal(10, t.Result.Count));
     }
 
-    [Fact]
-    public void ServiceRegistry_ConcurrentWrites_AreThreadSafe()
+    [Fact(Timeout = 10000)]
+    public async Task ServiceRegistry_ConcurrentWrites_AreThreadSafe()
     {
         // Arrange
         using var registry = new ServiceRegistry();
@@ -409,36 +409,36 @@ public class ServiceRegistryTests
             }));
         }
 
-        Task.WaitAll(tasks);
+        await Task.WhenAll(tasks);
 
         // Assert - All instances should be registered
         var instances = registry.GetInstances("test-service");
         Assert.Equal(100, instances.Count);
     }
 
-    [Fact]
-    public void Service_Properties_CalculateCorrectly()
+    [Fact(Timeout = 10000)]
+    public async Task Service_Properties_CalculateCorrectly()
     {
         // Arrange
         using var registry = new ServiceRegistry();
-        
-        registry.RegisterInstanceAsync(new ServiceInstance
+
+        await registry.RegisterInstanceAsync(new ServiceInstance
         {
             Id = "instance1",
             ServiceName = "test-service",
             Host = "host1",
             Port = 8080,
             HealthStatus = InstanceHealthStatus.Healthy
-        }).Wait();
+        });
 
-        registry.RegisterInstanceAsync(new ServiceInstance
+        await registry.RegisterInstanceAsync(new ServiceInstance
         {
             Id = "instance2",
             ServiceName = "test-service",
             Host = "host2",
             Port = 8080,
             HealthStatus = InstanceHealthStatus.Unhealthy
-        }).Wait();
+        });
 
         // Act
         var service = registry.GetService("test-service");
@@ -450,19 +450,19 @@ public class ServiceRegistryTests
         Assert.True(service.HasHealthyInstances);
     }
 
-    [Fact]
-    public void Dispose_DisposesLock()
+    [Fact(Timeout = 10000)]
+    public async Task Dispose_DisposesLock()
     {
         // Arrange
         var registry = new ServiceRegistry();
         
-        registry.RegisterInstanceAsync(new ServiceInstance
+        await registry.RegisterInstanceAsync(new ServiceInstance
         {
             Id = "instance1",
             ServiceName = "test-service",
             Host = "localhost",
             Port = 8080
-        }).Wait();
+        });
 
         // Act
         registry.Dispose();
