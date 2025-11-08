@@ -112,18 +112,10 @@ public sealed class ServiceDiscoveryHttpMessageHandler : DelegatingHandler
         }
 
         // Don't resolve if it contains dots (FQDN) unless explicitly allowed
-        if (host.Contains('.') && !_options.ResolveFqdns)
-        {
-            return false;
-        }
+        if (host.Contains('.') && !_options.ResolveFqdns) return false;
 
         // Don't resolve localhost
-        if (host.Equals("localhost", StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
-        return true;
+        return !host.Equals("localhost", StringComparison.OrdinalIgnoreCase);
     }
 
     private Task<ServiceInstance?> ResolveEndpointAsync(

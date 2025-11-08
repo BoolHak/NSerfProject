@@ -4,9 +4,17 @@
 using System.CommandLine;
 using NSerf.CLI.Commands;
 
+var cts = new CancellationTokenSource();
+Console.CancelKeyPress += (_, e) =>
+{
+    e.Cancel = true;
+    cts.Cancel();
+};
+
 var rootCommand = new RootCommand("NSerf - Service orchestration and discovery tool")
 {
     // Add commands
+    AgentCommand.Create(cts.Token), // Agent command must be first
     MembersCommand.Create(),
     JoinCommand.Create(),
     LeaveCommand.Create(),

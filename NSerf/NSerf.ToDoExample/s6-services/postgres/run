@@ -1,0 +1,3 @@
+#!/bin/sh
+echo "🐘 Starting PostgreSQL service..."
+exec /usr/local/bin/docker-entrypoint.sh postgres

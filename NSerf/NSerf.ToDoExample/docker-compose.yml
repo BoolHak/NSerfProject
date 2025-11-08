@@ -1,0 +1,74 @@
+version: '3.8'
+
+services:
+  # PostgreSQL with NSerf agent INSIDE the container
+  postgres:
+    build:
+      context: ..
+      dockerfile: NSerf.ToDoExample/postgres.Dockerfile
+    container_name: todo-postgres
+    environment:
+      POSTGRES_DB: tododb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres123
+      SERF_NODE_NAME: postgres-node
+      # No SERF_SEED - this is the first node
+    ports:
+      - "5432:5432"
+      - "7946:7946"  # Serf gossip port
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - todo-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres && dotnet /usr/local/nserf/NSerf.CLI.dll members"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Todo API #1 with embedded NSerf
+  todo-api:
+    build:
+      context: ..
+      dockerfile: NSerf.ToDoExample/Dockerfile
+    container_name: todo-api-1
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8080
+      - SERF_SEED=postgres:7946  # Join PostgreSQL's Serf agent
+      - POSTGRES_PASSWORD=postgres123
+    ports:
+      - "8080:8080"
+    networks:
+      - todo-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Todo API #2 (for load balancing demo)
+  todo-api-2:
+    build:
+      context: ..
+      dockerfile: NSerf.ToDoExample/Dockerfile
+    container_name: todo-api-2
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8080
+      - SERF_SEED=postgres:7946
+      - POSTGRES_PASSWORD=postgres123
+    ports:
+      - "8081:8080"
+    networks:
+      - todo-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+networks:
+  todo-network:
+    driver: bridge
+
+volumes:
+  postgres-data:
