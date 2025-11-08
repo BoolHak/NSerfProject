@@ -195,6 +195,15 @@ public partial class Serf : IDisposable, IAsyncDisposable
         // Send it through the main event pipeline (includes snapshotter if enabled)
         EventManager?.EmitEvent(evt);
     }
+    
+    /// <summary>
+    /// Returns the current tags for the local member.
+    /// Convenience method that wraps LocalMember().Tags.
+    /// </summary>
+    public Dictionary<string, string> GetTags()
+    {
+        return new Dictionary<string, string>(LocalMember().Tags);
+    }
 
     /// <summary>
     /// Creates a new Serf instance with the given configuration.
