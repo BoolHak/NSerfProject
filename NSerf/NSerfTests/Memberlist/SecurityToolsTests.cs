@@ -103,11 +103,11 @@ public class SecurityToolsTests
         
         var message = "Secret"u8.ToArray();
         
-        // Act - Encrypt with correct key
-        var encrypted = SecurityTools.EncryptPayload(1, correctKey, message, Array.Empty<byte>());
+        // Act - Encrypt with the correct key
+        var encrypted = SecurityTools.EncryptPayload(1, correctKey, message, []);
         
-        // Act - Try to decrypt with wrong key
-        Action act = () => SecurityTools.DecryptPayload(new[] { wrongKey }, encrypted, Array.Empty<byte>());
+        // Act - Try to decrypt with the wrong key
+        Action act = () => SecurityTools.DecryptPayload([wrongKey], encrypted, []);
         
         // Assert
         act.Should().Throw<Exception>()
