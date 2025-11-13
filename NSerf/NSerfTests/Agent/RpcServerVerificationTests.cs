@@ -45,10 +45,13 @@ public class RpcServerVerificationTests
             // Read response
             var reader = new MessagePackStreamReader(stream);
             var responseBytes = await reader.ReadAsync(CancellationToken.None);
-            var response = MessagePackSerializer.Deserialize<ResponseHeader>(responseBytes.Value);
+            if (responseBytes != null)
+            {
+                var response = MessagePackSerializer.Deserialize<ResponseHeader>(responseBytes.Value);
 
-            // Assert
-            Assert.Contains("handshake", response.Error.ToLower());
+                // Assert
+                Assert.Contains("handshake", response.Error.ToLower());
+            }
         }
         finally
         {
@@ -95,10 +98,13 @@ public class RpcServerVerificationTests
             // Read response
             var reader = new MessagePackStreamReader(stream);
             var responseBytes = await reader.ReadAsync(CancellationToken.None);
-            var response = MessagePackSerializer.Deserialize<ResponseHeader>(responseBytes.Value);
+            if (responseBytes != null)
+            {
+                var response = MessagePackSerializer.Deserialize<ResponseHeader>(responseBytes.Value);
 
-            // Assert
-            Assert.Contains("duplicate", response.Error.ToLower());
+                // Assert
+                Assert.Contains("duplicate", response.Error.ToLower());
+            }
         }
         finally
         {

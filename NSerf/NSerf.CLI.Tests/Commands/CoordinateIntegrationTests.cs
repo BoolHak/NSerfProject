@@ -71,7 +71,7 @@ public class CoordinateIntegrationTests : IAsyncLifetime
         if (coord2 == null)
         {
             // Log skip reason for visibility in test output
-            var skipMessage = $"SKIPPED: Remote node coordinate not available after {8}s timeout - gossip hasn't converged yet. This is an expected eventual consistency scenario.";
+            var skipMessage = $"SKIPPED: Remote node coordinate not available after 8s timeout - gossip hasn't converged yet. This is an expected eventual consistency scenario.";
             Console.WriteLine(skipMessage);
             return;
         }

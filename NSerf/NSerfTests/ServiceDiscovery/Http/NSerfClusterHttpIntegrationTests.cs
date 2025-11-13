@@ -347,19 +347,21 @@ public sealed class NSerfClusterHttpIntegrationTests : IAsyncLifetime
         var provider = new NSerfServiceProvider(serf);
         provider.ServiceDiscovered += async (_, e) =>
         {
-            _output.WriteLine($"[{nodeName}] Service event: {e.ChangeType} - {e.ServiceName}/{e.Instance.Id}");
-            
-            if (e.ChangeType == ServiceChangeType.InstanceRegistered)
+            _output.WriteLine($"[{nodeName}] Service event: {e.ChangeType} - {e.ServiceName}/{e.Instance?.Id}");
+
+            switch (e.ChangeType)
             {
-                await _registry.RegisterInstanceAsync(e.Instance);
-            }
-            else if (e.ChangeType == ServiceChangeType.InstanceDeregistered)
-            {
-                await _registry.DeregisterInstanceAsync(e.ServiceName, e.Instance.Id);
-            }
-            else if (e.ChangeType == ServiceChangeType.InstanceUpdated)
-            {
-                await _registry.RegisterInstanceAsync(e.Instance);
+                case ServiceChangeType.InstanceRegistered:
+                    if (e.Instance != null) await _registry.RegisterInstanceAsync(e.Instance);
+                    break;
+                case ServiceChangeType.InstanceDeregistered:
+                    await _registry.DeregisterInstanceAsync(e.ServiceName, e.Instance?.Id);
+                    break;
+                case ServiceChangeType.InstanceUpdated:
+                    if (e.Instance != null) await _registry.RegisterInstanceAsync(e.Instance);
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException();
             }
         };
 

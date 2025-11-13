@@ -68,15 +68,11 @@ public class Suspicion : IDisposable
         {
             // If we've got enough confirmations then stop accepting them
             if (Volatile.Read(ref _n) >= _k)
-            {
                 return false;
-            }
 
             // Only allow one confirmation from each possible peer
             if (!_confirmations.Add(from))
-            {
                 return false;
-            }
 
             // Increment confirmation count atomically
             var n = Interlocked.Increment(ref _n);
@@ -119,10 +115,7 @@ public class Suspicion : IDisposable
         var raw = max.TotalSeconds - frac * (max.TotalSeconds - min.TotalSeconds);
         var timeout = TimeSpan.FromMilliseconds(Math.Floor(1000.0 * raw));
 
-        if (timeout < min)
-        {
-            timeout = min;
-        }
+        if (timeout < min) timeout = min;
 
         // Take into account the time that has passed so far
         return timeout - elapsed;

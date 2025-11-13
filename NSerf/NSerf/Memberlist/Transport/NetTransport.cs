@@ -55,9 +55,7 @@ public class NetTransport : INodeAwareTransport
     public static NetTransport Create(NetTransportConfig config)
     {
         if (config.BindAddrs.Count == 0)
-        {
             throw new ArgumentException("At least one bind address is required", nameof(config));
-        }
 
         var transport = new NetTransport(config);
 
@@ -92,10 +90,8 @@ public class NetTransport : INodeAwareTransport
             // Create TCP listener with SO_REUSEADDR to avoid TIME_WAIT issues
             var tcpListener = new TcpListener(ip, port);
             // On Windows, disable ExclusiveAddressUse to allow port reuse
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-            {
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) 
                 tcpListener.Server.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ExclusiveAddressUse, false);
-            }
             tcpListener.Server.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
             tcpListener.Start();
             _tcpListeners.Add(tcpListener);
@@ -168,10 +164,7 @@ public class NetTransport : INodeAwareTransport
                 var port = _nextPort++;
 
                 // Wrap around if we exceed max port
-                if (_nextPort > maxPort)
-                {
-                    _nextPort = minPort;
-                }
+                if (_nextPort > maxPort) _nextPort = minPort;
 
                 // Try to bind a test socket to verify port is available
                 try
@@ -215,10 +208,7 @@ public class NetTransport : INodeAwareTransport
             advertiseAddr = IPAddress.Parse(ip);
 
             // Convert to IPv4 if possible
-            if (advertiseAddr.IsIPv4MappedToIPv6)
-            {
-                advertiseAddr = advertiseAddr.MapToIPv4();
-            }
+            if (advertiseAddr.IsIPv4MappedToIPv6) advertiseAddr = advertiseAddr.MapToIPv4();
 
             advertisePort = port;
         }
@@ -229,10 +219,7 @@ public class NetTransport : INodeAwareTransport
             advertiseAddr = endpoint.Address;
 
             // If bound to 0.0.0.0, try to get a specific interface address
-            if (advertiseAddr.Equals(IPAddress.Any))
-            {
-                advertiseAddr = GetPrivateIp();
-            }
+            if (advertiseAddr.Equals(IPAddress.Any)) advertiseAddr = GetPrivateIp();
 
             advertisePort = GetAutoBindPort();
         }
@@ -286,9 +273,7 @@ public class NetTransport : INodeAwareTransport
     public async Task ShutdownAsync()
     {
         if (Interlocked.CompareExchange(ref _shutdown, 1, 0) == 1)
-        {
             return;
-        }
 
         _logger?.LogInformation("NetTransport: Shutting down");
 
@@ -296,15 +281,8 @@ public class NetTransport : INodeAwareTransport
         await _shutdownCts.CancelAsync();
 
         // Close all listeners
-        foreach (var listener in _tcpListeners)
-        {
-            listener.Stop();
-        }
-
-        foreach (var listener in _udpListeners)
-        {
-            listener.Close();
-        }
+        foreach (var listener in _tcpListeners) listener.Stop();
+        foreach (var listener in _udpListeners) listener.Close();
 
         // Wait for background tasks
         try
@@ -344,9 +322,7 @@ public class NetTransport : INodeAwareTransport
             catch (Exception ex)
             {
                 if (Interlocked.CompareExchange(ref _shutdown, 0, 0) == 1)
-                {
                     break;
-                }
 
                 _logger?.LogError(ex, "Error accepting TCP connection");
 

@@ -406,17 +406,12 @@ public partial class Memberlist
                 var bytesRead =
                     await stream.ReadAsync(lengthBytes.AsMemory(totalRead, 4 - totalRead), _shutdownCts.Token);
                 if (bytesRead == 0)
-                {
                     throw new IOException("Connection closed while reading message length prefix");
-                }
 
                 totalRead += bytesRead;
             }
 
-            if (BitConverter.IsLittleEndian)
-            {
-                Array.Reverse(lengthBytes);
-            }
+            if (BitConverter.IsLittleEndian) Array.Reverse(lengthBytes);
 
             var messageLength = BitConverter.ToInt32(lengthBytes, 0);
             _logger?.LogDebug("Reading {Length} bytes of message data", messageLength);
@@ -429,10 +424,8 @@ public partial class Memberlist
                 var bytesRead = await stream.ReadAsync(messageData.AsMemory(totalRead, messageLength - totalRead),
                     _shutdownCts.Token);
                 if (bytesRead == 0)
-                {
                     throw new IOException(
                         $"Connection closed while reading message payload ({totalRead}/{messageLength} bytes read)");
-                }
 
                 totalRead += bytesRead;
             }
@@ -454,10 +447,8 @@ public partial class Memberlist
                         _logger?.LogError(ex, "Failed to decrypt stream");
                         return;
                     }
-                    else
-                    {
-                        _logger?.LogDebug(ex, "Failed to decrypt stream, treating as plaintext");
-                    }
+
+                    _logger?.LogDebug(ex, "Failed to decrypt stream, treating as plaintext");
                 }
             }
 
@@ -562,9 +553,7 @@ public partial class Memberlist
                     var bytesRead = await payloadStream.ReadAsync(
                         userMsgBytes.AsMemory(totalRead, header.UserMsgLen - totalRead), _shutdownCts.Token);
                     if (bytesRead == 0)
-                    {
                         throw new IOException("Connection closed while reading user message");
-                    }
 
                     totalRead += bytesRead;
                 }
@@ -827,10 +816,7 @@ public partial class Memberlist
         }
         finally
         {
-            if (conn is not null)
-            {
-                await conn.DisposeAsync();
-            }
+            if (conn is not null) await conn.DisposeAsync();
         }
     }
 
@@ -844,10 +830,8 @@ public partial class Memberlist
     {
         // Set leave a flag to prevent gossiping Alive messages for ourselves
         if (Interlocked.CompareExchange(ref _leave, 1, 0) != 0)
-        {
             // Already left
             return null;
-        }
 
         // Cancel all suspicion timers to prevent marking healthy nodes as dead
         foreach (var kvp in NodeTimers)

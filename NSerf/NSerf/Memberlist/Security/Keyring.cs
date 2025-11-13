@@ -27,18 +27,13 @@ public class Keyring
     public static Keyring Create(byte[][]? secondaryKeys, byte[] primaryKey)
     {
         if (primaryKey == null || primaryKey.Length == 0)
-        {
             throw new ArgumentException("Empty primary key not allowed", nameof(primaryKey));
-        }
 
         var keyring = new Keyring();
         keyring.AddKey(primaryKey);
 
         if (secondaryKeys == null) return keyring;
-        foreach (var key in secondaryKeys)
-        {
-            keyring.AddKey(key);
-        }
+        foreach (var key in secondaryKeys) keyring.AddKey(key);
 
         return keyring;
     }

@@ -88,7 +88,7 @@ public class ScriptExecutionIntegrationTests
     public async Task ScriptInvoker_QueryWithOutput_AutoResponds()
     {
         var script = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
-            ? "echo query response data"
+            ? $"echo query response data"
             : "echo query response data";
 
         var envVars = new Dictionary<string, string>();
@@ -96,7 +96,7 @@ public class ScriptExecutionIntegrationTests
         {
             Name = "test-query",
             LTime = 1,
-            Payload = Array.Empty<byte>()
+            Payload = []
         };
 
         var result = await ScriptInvoker.ExecuteAsync(script, envVars, null, evt: query);

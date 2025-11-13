@@ -42,13 +42,9 @@ public class TransmitLimitedQueue
         {
             // Generate unique ID
             if (_idGen == long.MaxValue)
-            {
                 _idGen = 1;
-            }
             else
-            {
                 _idGen++;
-            }
 
             var lb = new LimitedBroadcast
             {
@@ -87,19 +83,13 @@ public class TransmitLimitedQueue
                 foreach (var cur in toRemove)
                 {
                     _queue.Remove(cur);
-                    if (cur.Name != null)
-                    {
-                        _nameMap.Remove(cur.Name);
-                    }
+                    if (cur.Name != null) _nameMap.Remove(cur.Name);
                 }
             }
 
             // Add to queue
             _queue.Add(lb);
-            if (lb.Name != null)
-            {
-                _nameMap[lb.Name] = lb;
-            }
+            if (lb.Name != null) _nameMap[lb.Name] = lb;
         }
     }
 
@@ -127,9 +117,7 @@ public class TransmitLimitedQueue
 
                 // Check if it fits
                 if (bytesUsed + overhead + msgLen > limit)
-                {
                     continue;
-                }
 
                 var msg = item.Broadcast.Message();
                 bytesUsed += overhead + msg.Length;
@@ -160,27 +148,18 @@ public class TransmitLimitedQueue
             foreach (var item in toRemove)
             {
                 _queue.Remove(item);
-                if (item.Name != null)
-                {
-                    _nameMap.Remove(item.Name);
-                }
+                if (item.Name != null) _nameMap.Remove(item.Name);
             }
 
             // Reinsert items that need more transmitted
             foreach (var item in toReinsert)
             {
                 _queue.Add(item);
-                if (item.Name != null)
-                {
-                    _nameMap[item.Name] = item;
-                }
+                if (item.Name != null) _nameMap[item.Name] = item;
             }
 
             // Reset ID generator if queue is empty
-            if (_queue.Count == 0)
-            {
-                _idGen = 0;
-            }
+            if (_queue.Count == 0) _idGen = 0;
 
             return toSend;
         }
@@ -192,9 +171,7 @@ public class TransmitLimitedQueue
     public int NumQueued()
     {
         lock (_lock)
-        {
             return _queue.Count;
-        }
     }
 
     /// <summary>
@@ -204,10 +181,7 @@ public class TransmitLimitedQueue
     {
         lock (_lock)
         {
-            foreach (var item in _queue)
-            {
-                item.Broadcast.Finished();
-            }
+            foreach (var item in _queue) item.Broadcast.Finished();
 
             _queue.Clear();
             _nameMap.Clear();
@@ -230,10 +204,7 @@ public class TransmitLimitedQueue
 
                 oldest.Broadcast.Finished();
                 _queue.Remove(oldest);
-                if (oldest.Name != null)
-                {
-                    _nameMap.Remove(oldest.Name);
-                }
+                if (oldest.Name != null) _nameMap.Remove(oldest.Name);
             }
         }
     }
@@ -262,9 +233,7 @@ internal class LimitedBroadcastComparer : IComparer<LimitedBroadcast>
 
         // Primary: Lower transmit count comes first
         if (x.Transmits != y.Transmits)
-        {
             return x.Transmits.CompareTo(y.Transmits);
-        }
 
         // Secondary: Larger messages come first (within the same transmitted tier)
         return x.MsgLen != y.MsgLen ? y.MsgLen.CompareTo(x.MsgLen) :

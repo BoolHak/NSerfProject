@@ -26,9 +26,7 @@ public class CoordinateClient
     public CoordinateClient(CoordinateConfig config)
     {
         if (config.Dimensionality == 0)
-        {
             throw new ArgumentException("dimensionality must be >0", nameof(config));
-        }
 
         _coord = Coordinate.NewCoordinate(config);
         _origin = Coordinate.NewCoordinate(config);
@@ -45,9 +43,7 @@ public class CoordinateClient
     public Coordinate GetCoordinate()
     {
         lock (_mutex)
-        {
             return _coord.Clone();
-        }
     }
 
     /// <summary>
@@ -67,10 +63,7 @@ public class CoordinateClient
     /// </summary>
     public void ForgetNode(string node)
     {
-        lock (_mutex)
-        {
-            _latencyFilterSamples.Remove(node);
-        }
+        lock (_mutex) _latencyFilterSamples.Remove(node);
     }
 
     /// <summary>
@@ -79,9 +72,7 @@ public class CoordinateClient
     public ClientStats Stats()
     {
         lock (_mutex)
-        {
             return _stats;
-        }
     }
 
     /// <summary>
@@ -91,14 +82,10 @@ public class CoordinateClient
     private void CheckCoordinate(Coordinate coord)
     {
         if (!_coord.IsCompatibleWith(coord))
-        {
             throw new ArgumentException("dimensions aren't compatible");
-        }
 
         if (!coord.IsValid())
-        {
             throw new ArgumentException("coordinate is invalid");
-        }
     }
 
     /// <summary>
@@ -114,10 +101,7 @@ public class CoordinateClient
 
         // Add the new sample and trim the list, if needed.
         samples.Add(rttSeconds);
-        if (samples.Count > _config.LatencyFilterSize)
-        {
-            samples.RemoveAt(0);
-        }
+        if (samples.Count > _config.LatencyFilterSize) samples.RemoveAt(0);
 
         // Sort a copy of the samples and return the median.
         var sorted = samples.ToArray();
@@ -133,24 +117,15 @@ public class CoordinateClient
         const double zeroThreshold = 1.0e-6;
 
         var dist = _coord.DistanceTo(other).TotalSeconds;
-        if (rttSeconds < zeroThreshold)
-        {
-            rttSeconds = zeroThreshold;
-        }
+        if (rttSeconds < zeroThreshold) rttSeconds = zeroThreshold;
         var wrongness = Math.Abs(dist - rttSeconds) / rttSeconds;
 
         var totalError = _coord.Error + other.Error;
-        if (totalError < zeroThreshold)
-        {
-            totalError = zeroThreshold;
-        }
+        if (totalError < zeroThreshold) totalError = zeroThreshold;
         var weight = _coord.Error / totalError;
 
         _coord.Error = _config.VivaldiCE * weight * wrongness + _coord.Error * (1.0 - _config.VivaldiCE * weight);
-        if (_coord.Error > _config.VivaldiErrorMax)
-        {
-            _coord.Error = _config.VivaldiErrorMax;
-        }
+        if (_coord.Error > _config.VivaldiErrorMax) _coord.Error = _config.VivaldiErrorMax;
 
         var delta = _config.VivaldiCC * weight;
         var force = delta * (rttSeconds - dist);
@@ -163,9 +138,7 @@ public class CoordinateClient
     private void UpdateAdjustment(Coordinate other, double rttSeconds)
     {
         if (_config.AdjustmentWindowSize == 0)
-        {
             return;
-        }
 
         // Note that the existing adjustment factors don't figure in to this
         // calculation, so we use the raw distance here.
@@ -173,11 +146,7 @@ public class CoordinateClient
         _adjustmentSamples[_adjustmentIndex] = rttSeconds - dist;
         _adjustmentIndex = (_adjustmentIndex + 1) % _config.AdjustmentWindowSize;
 
-        double sum = 0.0;
-        foreach (var sample in _adjustmentSamples)
-        {
-            sum += sample;
-        }
+        var sum = _adjustmentSamples.Sum();
         _coord.Adjustment = sum / (2.0 * _config.AdjustmentWindowSize);
     }
 
@@ -206,10 +175,8 @@ public class CoordinateClient
             // Validate RTT
             var maxRtt = TimeSpan.FromSeconds(10);
             if (rtt < TimeSpan.Zero || rtt > maxRtt)
-            {
                 throw new ArgumentException(
                     $"round trip time not in valid range, duration {rtt} is not a positive value less than {maxRtt}");
-            }
 
             // Note: In Go they track zero RTTs with metrics, we'll skip that for now
 

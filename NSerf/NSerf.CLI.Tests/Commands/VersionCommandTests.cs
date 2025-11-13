@@ -2,7 +2,7 @@ using System.CommandLine;
 using NSerf.CLI.Commands;
 using NSerf.CLI.Tests.Helpers;
 
-namespace NSerf.CLI.Tests;
+namespace NSerf.CLI.Tests.Commands;
 
 [Collection("Sequential")]
 public class VersionCommandTests

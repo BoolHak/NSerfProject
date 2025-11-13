@@ -28,9 +28,7 @@ public class StateHandlers(Memberlist memberlist, ILogger? logger)
 
             // Don't process if we've left and this is about us
             if (memberlist.IsLeaving && alive.Node == memberlist.Config.Name)
-            {
                 return;
-            }
 
             // Validate protocol versions (vsn[0]=pmin, vsn[1]=pmax, vsn[2]=pcur)
             if (alive.Vsn is { Length: >= 3 })
@@ -210,21 +208,15 @@ public class StateHandlers(Memberlist memberlist, ILogger? logger)
             // Allow Left nodes to rejoin with ANY incarnation (even lower) - they've been removed
             // Bail if the incarnation is older (strict less than), UNLESS the node is Left (rejoining)
             if (alive.Incarnation < state.Incarnation && !isLocalNode && !updatesNode && state.State != NodeStateType.Left)
-            {
                 return;
-            }
 
             // Bail if equal incarnation and not a new node, not local, and not updating
             if (alive.Incarnation == state.Incarnation && !isNew && !isLocalNode && !updatesNode)
-            {
                 return;
-            }
 
             // Bail if strictly less and this is about us
             if (alive.Incarnation < state.Incarnation && isLocalNode)
-            {
                 return;
-            }
 
             // Clear any suspicion timer
             if (memberlist.NodeTimers.TryRemove(alive.Node, out var timerObj) && timerObj is Suspicion suspicion)

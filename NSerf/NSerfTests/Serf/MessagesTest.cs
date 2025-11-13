@@ -211,7 +211,7 @@ public class MessagesTest
 
         // Decode the actual message
         var remainingBytes = new byte[ms.Length - ms.Position];
-        ms.Read(remainingBytes, 0, remainingBytes.Length);
+        ms.ReadExactly(remainingBytes, 0, remainingBytes.Length);
         var decoded = MessagePackSerializer.Deserialize<MessageLeave>(remainingBytes);
 
         // Assert - Message should match
@@ -253,7 +253,7 @@ public class MessagesTest
         // Parse message
         ms.ReadByte(); // Skip message type byte
         var remainingBytes = new byte[ms.Length - ms.Position];
-        ms.Read(remainingBytes, 0, remainingBytes.Length);
+        ms.ReadExactly(remainingBytes, 0, remainingBytes.Length);
         var decoded = MessagePackSerializer.Deserialize<MessageQuery>(remainingBytes);
 
         decoded.LTime.Should().Be(input.LTime);
