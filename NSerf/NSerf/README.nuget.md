@@ -6,6 +6,7 @@ A complete C# port of [HashiCorp Serf](https://www.serf.io/) for decentralized c
 
 - ✅ **Full Serf Protocol** - Complete implementation of Serf 1.6.x
 - ✅ **SWIM Gossip** - Scalable, weakly consistent infection-style dissemination
+- ✅ **Service Discovery** - Distributed service registration and discovery
 - ✅ **ASP.NET Core Integration** - First-class dependency injection support
 - ✅ **RPC Client/Server** - Complete RPC implementation with authentication
 - ✅ **Event Handlers** - Custom event processing and queries
