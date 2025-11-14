@@ -133,6 +133,14 @@ public class NSerfOptions
     /// </summary>
     public bool SkipLeaveOnInt { get; set; }
 
+    public LighthouseJoinOptions? Lighthouse { get; } = null;
+
+    public void UseLighthouse(Action<LighthouseJoinOptions?> configure)
+    {
+        ArgumentNullException.ThrowIfNull(configure);
+        configure(Lighthouse);
+    }
+
     /// <summary>
     /// Converts SerfOptions to AgentConfig.
     /// </summary>
@@ -164,7 +172,11 @@ public class NSerfOptions
             ReconnectTimeout = ReconnectTimeout,
             TombstoneTimeout = TombstoneTimeout,
             LeaveOnTerm = LeaveOnTerm,
-            SkipLeaveOnInt = SkipLeaveOnInt
+            SkipLeaveOnInt = SkipLeaveOnInt,
+            UseLighthouseStartJoin = Lighthouse?.UseForStartJoin?? false,
+            UseLighthouseRetryJoin = Lighthouse?.UseForRetryJoin?? false,
+            LighthouseVersionName = Lighthouse?.ClusterVersionName?? string.Empty,
+            LighthouseVersionNumber = Lighthouse?.ClusterVersionNumber??0
         };
     }
 }

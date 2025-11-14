@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using NSerf.Lighthouse.Client;
 using Microsoft.Extensions.Options;
 
 namespace NSerf.Extensions;
@@ -57,9 +58,10 @@ public static class ServiceCollectionExtensions
         {
             var options = sp.GetRequiredService<IOptions<NSerfOptions>>().Value;
             var logger = sp.GetService<ILogger<Agent.SerfAgent>>();
+            var lighthouseClient = sp.GetService<ILighthouseClient>();
             var agentConfig = options.ToAgentConfig();
 
-            return new Agent.SerfAgent(agentConfig, logger);
+            return new Agent.SerfAgent(agentConfig, logger, lighthouseClient);
         });
 
         // Register Serf instance accessor (available after agent starts)
@@ -118,7 +120,7 @@ public static class ServiceCollectionExtensions
         services.Configure<NSerfOptions>(configuration.GetSection(configurationSectionPath));
 
         // Register SerfAgent as singleton
-        services.AddSingleton<Agent.SerfAgent>(sp =>
+        services.AddSingleton(sp =>
         {
             var options = sp.GetRequiredService<IOptions<NSerfOptions>>().Value;
             var logger = sp.GetService<ILogger<Agent.SerfAgent>>();
@@ -128,7 +130,7 @@ public static class ServiceCollectionExtensions
         });
 
         // Register Serf instance accessor
-        services.AddSingleton<NSerf.Serf.Serf>(sp =>
+        services.AddSingleton(sp =>
         {
             var agent = sp.GetRequiredService<Agent.SerfAgent>();
             return agent.Serf ?? throw new InvalidOperationException(

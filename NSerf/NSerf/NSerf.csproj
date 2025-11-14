@@ -63,6 +63,8 @@
     <PackageReference Include="Microsoft.Extensions.Http" Version="8.0.1" />
     
     <PackageReference Include="Makaretu.Dns.Multicast" Version="0.27.0" />
+
+    <PackageReference Include="NSerf.Lighthouse.Client" Version="1.0.0" />
   </ItemGroup>
 
 </Project>
