@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: MPL-2.0
 
 using System.CommandLine;
+using Microsoft.Extensions.DependencyInjection;
 using NSerf.Agent;
+using NSerf.Lighthouse.Client;
 
 namespace NSerf.CLI.Commands;
 
@@ -76,6 +78,52 @@ public static class AgentCommand
             AllowMultipleArgumentsPerToken = true
         };
 
+        var lighthouseBaseUrlOption = new Option<string?>("--lighthouse-base-url")
+        {
+            Description = "Lighthouse base URL"
+        };
+
+        var lighthouseClusterIdOption = new Option<string?>("--lighthouse-cluster-id")
+        {
+            Description = "Lighthouse cluster id (required when Lighthouse join is enabled)"
+        };
+
+        var lighthousePrivateKeyOption = new Option<string?>("--lighthouse-private-key")
+        {
+            Description = "Lighthouse private key (base64 ECDSA PKCS#8)"
+        };
+
+        var lighthouseAesKeyOption = new Option<string?>("--lighthouse-aes-key")
+        {
+            Description = "Lighthouse AES key (base64 32 bytes)"
+        };
+
+        var lighthouseTimeoutOption = new Option<int>("--lighthouse-timeout-seconds")
+        {
+            Description = "Lighthouse HTTP timeout in seconds",
+            DefaultValueFactory = _ => 30
+        };
+
+        var lighthouseVersionNameOption = new Option<string?>("--lighthouse-version-name")
+        {
+            Description = "Lighthouse version name used to partition nodes (optional if set via config)"
+        };
+
+        var lighthouseVersionNumberOption = new Option<long?>("--lighthouse-version-number")
+        {
+            Description = "Lighthouse version number (> 0, optional if set via config)"
+        };
+
+        var lighthouseStartJoinOption = new Option<bool>("--lighthouse-start-join")
+        {
+            Description = "Use Lighthouse to discover peers on agent start join"
+        };
+
+        var lighthouseRetryJoinOption = new Option<bool>("--lighthouse-retry-join")
+        {
+            Description = "Use Lighthouse to discover peers for retry join"
+        };
+
         command.Add(nodeOption);
         command.Add(bindOption);
         command.Add(advertiseOption);
@@ -87,6 +135,15 @@ public static class AgentCommand
         command.Add(tagOption);
         command.Add(configFileOption);
         command.Add(eventHandlerOption);
+        command.Add(lighthouseBaseUrlOption);
+        command.Add(lighthouseClusterIdOption);
+        command.Add(lighthousePrivateKeyOption);
+        command.Add(lighthouseAesKeyOption);
+        command.Add(lighthouseTimeoutOption);
+        command.Add(lighthouseVersionNameOption);
+        command.Add(lighthouseVersionNumberOption);
+        command.Add(lighthouseStartJoinOption);
+        command.Add(lighthouseRetryJoinOption);
 
         command.SetAction(async (parseResult, _) =>
         {
@@ -102,6 +159,16 @@ public static class AgentCommand
             var configPath = parseResult.GetValue(configFileOption);
             var handlerSpecs = parseResult.GetValue(eventHandlerOption);
 
+            var lighthouseBaseUrl = parseResult.GetValue(lighthouseBaseUrlOption);
+            var lighthouseClusterId = parseResult.GetValue(lighthouseClusterIdOption);
+            var lighthousePrivateKey = parseResult.GetValue(lighthousePrivateKeyOption);
+            var lighthouseAesKey = parseResult.GetValue(lighthouseAesKeyOption);
+            var lighthouseTimeoutSeconds = parseResult.GetValue(lighthouseTimeoutOption);
+            var lighthouseVersionName = parseResult.GetValue(lighthouseVersionNameOption);
+            var lighthouseVersionNumber = parseResult.GetValue(lighthouseVersionNumberOption);
+            var lighthouseStartJoin = parseResult.GetValue(lighthouseStartJoinOption);
+            var lighthouseRetryJoin = parseResult.GetValue(lighthouseRetryJoinOption);
+
             try
             {
                 return await ExecuteAsync(
@@ -116,6 +183,15 @@ public static class AgentCommand
                     tags,
                     configPath,
                     handlerSpecs,
+                    lighthouseBaseUrl,
+                    lighthouseClusterId,
+                    lighthousePrivateKey,
+                    lighthouseAesKey,
+                    lighthouseTimeoutSeconds,
+                    lighthouseVersionName,
+                    lighthouseVersionNumber,
+                    lighthouseStartJoin,
+                    lighthouseRetryJoin,
                     shutdownToken);
             }
             catch (Exception ex)
@@ -140,23 +216,61 @@ public static class AgentCommand
         string[]? tags,
         string? configPath,
         string[]? handlerSpecs,
+        string? lighthouseBaseUrl,
+        string? lighthouseClusterId,
+        string? lighthousePrivateKey,
+        string? lighthouseAesKey,
+        int lighthouseTimeoutSeconds,
+        string? lighthouseVersionName,
+        long? lighthouseVersionNumber,
+        bool lighthouseStartJoin,
+        bool lighthouseRetryJoin,
         CancellationToken shutdownToken)
     {
-        // Build agent configuration from CLI
-        var cliConfig = new AgentConfig
+        // Build CLI config - only contains values explicitly set via CLI flags
+        // This matches Go's behavior where cmdConfig only has non-zero values
+        var cliConfig = new AgentConfig(replayOnJoin: replay)
         {
-            NodeName = nodeName ?? Environment.MachineName,
-            BindAddr = bindAddr,
-            AdvertiseAddr = advertiseAddr,
-            EncryptKey = encryptKey,
-            Tags = ParseTags(tags),
-            RpcAddr = rpcAddr,
-            RpcAuthKey = rpcAuth,
-            EventHandlers = handlerSpecs?.ToList() ?? []
+            // Set to empty so merge logic knows these weren't provided
+            BindAddr = string.Empty,
+            NodeName = string.Empty,
+            LogLevel = string.Empty,
+            Profile = string.Empty,
+            SyslogFacility = string.Empty
         };
 
-        // Load the config file or directory if provided, then merge with CLI where CLI overrides a file
-        var finalConfig = cliConfig;
+        // Only set values that were explicitly provided via CLI flags
+        if (!string.IsNullOrWhiteSpace(nodeName))
+            cliConfig.NodeName = nodeName;
+        if (!string.IsNullOrWhiteSpace(bindAddr) && bindAddr != "0.0.0.0:7946")
+            cliConfig.BindAddr = bindAddr;
+        if (!string.IsNullOrWhiteSpace(advertiseAddr))
+            cliConfig.AdvertiseAddr = advertiseAddr;
+        if (!string.IsNullOrWhiteSpace(encryptKey))
+            cliConfig.EncryptKey = encryptKey;
+        if (!string.IsNullOrWhiteSpace(rpcAddr) && rpcAddr != "127.0.0.1:7373")
+            cliConfig.RpcAddr = rpcAddr;
+        if (!string.IsNullOrWhiteSpace(rpcAuth))
+            cliConfig.RpcAuthKey = rpcAuth;
+        if (tags != null && tags.Length > 0)
+            cliConfig.Tags = ParseTags(tags);
+        if (handlerSpecs != null && handlerSpecs.Length > 0)
+            cliConfig.EventHandlers = handlerSpecs.ToList();
+        if (lighthouseStartJoin)
+            cliConfig.UseLighthouseStartJoin = true;
+        if (lighthouseRetryJoin)
+            cliConfig.UseLighthouseRetryJoin = true;
+        if (!string.IsNullOrWhiteSpace(lighthouseVersionName))
+            cliConfig.LighthouseVersionName = lighthouseVersionName;
+        if (lighthouseVersionNumber.HasValue && lighthouseVersionNumber.Value != 0)
+            cliConfig.LighthouseVersionNumber = lighthouseVersionNumber.Value;
+
+        // CRITICAL: Match Go's config loading order:
+        // 1. Start with defaults
+        // 2. Merge file config into defaults
+        // 3. Merge CLI config into result
+        var finalConfig = AgentConfig.Default();
+
         if (!string.IsNullOrWhiteSpace(configPath))
         {
             AgentConfig loaded;
@@ -173,12 +287,60 @@ public static class AgentCommand
                 throw new FileNotFoundException($"Config file or directory not found: {configPath}");
             }
 
-            // File provides base, CLI overrides
-            finalConfig = AgentConfig.Merge(loaded, cliConfig);
+            // Merge file config into defaults
+            finalConfig = AgentConfig.Merge(finalConfig, loaded);
+        }
+
+        // Merge CLI config into result (CLI overrides file and defaults)
+        finalConfig = AgentConfig.Merge(finalConfig, cliConfig);
+
+        // Apply final defaults for required fields
+        if (string.IsNullOrWhiteSpace(finalConfig.NodeName))
+            finalConfig.NodeName = Environment.MachineName;
+
+        // Optionally create a Lighthouse client if requested
+        ILighthouseClient? lighthouseClient = null;
+        if (finalConfig.UseLighthouseStartJoin || finalConfig.UseLighthouseRetryJoin)
+        {
+            // Check if secrets are provided via CLI flags OR config file
+            var effectiveClusterId = lighthouseClusterId ?? finalConfig.LighthouseClusterId;
+            var effectivePrivateKey = lighthousePrivateKey ?? finalConfig.LighthousePrivateKey;
+            var effectiveAesKey = lighthouseAesKey ?? finalConfig.LighthouseAesKey;
+
+            if (string.IsNullOrWhiteSpace(effectiveClusterId) ||
+                string.IsNullOrWhiteSpace(effectivePrivateKey) ||
+                string.IsNullOrWhiteSpace(effectiveAesKey))
+            {
+                await Console.Error.WriteLineAsync("Lighthouse join is enabled but lighthouse_cluster_id, lighthouse_private_key, or lighthouse_aes_key is missing (provide via CLI flags or config file).");
+                return 1;
+            }
+
+            var services = new ServiceCollection();
+            services.AddLogging();
+            services.AddLighthouseClient(options =>
+            {
+                // Prefer CLI flags, fallback to config file values
+                if (!string.IsNullOrWhiteSpace(lighthouseBaseUrl))
+                {
+                    options.BaseUrl = lighthouseBaseUrl;
+                }
+                else if (!string.IsNullOrWhiteSpace(finalConfig.LighthouseBaseUrl))
+                {
+                    options.BaseUrl = finalConfig.LighthouseBaseUrl;
+                }
+
+                options.ClusterId = lighthouseClusterId ?? finalConfig.LighthouseClusterId;
+                options.PrivateKey = lighthousePrivateKey ?? finalConfig.LighthousePrivateKey;
+                options.AesKey = lighthouseAesKey ?? finalConfig.LighthouseAesKey;
+                options.TimeoutSeconds = lighthouseTimeoutSeconds > 0 ? lighthouseTimeoutSeconds : finalConfig.LighthouseTimeoutSeconds;
+            });
+
+            var provider = services.BuildServiceProvider();
+            lighthouseClient = provider.GetRequiredService<ILighthouseClient>();
         }
 
         // Create and start an agent
-        var agent = new SerfAgent(finalConfig);
+        var agent = new SerfAgent(finalConfig, logger: null, lighthouseClient: lighthouseClient);
 
         try
         {
@@ -240,8 +402,8 @@ public static class AgentCommand
                 }
             }
 
-            Console.WriteLine($"Serf agent running on {bindAddr}");
-            Console.WriteLine($"RPC endpoint: {rpcAddr}");
+            Console.WriteLine($"Serf agent running on {finalConfig.BindAddr}");
+            Console.WriteLine($"RPC endpoint: {finalConfig.RpcAddr}");
             Console.WriteLine("Press Ctrl+C to shutdown");
 
             // Wait for a shutdown signal

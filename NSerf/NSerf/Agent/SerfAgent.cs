@@ -639,7 +639,7 @@ public class SerfAgent : IAsyncDisposable
             return [];
         }
 
-        var address = _config.AdvertiseAddr ?? _config.BindAddr;
+        var address = string.IsNullOrWhiteSpace(_config.AdvertiseAddr) ? _config.BindAddr : _config.AdvertiseAddr;
         var (ip, port) = _config.AddrParts(address);
 
         var currentNode = new NodeInfo
