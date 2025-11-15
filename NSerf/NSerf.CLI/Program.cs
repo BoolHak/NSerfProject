@@ -28,7 +28,8 @@ var rootCommand = new RootCommand("NSerf - Service orchestration and discovery t
     KeysCommand.Create(),
     RttCommand.Create(),
     ReachabilityCommand.Create(),
-    VersionCommand.Create()
+    VersionCommand.Create(),
+    ConfigSecretsCommand.Create()
 };
 
 return await rootCommand.Parse(args).InvokeAsync();
