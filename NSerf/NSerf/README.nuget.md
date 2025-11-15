@@ -4,15 +4,16 @@ A complete C# port of [HashiCorp Serf](https://www.serf.io/) for decentralized c
 
 ## ✨ Features
 
-- ✅ **Full Serf Protocol** - Complete implementation of Serf 1.6.x
-- ✅ **SWIM Gossip** - Scalable, weakly consistent infection-style dissemination
-- ✅ **Service Discovery** - Distributed service registration and discovery
-- ✅ **ASP.NET Core Integration** - First-class dependency injection support
-- ✅ **RPC Client/Server** - Complete RPC implementation with authentication
-- ✅ **Event Handlers** - Custom event processing and queries
-- ✅ **Network Coordinates** - Vivaldi-based network latency estimation
-- ✅ **Encryption Support** - AES-256 GCM gossip encryption
-- ✅ **Snapshot Recovery** - Persistent cluster state across restarts
+-  **Full Serf Protocol** - Complete implementation of Serf 1.6.x
+-  **SWIM Gossip** - Scalable, weakly consistent infection-style dissemination
+-  **Service Discovery** - Distributed service registration and discovery
+-  **Lighthouse** - Join the cluster without hardcoding a node address
+-  **ASP.NET Core Integration** - First-class dependency injection support
+-  **RPC Client/Server** - Complete RPC implementation with authentication
+-  **Event Handlers** - Custom event processing and queries
+-  **Network Coordinates** - Vivaldi-based network latency estimation
+-  **Encryption Support** - AES-256 GCM gossip encryption
+-  **Snapshot Recovery** - Persistent cluster state across restarts
 
 ## 🚀 Quick Start
 
@@ -137,10 +138,10 @@ builder.Services.AddNSerf(options =>
 
 ## 🧪 Battle-Tested
 
-- ✅ 1260+ comprehensive tests
-- ✅ Full Serf 1.6.x protocol compatibility
-- ✅ Production-ready encryption
-- ✅ Cross-platform support (Windows, Linux, macOS)
+- 1260+ comprehensive tests
+-  Full Serf 1.6.x protocol compatibility
+-  Production-ready encryption
+-  Cross-platform support (Windows, Linux, macOS)
 
 ## 📝 License
 
