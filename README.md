@@ -83,7 +83,7 @@ Install-Package NSerf
 Or add directly to your `.csproj` file:
 
 ```xml
-<PackageReference Include="NSerf" Version="0.1.4-beta" />
+<PackageReference Include="NSerf" Version="0.1.5-beta" />
 ```
 
 **Latest Version**: [![NuGet](https://img.shields.io/nuget/v/NSerf.svg)](https://www.nuget.org/packages/NSerf/)
