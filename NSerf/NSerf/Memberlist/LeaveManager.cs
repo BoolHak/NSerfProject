@@ -4,7 +4,6 @@
 
 using Microsoft.Extensions.Logging;
 using NSerf.Memberlist.Messages;
-using NSerf.Memberlist.State;
 
 namespace NSerf.Memberlist;
 

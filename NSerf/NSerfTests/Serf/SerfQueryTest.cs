@@ -195,9 +195,9 @@ public class SerfQueryTest
             MemberlistConfig = new MemberlistConfig { Name = "node3", BindAddr = "127.0.0.1", BindPort = 0 }
         };
 
-        using var serf1 = await NSerf.Serf.Serf.CreateAsync(config1);
-        using var serf2 = await NSerf.Serf.Serf.CreateAsync(config2);
-        using var serf3 = await NSerf.Serf.Serf.CreateAsync(config3);
+        await using var serf1 = await NSerf.Serf.Serf.CreateAsync(config1);
+        await using var serf2 = await NSerf.Serf.Serf.CreateAsync(config2);
+        await using var serf3 = await NSerf.Serf.Serf.CreateAsync(config3);
 
         // node1 will respond once to the query
         var cts = new CancellationTokenSource();
@@ -296,9 +296,9 @@ public class SerfQueryTest
             MemberlistConfig = new MemberlistConfig { Name = "node3", BindAddr = "127.0.0.1", BindPort = 0 }
         };
 
-        using var serf1 = await NSerf.Serf.Serf.CreateAsync(config1);
-        using var serf2 = await NSerf.Serf.Serf.CreateAsync(config2);
-        using var serf3 = await NSerf.Serf.Serf.CreateAsync(config3);
+        await using var serf1 = await NSerf.Serf.Serf.CreateAsync(config1);
+        await using var serf2 = await NSerf.Serf.Serf.CreateAsync(config2);
+        await using var serf3 = await NSerf.Serf.Serf.CreateAsync(config3);
 
         // Listen for query on node1
         var cts = new CancellationTokenSource();

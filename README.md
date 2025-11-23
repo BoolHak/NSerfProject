@@ -24,6 +24,8 @@ While the behaviour and surface area match Serf's reference implementation, a fe
 - **Serialization** relies on the high-performance [MessagePack-CSharp](https://github.com/neuecc/MessagePack-CSharp) stack instead of Go's native MessagePack bindings, keeping message layouts identical to the original protocol.
 - **Compression** uses the built-in .NET `System.IO.Compression.GZipStream` for gossip payload compression, replacing the Go LZW (Lempel-Ziv-Welch) adapter while preserving wire compatibility.
 - **Async orchestration** embraces task-based patterns and the C# transaction-style locking helpers introduced during the port, matching Go's channel semantics without blocking threads.
+- **Lighthouse** - Join the cluster without hardcoding a node address
+- **Service Discovery** - A basic service discovery ready to be used with .net applications or other services using the CLI 
 
 ## Repository Layout
 
@@ -83,7 +85,7 @@ Install-Package NSerf
 Or add directly to your `.csproj` file:
 
 ```xml
-<PackageReference Include="NSerf" Version="0.1.4-beta" />
+<PackageReference Include="NSerf" Version="0.1.5-beta" />
 ```
 
 **Latest Version**: [![NuGet](https://img.shields.io/nuget/v/NSerf.svg)](https://www.nuget.org/packages/NSerf/)
@@ -404,13 +406,13 @@ The `NSerf.YarpExample` project demonstrates **production-ready service discover
 This example solves a critical production problem: **How do you dynamically discover and load balance backend services without external dependencies like Consul or Eureka?**
 
 **NSerf + YARP provides:**
-- ✅ **Zero-configuration service discovery** - No hardcoded endpoints
-- ✅ **Automatic load balancing** - Round-robin across healthy nodes
-- ✅ **Dynamic scaling** - Add/remove services without restarting the proxy
-- ✅ **Health monitoring** - Automatic removal of failed backends
-- ✅ **Encrypted cluster communication** - AES-256-GCM secure gossip
-- ✅ **Persistent snapshots** - Cluster state survives restarts
-- ✅ **No external dependencies** - Everything built into your .NET application
+- **Zero-configuration service discovery** - No hardcoded endpoints
+- **Automatic load balancing** - Round-robin across healthy nodes
+- **Dynamic scaling** - Add/remove services without restarting the proxy
+- **Health monitoring** - Automatic removal of failed backends
+- **Encrypted cluster communication** - AES-256-GCM secure gossip
+- **Persistent snapshots** - Cluster state survives restarts
+- **No external dependencies** - Everything built into your .NET application
 
 ### Architecture
 
@@ -621,14 +623,15 @@ Test coverage includes:
 NSerf is feature-complete relative to Serf 1.6.x but remains in **beta** while the team onboards additional users, tightens compatibility, and stabilizes the public API surface. Expect minor breaking changes as interoperability edge cases are addressed.
 
 **Current Status:**
-- ✅ Core Serf protocol implementation
-- ✅ SWIM-based memberlist gossip
-- ✅ RPC client/server with authentication
-- ✅ CLI tool (drop-in replacement)
-- ✅ ASP.NET Core integration
-- ✅ Event handlers and queries
-- ✅ Docker deployment examples
-- ✅ 1230+ comprehensive tests
+-  Core Serf protocol implementation
+-  SWIM-based memberlist gossip
+-  RPC client/server with authentication
+-  Join the cluster without hardcoding a node address
+-  CLI tool (drop-in replacement)
+-  ASP.NET Core integration
+-  Event handlers and queries
+-  Docker deployment examples
+-  1400+ comprehensive tests
 
 ---
 
