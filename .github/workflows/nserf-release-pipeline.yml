@@ -16,7 +16,7 @@ on:
 
 env:
   DOTNET_VERSION: '8.0.x'
-  SOLUTION_FILE: 'NSerf.sln'
+  SOLUTION_FILE: 'NSerf/NSerf.sln'
   CLI_PROJECT: 'NSerf/NSerf.CLI/NSerf.CLI.csproj'
 
 jobs:
