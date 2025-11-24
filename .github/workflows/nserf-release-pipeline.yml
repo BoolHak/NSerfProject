@@ -1,0 +1,214 @@
+name: Build and Release NSerf Agent
+
+on:
+  push:
+    tags:
+      - 'v*'
+      - '0.1.5-beta'
+    branches:
+      - dev
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (v0.1.5-beta)'
+        required: true
+        default: '0.1.5-beta'
+
+env:
+  DOTNET_VERSION: '8.0.x'
+  SOLUTION_FILE: 'NSerf.sln'
+  CLI_PROJECT: 'NSerf/NSerf.CLI/NSerf.CLI.csproj'
+
+jobs:
+  build:
+    name: Build NSerf CLI
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+        
+    - name: Cache NuGet packages
+      uses: actions/cache@v4
+      with:
+        path: ~/.nuget/packages
+        key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+        restore-keys: |
+          ${{ runner.os }}-nuget-
+          
+    - name: Restore dependencies
+      run: dotnet restore ${{ env.SOLUTION_FILE }}
+      
+    - name: Build solution
+      run: dotnet build ${{ env.SOLUTION_FILE }} --no-restore --configuration Release
+      
+    - name: Run tests
+      run: dotnet test ${{ env.SOLUTION_FILE }} --no-build --configuration Release --verbosity normal --collect:"XPlat Code Coverage"
+      
+    - name: Publish NSerf CLI (Self-contained)
+      run: |
+        dotnet publish ${{ env.CLI_PROJECT }} `
+          --configuration Release `
+          --runtime win-x64 `
+          --self-contained true `
+          --output ./publish/win-x64 `
+          -p:PublishSingleFile=true `
+          -p:PublishTrimmed=false
+          
+    - name: Publish NSerf CLI (Framework-dependent)
+      run: |
+        dotnet publish ${{ env.CLI_PROJECT }} `
+          --configuration Release `
+          --runtime win-x64 `
+          --self-contained false `
+          --output ./publish/win-x64-framework `
+          -p:PublishSingleFile=true
+          
+    - name: Publish NSerf CLI (Linux x64)
+      run: |
+        dotnet publish ${{ env.CLI_PROJECT }} `
+          --configuration Release `
+          --runtime linux-x64 `
+          --self-contained true `
+          --output ./publish/linux-x64 `
+          -p:PublishSingleFile=true `
+          -p:PublishTrimmed=false
+          
+    - name: Publish NSerf CLI (macOS x64)
+      run: |
+        dotnet publish ${{ env.CLI_PROJECT }} `
+          --configuration Release `
+          --runtime osx-x64 `
+          --self-contained true `
+          --output ./publish/osx-x64 `
+          -p:PublishSingleFile=true `
+          -p:PublishTrimmed=false
+          
+    - name: Create zip archives
+      shell: powershell
+      run: |
+        # Create version string
+        $version = if ("${{ github.ref_type }}" -eq "tag") { 
+          "${{ github.ref_name }}" 
+        } else { 
+          "${{ github.event.inputs.version }}" 
+        }
+        
+        # Windows self-contained
+        Compress-Archive -Path "./publish/win-x64/*" -DestinationPath "./nserf-${version}-win-x64-selfcontained.zip" -Force
+        
+        # Windows framework-dependent
+        Compress-Archive -Path "./publish/win-x64-framework/*" -DestinationPath "./nserf-${version}-win-x64-framework.zip" -Force
+        
+        # Linux self-contained
+        Compress-Archive -Path "./publish/linux-x64/*" -DestinationPath "./nserf-${version}-linux-x64-selfcontained.zip" -Force
+        
+        # macOS self-contained
+        Compress-Archive -Path "./publish/osx-x64/*" -DestinationPath "./nserf-${version}-osx-x64-selfcontained.zip" -Force
+        
+        # Create checksums
+        Get-FileHash ./nserf-*.zip | ForEach-Object { 
+          "$($_.Hash)  $($_.Name)" 
+        } | Out-File -FilePath "./checksums.txt" -Encoding utf8
+        
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: nserf-build
+        path: |
+          ./nserf-*.zip
+          ./checksums.txt
+        retention-days: 30
+        
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: nserf-build
+        path: ./artifacts
+        
+    - name: Generate release notes
+      id: release_notes
+      run: |
+        # Get version
+        VERSION=${{ github.ref_name }}
+        if [ "${{ github.ref_type }}" != "tag" ]; then
+          VERSION="${{ github.event.inputs.version }}"
+        fi
+        
+        # Create release notes
+        cat > release_notes.md << EOF
+        # NSerf $VERSION
+        
+        ## Downloads
+        
+        Choose the appropriate package for your platform:
+        
+        - **Windows x64 (Self-contained)**: Includes .NET runtime, no installation required
+        - **Windows x64 (Framework-dependent)**: Requires .NET 8.0 runtime to be installed
+        - **Linux x64 (Self-contained)**: Includes .NET runtime, no installation required  
+        - **macOS x64 (Self-contained)**: Includes .NET runtime, no installation required
+        
+        ## Quick Start
+        
+        1. Download the appropriate zip file for your platform
+        2. Extract the archive
+        3. Run \`nserf.exe\` (Windows) or \`nserf\` (Linux/macOS)
+        
+        ## Verification
+        
+        Verify the integrity of downloaded files using the provided checksums.txt:
+        
+        \`\`\`bash
+        # On Linux/macOS
+        sha256sum -c checksums.txt
+        
+        # On Windows (PowerShell)
+        Get-FileHash -Algorithm SHA256 *.zip | Format-Table Hash, Name
+        \`\`\`
+        
+        ## Documentation
+        
+        For complete documentation, visit: [GitHub Repository Wiki]
+        
+        ## Changelog
+        
+        EOF
+        
+        # Add recent commits (last 20)
+        git log --oneline --no-merges -20 >> release_notes.md
+        
+        echo "release_notes_file=release_notes.md" >> $GITHUB_OUTPUT
+        
+    - name: Create Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ github.ref_name }}
+        name: NSerf ${{ github.ref_name }}
+        body_path: ${{ steps.release_notes.outputs.release_notes_file }}
+        files: |
+          ./artifacts/nserf-*.zip
+          ./artifacts/checksums.txt
+        draft: false
+        prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
