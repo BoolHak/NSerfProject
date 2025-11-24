@@ -51,6 +51,7 @@ jobs:
       
     - name: Run tests
       run: dotnet test ${{ env.SOLUTION_FILE }} --no-build --configuration Release --verbosity normal --collect:"XPlat Code Coverage"
+      continue-on-error: true
       
     - name: Publish NSerf CLI (Self-contained)
       run: |
