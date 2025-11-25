@@ -4,15 +4,15 @@ on:
   push:
     tags:
       - 'v*'
-      - '0.1.5-beta'
+      - '0.1.6-beta'
     branches:
-      - dev
+      - main
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release version (v0.1.5-beta)'
+        description: 'Release version (v0.1.6-beta)'
         required: true
-        default: '0.1.5-beta'
+        default: '0.1.6-beta'
 
 env:
   DOTNET_VERSION: '8.0.x'
