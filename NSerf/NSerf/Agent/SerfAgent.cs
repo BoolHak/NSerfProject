@@ -251,14 +251,17 @@ public class SerfAgent : IAsyncDisposable
 
     private Config BuildConfig()
     {
+        var memberlistConfig = Memberlist.Configuration.MemberlistConfig.DefaultLANConfig();
+        memberlistConfig.EnableCompression = _config.EnableCompression;
+
         var config = new Config
         {
-            MemberlistConfig = Memberlist.Configuration.MemberlistConfig.DefaultLANConfig(),
-            Tags = new Dictionary<string, string>(_config.Tags),  // Copy tags from config
+            MemberlistConfig = memberlistConfig,
+            Tags = new Dictionary<string, string>(_config.Tags),
             ProtocolVersion = (byte)_config.Protocol,
             DisableCoordinates = _config.DisableCoordinates,
-            SnapshotPath = _config.SnapshotPath,  // CRITICAL: Pass the snapshot path to Serf
-            RejoinAfterLeave = _config.RejoinAfterLeave  // CRITICAL: Pass the rejoin flag to Serf
+            SnapshotPath = _config.SnapshotPath,
+            RejoinAfterLeave = _config.RejoinAfterLeave
         };
         return config;
     }

@@ -104,6 +104,11 @@ public class NSerfOptions
     public bool DisableCoordinates { get; set; }
 
     /// <summary>
+    /// Enable message compression. Default: false
+    /// </summary>
+    public bool UseCompression { get; set; }
+
+    /// <summary>
     /// Event handler scripts in format "type=script" or "type:filter=script".
     /// </summary>
     public List<string> EventHandlers { get; set; } = [];
@@ -167,16 +172,17 @@ public class NSerfOptions
             RetryInterval = RetryInterval,
             RetryMaxAttempts = RetryMaxAttempts,
             DisableCoordinates = DisableCoordinates,
+            EnableCompression = UseCompression,
             EventHandlers = [.. EventHandlers],
             ReconnectInterval = ReconnectInterval,
             ReconnectTimeout = ReconnectTimeout,
             TombstoneTimeout = TombstoneTimeout,
             LeaveOnTerm = LeaveOnTerm,
             SkipLeaveOnInt = SkipLeaveOnInt,
-            UseLighthouseStartJoin = Lighthouse?.UseForStartJoin?? false,
-            UseLighthouseRetryJoin = Lighthouse?.UseForRetryJoin?? false,
-            LighthouseVersionName = Lighthouse?.ClusterVersionName?? string.Empty,
-            LighthouseVersionNumber = Lighthouse?.ClusterVersionNumber??0
+            UseLighthouseStartJoin = Lighthouse?.UseForStartJoin ?? false,
+            UseLighthouseRetryJoin = Lighthouse?.UseForRetryJoin ?? false,
+            LighthouseVersionName = Lighthouse?.ClusterVersionName ?? string.Empty,
+            LighthouseVersionNumber = Lighthouse?.ClusterVersionNumber ?? 0
         };
     }
 }
