@@ -195,7 +195,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
         // Send it through the main event pipeline (includes snapshotter if enabled)
         EventManager?.EmitEvent(evt);
     }
-    
+
     /// <summary>
     /// Returns the current tags for the local member.
     /// Convenience method that wraps LocalMember().Tags.
@@ -442,6 +442,16 @@ public partial class Serf : IDisposable, IAsyncDisposable
     /// Thread-safe via ClusterCoordinator.
     /// </summary>
     public SerfState State() => _clusterCoordinator.GetCurrentState();
+
+    /// <summary>
+    /// Checks if the Serf agent is ready and active.
+    /// This means the state is Alive and the underlying Memberlist is initialized.
+    /// </summary>
+    public bool IsReady()
+    {
+        var state = _clusterCoordinator.GetCurrentState();
+        return state == SerfState.SerfAlive && Memberlist != null;
+    }
 
     /// <summary>
     /// Returns the protocol version being used by this Serf instance.
@@ -859,7 +869,7 @@ public partial class Serf : IDisposable, IAsyncDisposable
 
         var shouldRebroadcast = EventManager.HandleUserEvent(userEvent);
         if (!shouldRebroadcast) return shouldRebroadcast;
-        
+
         Config.Metrics.IncrCounter(["serf", "events"], 1, Config.MetricLabels);
         Config.Metrics.IncrCounter(["serf", "events", userEvent.Name], 1, Config.MetricLabels);
 
