@@ -255,7 +255,7 @@ public static class AgentCommand
         if (tags != null && tags.Length > 0)
             cliConfig.Tags = ParseTags(tags);
         if (handlerSpecs != null && handlerSpecs.Length > 0)
-            cliConfig.EventHandlers = handlerSpecs.ToList();
+            cliConfig.EventHandlers = [.. handlerSpecs];
         if (lighthouseStartJoin)
             cliConfig.UseLighthouseStartJoin = true;
         if (lighthouseRetryJoin)
@@ -315,6 +315,11 @@ public static class AgentCommand
                 return 1;
             }
 
+            // At this point the effective values are guaranteed to be non-null/non-whitespace
+            var nonNullClusterId = effectiveClusterId!;
+            var nonNullPrivateKey = effectivePrivateKey!;
+            var nonNullAesKey = effectiveAesKey!;
+
             var services = new ServiceCollection();
             services.AddLogging();
             services.AddLighthouseClient(options =>
@@ -329,9 +334,9 @@ public static class AgentCommand
                     options.BaseUrl = finalConfig.LighthouseBaseUrl;
                 }
 
-                options.ClusterId = lighthouseClusterId ?? finalConfig.LighthouseClusterId;
-                options.PrivateKey = lighthousePrivateKey ?? finalConfig.LighthousePrivateKey;
-                options.AesKey = lighthouseAesKey ?? finalConfig.LighthouseAesKey;
+                options.ClusterId = nonNullClusterId;
+                options.PrivateKey = nonNullPrivateKey;
+                options.AesKey = nonNullAesKey;
                 options.TimeoutSeconds = lighthouseTimeoutSeconds > 0 ? lighthouseTimeoutSeconds : finalConfig.LighthouseTimeoutSeconds;
             });
 
