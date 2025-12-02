@@ -31,7 +31,7 @@ This example demonstrates **NSerf service discovery for non-.NET dependencies** 
 
 ## Key Difference from Traditional Approach
 
-### ❌ Traditional (Sidecar Pattern)
+### Traditional (Sidecar Pattern)
 ```yaml
 services:
   postgres:
@@ -44,7 +44,7 @@ services:
 - Separate lifecycle management
 - Uses HashiCorp's Serf (Go binary)
 
-### ✅ NSerf Approach (Agent Inside Container)
+### NSerf Approach (Agent Inside Container)
 ```yaml
 services:
   postgres:
@@ -117,12 +117,12 @@ docker-compose up --build
 
 You'll see:
 ```
-postgres    | 🚀 Starting NSerf agent inside PostgreSQL container...
-postgres    | ✅ NSerf agent started with PID 42
-postgres    | 🐘 Starting PostgreSQL...
-todo-api-1  | 🚀 Starting NSerf node: todo-api-...
-todo-api-1  | 📡 Service event: InstanceRegistered - postgres/postgres-node:postgres
-todo-api-1  | ✅ Discovered PostgreSQL at postgres:5432 via NSerf gossip
+postgres    | Starting NSerf agent inside PostgreSQL container...
+postgres    | NSerf agent started with PID 42
+postgres    | Starting PostgreSQL...
+todo-api-1  | Starting NSerf node: todo-api-...
+todo-api-1  | Service event: InstanceRegistered - postgres/postgres-node:postgres
+todo-api-1  | Discovered PostgreSQL at postgres:5432 via NSerf gossip
 ```
 
 ### Test the API
@@ -172,11 +172,11 @@ ConnectionStrings:
 ```
 
 **Issues:**
-- ❌ Hardcoded hostname
-- ❌ No dynamic discovery
-- ❌ Manual updates when DB moves
-- ❌ No health awareness
-- ❌ Requires DNS/service mesh
+- Hardcoded hostname
+- No dynamic discovery
+- Manual updates when DB moves
+- No health awareness
+- Requires DNS/service mesh
 
 ### NSerf Approach Benefits
 
@@ -186,13 +186,13 @@ var instances = _registry.GetHealthyInstances("postgres");
 ```
 
 **Advantages:**
-- ✅ Zero configuration
-- ✅ Automatic discovery
-- ✅ Health-aware routing
-- ✅ Works across any network
-- ✅ No external dependencies
-- ✅ Fast failure detection (gossip)
-- ✅ Metadata propagation (credentials, config)
+- Zero configuration
+- Automatic discovery
+- Health-aware routing
+- Works across any network
+- No external dependencies
+- Fast failure detection (gossip)
+- Metadata propagation (credentials, config)
 
 ## Use Cases
 
@@ -240,10 +240,10 @@ If PostgreSQL dies, Serf agent dies too → automatic deregistration!
 Don't pass passwords via Serf tags:
 
 ```bash
-# ❌ Bad
+# Bad
 -tag password=secret123
 
-# ✅ Good
+# Good
 -tag username=postgres
 # Password from environment variable in API
 ```
@@ -319,8 +319,8 @@ docker logs todo-api-1
 docker logs todo-postgres
 
 # Should see:
-# 🚀 Starting Serf agent inside PostgreSQL container...
-# ✅ Serf agent started with PID 42
+# Starting Serf agent inside PostgreSQL container...
+# Serf agent started with PID 42
 ```
 
 ### Connection refused
@@ -335,11 +335,11 @@ docker exec -it todo-postgres pg_isready -U postgres
 
 | Solution | Complexity | External Deps | Dynamic | Health-Aware |
 |----------|-----------|---------------|---------|--------------|
-| **Hardcoded** | Low | None | ❌ | ❌ |
-| **DNS** | Medium | DNS server | Limited | ❌ |
-| **Consul** | High | Consul cluster | ✅ | ✅ |
-| **Kubernetes** | High | K8s | ✅ | ✅ |
-| **NSerf** | **Low** | **None** | **✅** | **✅** |
+| **Hardcoded** | Low | None | No | No |
+| **DNS** | Medium | DNS server | Limited | No |
+| **Consul** | High | Consul cluster | Yes | Yes |
+| **Kubernetes** | High | K8s | Yes | Yes |
+| **NSerf** | **Low** | **None** | **Yes** | **Yes** |
 
 ## Next Steps
 
