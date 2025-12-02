@@ -2,17 +2,16 @@
 
 This example demonstrates **production-ready dynamic service discovery and load balancing** using NSerf with Microsoft YARP (Yet Another Reverse Proxy).
 
-## 🎯 What This Demonstrates
+## What This Demonstrates
 
-- ✅ **Dynamic Service Discovery** - YARP automatically discovers backend services via Serf cluster membership
-- ✅ **Automatic Load Balancing** - Round-robin distribution across healthy backends
-- ✅ **Health Monitoring** - YARP actively monitors backend health and removes failed nodes
-- ✅ **Zero-Configuration Scaling** - Add/remove backends without restarting the proxy
-- ✅ **Encrypted Cluster Communication** - AES-256-GCM encryption for secure gossip protocol
+- **Dynamic Service Discovery** - YARP automatically discovers backend services via Serf cluster membership
+- **Automatic Load Balancing** - Round-robin distribution across healthy backends
+- **Health Monitoring** - YARP actively monitors backend health and removes failed nodes
+- **Zero-Configuration Scaling** - Add/remove backends without restarting the proxy
+- **Encrypted Cluster Communication** - AES-256-GCM encryption for secure gossip protocol
 
-## 🏗️ Architecture
+## Architecture
 
-```
                                 ┌──────────────────┐
                                 │                  │
                            ┌────┤  YARP Proxy      │
@@ -44,9 +43,8 @@ Client Requests ───────────┤    │  NSerf Cluster  │
                                                   │  Backend-3      │
                                                   │  (Port 5003)    │
                                                   └─────────────────┘
-```
 
-## 🚀 Running the Example
+## Running the Example
 
 ### Option 1: Docker Compose (Recommended)
 
@@ -88,7 +86,7 @@ cd NSerf.YarpExample
 dotnet run -- yarp-proxy 8080 7950 localhost:7951
 ```
 
-## 📊 Testing the Setup
+## Testing the Setup
 
 ### 1. Check Proxy Status
 
@@ -161,7 +159,7 @@ curl http://localhost:8080/api/work/job-456 | jq
 curl http://localhost:5001/api/cluster | jq
 ```
 
-## 🔧 How It Works
+## How It Works
 
 ### YARP Proxy (`NSerf.YarpExample`)
 
@@ -195,7 +193,7 @@ var destinations = members.Select(m => new DestinationConfig
 2. **Exposes Health Endpoint** at `/health`
 3. **Provides Sample APIs** at `/api/info`, `/api/work`, `/api/cluster`
 
-## 🔐 Security & Persistence Features
+## Security & Persistence Features
 
 ### Encrypted Cluster Communication
 
@@ -207,10 +205,10 @@ environment:
 ```
 
 **Key Features:**
-- ✅ **AES-256-GCM** - Good encryption
-- ✅ **Authenticated** - Prevents message tampering
-- ✅ **Cluster-wide** - All nodes must share the same key
-- ✅ **Protects gossip** - Member updates, user events, and queries
+- **AES-256-GCM** - Good encryption
+- **Authenticated** - Prevents message tampering
+- **Cluster-wide** - All nodes must share the same key
+- **Protects gossip** - Member updates, user events, and queries
 
 **Generate Your Own Key:**
 ```bash
@@ -226,7 +224,7 @@ openssl rand -base64 32
 
 **Without the correct key, nodes cannot join the cluster!**
 
-## 🎯 Production Use Cases
+## Production Use Cases
 
 ### 1. Microservices API Gateway
 Replace static YARP configuration with dynamic Serf discovery:
@@ -271,7 +269,7 @@ new ClusterConfig
 };
 ```
 
-## 📁 Port Mappings
+## Port Mappings
 
 | Service | HTTP Port | Serf Port | Description |
 |---------|-----------|-----------|-------------|
@@ -280,7 +278,7 @@ new ClusterConfig
 | Backend-2 | 5002 | 7952 | Backend service |
 | Backend-3 | 5003 | 7953 | Backend service |
 
-## 🔍 Monitoring
+## Monitoring
 
 ### View YARP Metrics
 ```bash
@@ -302,24 +300,23 @@ docker-compose logs -f yarp-proxy
 docker-compose logs -f backend-1
 ```
 
-## 🛑 Cleanup
+## Cleanup
 
 ```bash
 docker-compose down
 ```
 
-## 📚 Learn More
+## Learn More
 
 - [YARP Documentation](https://microsoft.github.io/reverse-proxy/)
 - [NSerf Main README](../../README.md)
 - [Serf Website](https://www.serf.io/)
 - [Service Discovery Patterns](https://microservices.io/patterns/server-side-discovery.html)
 
-## 🤝 Why This Matters
+## Why This Matters
 
 This example showcases **real production value**:
 - No external service discovery (Consul, Eureka, etc.)
 - Built-in gossip protocol for membership
 - YARP handles HTTP routing and load balancing
 - Complete solution in < 500 lines of code
-- Enterprise-grade, production-ready patterns
