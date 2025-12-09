@@ -40,7 +40,16 @@ public class SerfAgent : IAsyncDisposable
     /// <summary>
     /// Gets the node name for this agent.
     /// </summary>
+    /// <summary>
+    /// Gets the node name for this agent.
+    /// </summary>
     public string NodeName => _config.NodeName;
+
+    /// <summary>
+    /// Event triggered when an event is received by the agent.
+    /// Useful for real-time monitoring without implementing IEventHandler.
+    /// </summary>
+    public event Action<IEvent>? EventReceived;
 
     private static readonly JsonSerializerOptions JsonSerializerOptions = new()
     {
@@ -261,7 +270,8 @@ public class SerfAgent : IAsyncDisposable
             ProtocolVersion = (byte)_config.Protocol,
             DisableCoordinates = _config.DisableCoordinates,
             SnapshotPath = _config.SnapshotPath,
-            RejoinAfterLeave = _config.RejoinAfterLeave
+            RejoinAfterLeave = _config.RejoinAfterLeave,
+            Logger = _logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance // Propagate logger for Memberlist debug logs
         };
         return config;
     }
@@ -373,6 +383,16 @@ public class SerfAgent : IAsyncDisposable
             {
                 _logger?.LogError(ex, "[Agent] Event handler threw exception");
             }
+        }
+
+        // Also invoke the C# event
+        try 
+        {
+            EventReceived?.Invoke(evt);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "[Agent] EventReceived listener threw exception");
         }
     }
 

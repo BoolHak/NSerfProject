@@ -1,0 +1,187 @@
+services:
+  backend-1:
+    build:
+      context: .
+      dockerfile: NSerf.BackendService/Dockerfile
+    environment:
+      - NSerf__Dashboard__Enabled=true
+    ports:
+      - "5000:5000"
+      - "7946:7946"
+    command: ["backend-1", "5000", "7946"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend-2:
+    build:
+      context: .
+      dockerfile: NSerf.BackendService/Dockerfile
+    command: ["backend-2", "5001", "7947", "backend-1:7946"]
+    depends_on:
+      backend-1:
+        condition: service_healthy
+
+  backend-3:
+    build:
+      context: .
+      dockerfile: NSerf.BackendService/Dockerfile
+    command: ["backend-3", "5002", "7948", "backend-1:7946"]
+    depends_on:
+      backend-1:
+        condition: service_healthy
+
+  backend-4:
+    build:
+      context: .
+      dockerfile: NSerf.BackendService/Dockerfile
+    command: ["backend-4", "5003", "7949", "backend-1:7946"]
+    depends_on:
+      backend-1:
+        condition: service_healthy
+
+  backend-5:
+    build:
+      context: .
+      dockerfile: NSerf.BackendService/Dockerfile
+    command: ["backend-5", "5004", "7950", "backend-1:7946"]
+    depends_on:
+      backend-1:
+        condition: service_healthy
+
+  backend-6:
+    build:
+      context: .
+      dockerfile: NSerf.BackendService/Dockerfile
+    command: ["backend-6", "5005", "7951", "backend-1:7946"]
+    depends_on:
+      backend-1:
+        condition: service_healthy
+
+  backend-7:
+    build:
+      context: .
+      dockerfile: NSerf.BackendService/Dockerfile
+    command: ["backend-7", "5006", "7952", "backend-1:7946"]
+    depends_on:
+      backend-1:
+        condition: service_healthy
+
+  backend-8:
+    build:
+      context: .
+      dockerfile: NSerf.BackendService/Dockerfile
+    command: ["backend-8", "5007", "7953", "backend-1:7946"]
+    depends_on:
+      backend-1:
+        condition: service_healthy
+
+  backend-9:
+    build:
+      context: .
+      dockerfile: NSerf.BackendService/Dockerfile
+    command: ["backend-9", "5008", "7954", "backend-1:7946"]
+    depends_on:
+      backend-1:
+        condition: service_healthy
+
+  backend-10:
+    build:
+      context: .
+      dockerfile: NSerf.BackendService/Dockerfile
+    command: ["backend-10", "5009", "7955", "backend-1:7946"]
+    depends_on:
+      backend-1:
+        condition: service_healthy
+
+  backend-11:
+    build:
+      context: .
+      dockerfile: NSerf.BackendService/Dockerfile
+    command: ["backend-11", "5010", "7956", "backend-1:7946"]
+    depends_on:
+      backend-1:
+        condition: service_healthy
+
+  backend-12:
+    build:
+      context: .
+      dockerfile: NSerf.BackendService/Dockerfile
+    command: ["backend-12", "5011", "7957", "backend-1:7946"]
+    depends_on:
+      backend-1:
+        condition: service_healthy
+
+  backend-13:
+    build:
+      context: .
+      dockerfile: NSerf.BackendService/Dockerfile
+    command: ["backend-13", "5012", "7958", "backend-1:7946"]
+    depends_on:
+      backend-1:
+        condition: service_healthy
+
+  backend-14:
+    build:
+      context: .
+      dockerfile: NSerf.BackendService/Dockerfile
+    command: ["backend-14", "5013", "7959", "backend-1:7946"]
+    depends_on:
+      backend-1:
+        condition: service_healthy
+
+  backend-15:
+    build:
+      context: .
+      dockerfile: NSerf.BackendService/Dockerfile
+    command: ["backend-15", "5014", "7960", "backend-1:7946"]
+    depends_on:
+      backend-1:
+        condition: service_healthy
+
+  backend-16:
+    build:
+      context: .
+      dockerfile: NSerf.BackendService/Dockerfile
+    command: ["backend-16", "5015", "7961", "backend-1:7946"]
+    depends_on:
+      backend-1:
+        condition: service_healthy
+
+  backend-17:
+    build:
+      context: .
+      dockerfile: NSerf.BackendService/Dockerfile
+    command: ["backend-17", "5016", "7962", "backend-1:7946"]
+    depends_on:
+      backend-1:
+        condition: service_healthy
+
+  backend-18:
+    build:
+      context: .
+      dockerfile: NSerf.BackendService/Dockerfile
+    command: ["backend-18", "5017", "7963", "backend-1:7946"]
+    depends_on:
+      backend-1:
+        condition: service_healthy
+
+  backend-19:
+    build:
+      context: .
+      dockerfile: NSerf.BackendService/Dockerfile
+    command: ["backend-19", "5018", "7964", "backend-1:7946"]
+    depends_on:
+      backend-1:
+        condition: service_healthy
+
+  backend-20:
+    build:
+      context: .
+      dockerfile: NSerf.BackendService/Dockerfile
+    command: ["backend-20", "5019", "7965", "backend-1:7946"]
+    depends_on:
+      backend-1:
+        condition: service_healthy

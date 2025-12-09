@@ -333,6 +333,9 @@ public partial class Serf : IDisposable, IAsyncDisposable
                 };
                 config.MemberlistConfig.Transport = NSerf.Memberlist.Transport.NetTransport.Create(transportConfig);
             }
+            
+            // Fix: Pass logger to Memberlist config so we can see internal logs (Gossip, Probe etc)
+            config.MemberlistConfig.Logger = serf.Logger;
 
             serf.Memberlist = NSerf.Memberlist.Memberlist.Create(config.MemberlistConfig);
 

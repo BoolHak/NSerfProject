@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Microsoft.AspNetCore.DataProtection;
 using NSerf.Extensions;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -26,8 +27,11 @@ builder.Services.AddNSerf(options =>
     options.RejoinAfterLeave = true;
     
     // Enable snapshot persistence
-    options.SnapshotPath = "/serf/snapshots/serf.snapshot";
-    Console.WriteLine($"[Snapshot] Enabled at /serf/snapshots/serf.snapshot");
+    // Enable snapshot persistence
+    var snapshotDir = Path.Combine(AppContext.BaseDirectory, "snapshots");
+    Directory.CreateDirectory(snapshotDir);
+    options.SnapshotPath = Path.Combine(snapshotDir, "serf.snapshot");
+    Console.WriteLine($"[Snapshot] Enabled at {options.SnapshotPath}");
 
     // Enable encryption if key provided
     if (!string.IsNullOrEmpty(encryptKey))
@@ -40,7 +44,38 @@ builder.Services.AddNSerf(options =>
     
     options.StartJoin = [joinNode];
     options.RetryJoin = [joinNode];
+    options.RetryJoin = [joinNode];
 });
+
+// Configure Data Protection to persist keys (critical for Docker environments)
+var keysDir = Path.Combine(AppContext.BaseDirectory, "keys");
+Directory.CreateDirectory(keysDir);
+builder.Services.AddDataProtection()
+    .PersistKeysToFileSystem(new DirectoryInfo(keysDir))
+    .SetApplicationName("NSerf.BackendService");
+
+// Configure Dashboard if enabled
+var enableDashboard = builder.Configuration.GetValue<bool>("NSerf:Dashboard:Enabled", true);
+if (enableDashboard)
+{
+    builder.Services.AddControllersWithViews();
+    // Register monitoring service
+    builder.Services.AddSingleton<NSerf.BackendService.Services.NetworkTrafficMonitor>();
+    
+    // Add services to the container.
+    builder.Services.AddLogging(logging =>
+    {
+        logging.AddFilter("NSerf", LogLevel.Debug);
+    logging.SetMinimumLevel(LogLevel.Debug);
+    logging.AddConsole();
+});
+    // Add custom logger provider to capture Serf/Memberlist logs
+    builder.Logging.Services.AddSingleton<ILoggerProvider, NSerf.BackendService.Logging.TrafficLoggerProvider>();
+
+    builder.Services.AddSignalR();
+    builder.Services.AddHostedService<NSerf.BackendService.Services.DashboardEventHandler>();
+    Console.WriteLine($"[Dashboard] Enabled at /serf");
+}
 
 var app = builder.Build();
 
@@ -103,6 +138,16 @@ app.MapGet("/api/cluster", (NSerf.Agent.SerfAgent agent) =>
         members
     });
 });
+
+// Map Dashboard if enabled
+if (enableDashboard)
+{
+    app.UseStaticFiles();
+    app.MapControllerRoute(
+        name: "default",
+        pattern: "{controller=Dashboard}/{action=Index}/{id?}");
+    app.MapHub<NSerf.BackendService.Hubs.SerfHub>("/serfHub");
+}
 
 await app.RunAsync();
 

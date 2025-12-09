@@ -282,19 +282,25 @@ public partial class Memberlist
         _logger?.LogDebug("[GOSSIP] Starting gossip round to {Count} nodes, {Queued} broadcasts queued", kNodes.Count,
             Broadcasts.NumQueued());
 
+        // Log each gossip target for accurate visualization
+        foreach (var node in kNodes)
+        {
+            _logger?.LogInformation("[GOSSIP] Gossiping to {Node}", node.Name);
+        }
+
         // CRITICAL: Get broadcasts ONCE per gossip interval, not per node!
         // The same messages are sent to all K random nodes in this interval
         var messages = GetBroadcasts(MessageConstants.CompoundOverhead, bytesAvail);
 
         if (messages.Count == 0)
         {
-            _logger?.LogDebug("[GOSSIP] No broadcasts available, skipping gossip round");
+            _logger?.LogDebug("[GOSSIP] No broadcasts to piggyback, gossip targets logged above");
             return;
         }
 
         foreach (var node in kNodes)
         {
-            _logger?.LogInformation("[GOSSIP] *** Sending {Count} broadcasts to {Node} ***", messages.Count, node.Name);
+            _logger?.LogDebug("[GOSSIP] Sending {Count} broadcasts to {Node}", messages.Count, node.Name);
 
             var addr = new Address
             {

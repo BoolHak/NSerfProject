@@ -1,0 +1,215 @@
+@{
+    Layout = null;
+}
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>NSerf Dashboard</title>
+    
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- SignalR -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>
+
+    <!-- p5.js for particle rendering -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+
+    <!-- Tailwind CSS (via CDN for simplicity) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        nserf: {
+                            bg: '#0f172a',
+                            surface: 'rgba(30, 41, 59, 0.7)',
+                            accent: '#3b82f6',
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <style>
+        body {
+            background-color: #0f172a;
+            color: #f8fafc;
+            overflow: hidden; /* Full screen graph */
+        }
+        
+        #network-graph {
+            width: 100vw;
+            height: 100vh;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+        }
+
+        .glass-panel {
+            background: rgba(30, 41, 59, 0.6);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(148, 163, 184, 0.1);
+            border-radius: 1rem;
+        }
+
+        .control-overlay {
+            position: absolute;
+            top: 2rem;
+            left: 2rem;
+            z-index: 10;
+            width: 350px;
+        }
+
+        .log-overlay {
+            position: absolute;
+            bottom: 2rem;
+            left: 2rem;
+            right: 2rem;
+            height: 150px;
+            z-index: 10;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 0.9rem;
+        }
+
+        .status-badge {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        
+        .status-connected { background-color: #10b981; box-shadow: 0 0 10px #10b981; }
+        .status-disconnected { background-color: #ef4444; }
+
+        /* Animation for event ripple */
+        @@keyframes ripple {
+            0% { transform: scale(1); opacity: 1; border-color: rgba(59, 130, 246, 0.8); }
+            100% { transform: scale(3); opacity: 0; border-color: rgba(59, 130, 246, 0); }
+        }
+        
+        .ripple-effect {
+            position: absolute;
+            border: 2px solid #3b82f6;
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 5;
+            animation: ripple 1s ease-out forwards;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Graph Container (p5.js renders here) -->
+    <div id="network-graph"></div>
+
+    <!-- Control Panel -->
+    <div class="control-overlay glass-panel p-6 shadow-2xl animate-fade-in-down">
+        <div class="flex items-center justify-between mb-6">
+            <h1 class="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-500">
+                NSerf Dashboard
+            </h1>
+            <div class="flex items-center text-xs text-gray-400">
+                <span id="connection-status" class="status-badge status-disconnected"></span>
+                <span id="connection-text">Connecting...</span>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4 mb-6">
+            <div class="bg-slate-800/50 p-3 rounded-lg border border-slate-700">
+                <div class="text-gray-400 text-xs uppercase font-semibold">Members</div>
+                <div class="text-2xl font-bold text-white" id="stat-members">0</div>
+            </div>
+            <div class="bg-slate-800/50 p-3 rounded-lg border border-slate-700">
+                <div class="text-gray-400 text-xs uppercase font-semibold">Local Node</div>
+                <div class="text-sm font-medium text-blue-400 truncate" id="stat-local">...</div>
+            </div>
+        </div>
+
+        <div class="space-y-3">
+            <button onclick="showModal('send-event-modal')" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded transition-colors flex items-center justify-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v2H7a1 1 0 100 2h2v2a1 1 0 102 0v-2h2a1 1 0 100-2h-2V7z" clip-rule="evenodd" /></svg>
+                Send Event
+            </button>
+            <button onclick="showModal('send-query-modal')" class="w-full bg-slate-700 hover:bg-slate-600 text-gray-200 font-medium py-2 px-4 rounded transition-colors flex items-center justify-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd" /></svg>
+                Send Query
+            </button>
+        </div>
+    </div>
+
+    <!-- Event Log -->
+    <div class="log-overlay glass-panel p-4" id="log-container">
+        <div class="text-gray-400 text-xs uppercase font-semibold mb-2 sticky top-0 bg-slate-900/0 backdrop-blur-none">Event Log</div>
+        <div id="event-log" class="space-y-1 text-sm">
+            <!-- Logs will appear here -->
+        </div>
+    </div>
+
+    <!-- Send Event Modal -->
+    <div id="send-event-modal" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 hidden flex items-center justify-center">
+        <div class="glass-panel w-full max-w-md p-6 transform transition-all scale-100">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-xl font-bold">Send User Event</h3>
+                <button onclick="hideModal('send-event-modal')" class="text-gray-400 hover:text-white">&times;</button>
+            </div>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-400 mb-1">Event Name</label>
+                    <input type="text" id="evt-name" class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-blue-500" placeholder="e.g. deploy" />
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-400 mb-1">Payload</label>
+                    <textarea id="evt-payload" class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-blue-500 h-24" placeholder="Payload..."></textarea>
+                </div>
+                <div class="flex items-center gap-2">
+                    <input type="checkbox" id="evt-coalesce" class="rounded bg-slate-800 border-slate-700" />
+                    <label for="evt-coalesce" class="text-sm text-gray-300">Coalesce</label>
+                </div>
+                <div class="flex justify-end gap-3 mt-6">
+                    <button onclick="hideModal('send-event-modal')" class="px-4 py-2 rounded text-gray-300 hover:bg-slate-800">Cancel</button>
+                    <button onclick="submitEvent()" class="px-4 py-2 rounded bg-blue-600 hover:bg-blue-700 text-white font-medium">Send</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Send Query Modal -->
+    <div id="send-query-modal" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 hidden flex items-center justify-center">
+        <div class="glass-panel w-full max-w-md p-6">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-xl font-bold">Send Query</h3>
+                <button onclick="hideModal('send-query-modal')" class="text-gray-400 hover:text-white">&times;</button>
+            </div>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-400 mb-1">Query Name</label>
+                    <input type="text" id="qry-name" class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-blue-500" placeholder="e.g. load" />
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-400 mb-1">Payload</label>
+                    <textarea id="qry-payload" class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-blue-500 h-24" placeholder="Payload..."></textarea>
+                </div>
+                <div class="flex justify-end gap-3 mt-6">
+                    <button onclick="hideModal('send-query-modal')" class="px-4 py-2 rounded text-gray-300 hover:bg-slate-800">Cancel</button>
+                    <button onclick="submitQuery()" class="px-4 py-2 rounded bg-purple-600 hover:bg-purple-700 text-white font-medium">Send</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- App Logic - v3 forces browser to reload -->
+    <script src="~/js/dashboard.js?v=3"></script>
+</body>
+</html>

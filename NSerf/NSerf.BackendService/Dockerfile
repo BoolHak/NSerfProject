@@ -11,6 +11,7 @@ WORKDIR /src
 # Copy project files
 COPY ["NSerf.BackendService/NSerf.BackendService.csproj", "NSerf.BackendService/"]
 COPY ["NSerf/NSerf.csproj", "NSerf/"]
+COPY ["NSerf/NSerf.csproj", "NSerf/"]
 
 # Restore dependencies
 RUN dotnet restore "NSerf.BackendService/NSerf.BackendService.csproj"
