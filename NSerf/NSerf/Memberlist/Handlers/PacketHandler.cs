@@ -21,7 +21,10 @@ internal class PacketHandler(Memberlist memberlist, ILogger? logger)
     /// </summary>
     public void IngestPacket(byte[] buf, EndPoint from, DateTimeOffset timestamp)
     {
-        logger?.LogInformation("[PACKET] Received {Size} bytes from {From}, first byte: {FirstByte}", buf.Length, from, buf[0]);
+        if (!memberlist.Config.StealthUdp)
+        {
+            logger?.LogInformation("[PACKET] Received {Size} bytes from {From}, first byte: {FirstByte}", buf.Length, from, buf[0]);
+        }
         logger?.LogDebug("[PACKET] Received {Size} bytes from {From}", buf.Length, from);
 
         // Remove label header if present
@@ -32,7 +35,10 @@ internal class PacketHandler(Memberlist memberlist, ILogger? logger)
         }
         catch (Exception ex)
         {
-            logger?.LogError(ex, "Failed to remove label header from packet from {From}", from);
+            if (!memberlist.Config.StealthUdp)
+            {
+                logger?.LogError(ex, "Failed to remove label header from packet from {From}", from);
+            }
             return;
         }
 
@@ -41,7 +47,10 @@ internal class PacketHandler(Memberlist memberlist, ILogger? logger)
         {
             if (!string.IsNullOrEmpty(packetLabel))
             {
-                logger?.LogError("Unexpected double packet label header from {From}", from);
+                if (!memberlist.Config.StealthUdp)
+                {
+                    logger?.LogError("Unexpected double packet label header from {From}", from);
+                }
                 return;
             }
             // Set this from config so that the auth data assertions work below
@@ -50,7 +59,10 @@ internal class PacketHandler(Memberlist memberlist, ILogger? logger)
 
         if (memberlist.Config.Label != packetLabel)
         {
-            logger?.LogError("Discarding packet with unacceptable label \"{Label}\" from {From}", packetLabel, from);
+            if (!memberlist.Config.StealthUdp)
+            {
+                logger?.LogError("Discarding packet with unacceptable label \"{Label}\" from {From}", packetLabel, from);
+            }
             return;
         }
 
@@ -65,6 +77,11 @@ internal class PacketHandler(Memberlist memberlist, ILogger? logger)
             }
             catch (Exception ex)
             {
+                if (memberlist.Config.StealthUdp)
+                {
+                    return;
+                }
+
                 if (!memberlist.Config.GossipVerifyIncoming)
                 {
                     // Treat the message as plaintext
@@ -91,7 +108,10 @@ internal class PacketHandler(Memberlist memberlist, ILogger? logger)
 
             if (crc != expected)
             {
-                logger?.LogWarning("Got invalid checksum for UDP packet: {Crc:X}, {Expected:X}", crc, expected);
+                if (!memberlist.Config.StealthUdp)
+                {
+                    logger?.LogWarning("Got invalid checksum for UDP packet: {Crc:X}, {Expected:X}", crc, expected);
+                }
                 return;
             }
 
@@ -110,7 +130,10 @@ internal class PacketHandler(Memberlist memberlist, ILogger? logger)
     {
         if (buf.Length < 1)
         {
-            logger?.LogError("Missing message type byte from {From}", from);
+            if (!memberlist.Config.StealthUdp)
+            {
+                logger?.LogError("Missing message type byte from {From}", from);
+            }
             return;
         }
 
@@ -151,7 +174,10 @@ internal class PacketHandler(Memberlist memberlist, ILogger? logger)
                 QueueMessage(msgType, msgBuf, from);
                 break;
             default:
-                logger?.LogError("Message type ({Type}) not supported from {From}", (int)msgType, from);
+                if (!memberlist.Config.StealthUdp)
+                {
+                    logger?.LogError("Message type ({Type}) not supported from {From}", (int)msgType, from);
+                }
                 break;
         }
     }
@@ -163,7 +189,10 @@ internal class PacketHandler(Memberlist memberlist, ILogger? logger)
 
         if (truncated > 0)
         {
-            logger?.LogWarning("Compound request had {Truncated} truncated messages from {From}", truncated, from);
+            if (!memberlist.Config.StealthUdp)
+            {
+                logger?.LogWarning("Compound request had {Truncated} truncated messages from {From}", truncated, from);
+            }
         }
 
         foreach (var part in parts)
@@ -182,7 +211,10 @@ internal class PacketHandler(Memberlist memberlist, ILogger? logger)
         }
         catch (Exception ex)
         {
-            logger?.LogError(ex, "Failed to decompress payload from {From}", from);
+            if (!memberlist.Config.StealthUdp)
+            {
+                logger?.LogError(ex, "Failed to decompress payload from {From}", from);
+            }
         }
     }
 
@@ -196,7 +228,10 @@ internal class PacketHandler(Memberlist memberlist, ILogger? logger)
             // Verify the node name if provided (Go does this)
             if (!string.IsNullOrEmpty(ping.Node) && ping.Node != memberlist.Config.Name)
             {
-                logger?.LogWarning("Got ping for unexpected node '{Node}' from {From}", ping.Node, from);
+                if (!memberlist.Config.StealthUdp)
+                {
+                    logger?.LogWarning("Got ping for unexpected node '{Node}' from {From}", ping.Node, from);
+                }
                 return;
             }
 
@@ -220,7 +255,10 @@ internal class PacketHandler(Memberlist memberlist, ILogger? logger)
             }
             else
             {
-                logger?.LogWarning("Cannot determine sender address for ping reply: {From}", from);
+                if (!memberlist.Config.StealthUdp)
+                {
+                    logger?.LogWarning("Cannot determine sender address for ping reply: {From}", from);
+                }
                 return;
             }
 
@@ -236,7 +274,10 @@ internal class PacketHandler(Memberlist memberlist, ILogger? logger)
         }
         catch (Exception ex)
         {
-            logger?.LogError(ex, "Error handling ping from {From}", from);
+            if (!memberlist.Config.StealthUdp)
+            {
+                logger?.LogError(ex, "Error handling ping from {From}", from);
+            }
         }
     }
 
@@ -281,7 +322,10 @@ internal class PacketHandler(Memberlist memberlist, ILogger? logger)
             }
             else
             {
-                logger?.LogWarning("Cannot determine source address for indirect ping from {From}", from);
+                if (!memberlist.Config.StealthUdp)
+                {
+                    logger?.LogWarning("Cannot determine source address for indirect ping from {From}", from);
+                }
                 return;
             }
 
@@ -323,12 +367,18 @@ internal class PacketHandler(Memberlist memberlist, ILogger? logger)
             };
             _ = EncodeAndSendMessageAsync(targetAddr, Messages.MessageType.Ping, ping);
 
-            logger?.LogDebug("Forwarding indirect ping {SeqNo} to {Target} on behalf of {Source}",
-                ind.SeqNo, ind.Node, from);
+            if (!memberlist.Config.StealthUdp)
+            {
+                logger?.LogDebug("Forwarding indirect ping {SeqNo} to {Target} on behalf of {Source}",
+                    ind.SeqNo, ind.Node, from);
+            }
         }
         catch (Exception ex)
         {
-            logger?.LogError(ex, "Error handling indirect ping from {From}", from);
+            if (!memberlist.Config.StealthUdp)
+            {
+                logger?.LogError(ex, "Error handling indirect ping from {From}", from);
+            }
         }
     }
 
@@ -341,7 +391,10 @@ internal class PacketHandler(Memberlist memberlist, ILogger? logger)
         }
         catch (Exception ex)
         {
-            logger?.LogError(ex, "Failed to send message type {Type} to {Addr}", msgType, addr);
+            if (!memberlist.Config.StealthUdp)
+            {
+                logger?.LogError(ex, "Failed to send message type {Type} to {Addr}", msgType, addr);
+            }
         }
     }
 
@@ -351,7 +404,10 @@ internal class PacketHandler(Memberlist memberlist, ILogger? logger)
         {
             // Decode the AckRespMessage using MessagePack like Go implementation
             var ack = Messages.MessageEncoder.Decode<Messages.AckRespMessage>(buf);
-            logger?.LogDebug("Received ack seq={Seq} from {From}", ack.SeqNo, from);
+            if (!memberlist.Config.StealthUdp)
+            {
+                logger?.LogDebug("Received ack seq={Seq} from {From}", ack.SeqNo, from);
+            }
 
             // Invoke ack handler if the memberlist has an ack/nack handler
             if (memberlist.AckHandlers.TryGetValue(ack.SeqNo, out var handler))
@@ -361,7 +417,10 @@ internal class PacketHandler(Memberlist memberlist, ILogger? logger)
         }
         catch (Exception ex)
         {
-            logger?.LogError(ex, "Error handling ack from {From}", from);
+            if (!memberlist.Config.StealthUdp)
+            {
+                logger?.LogError(ex, "Error handling ack from {From}", from);
+            }
         }
     }
 
@@ -371,11 +430,17 @@ internal class PacketHandler(Memberlist memberlist, ILogger? logger)
         {
             if (buf.Length < 4)
             {
-                logger?.LogError("Nack message too short from {From}", from);
+                if (!memberlist.Config.StealthUdp)
+                {
+                    logger?.LogError("Nack message too short from {From}", from);
+                }
                 return;
             }
             var seqNo = (uint)(buf[0] << 24 | buf[1] << 16 | buf[2] << 8 | buf[3]);
-            logger?.LogDebug("Received nack seq={Seq} from {From}", seqNo, from);
+            if (!memberlist.Config.StealthUdp)
+            {
+                logger?.LogDebug("Received nack seq={Seq} from {From}", seqNo, from);
+            }
 
             // Invoke nack handler if memberlist has an ack/nack handler
             if (memberlist.AckHandlers.TryGetValue(seqNo, out var handler))
@@ -385,13 +450,19 @@ internal class PacketHandler(Memberlist memberlist, ILogger? logger)
         }
         catch (Exception ex)
         {
-            logger?.LogError(ex, "Error handling nack from {From}", from);
+            if (!memberlist.Config.StealthUdp)
+            {
+                logger?.LogError(ex, "Error handling nack from {From}", from);
+            }
         }
     }
 
     private void QueueMessage(MessageType msgType, byte[] buf, EndPoint from)
     {
-        logger?.LogInformation("[QUEUE] Processing {MessageType} message from {From}", msgType, from);
+        if (!memberlist.Config.StealthUdp)
+        {
+            logger?.LogInformation("[QUEUE] Processing {MessageType} message from {From}", msgType, from);
+        }
 
         // Process messages synchronously for now
         var stateHandler = new StateHandlers(memberlist, logger);
@@ -426,10 +497,16 @@ internal class PacketHandler(Memberlist memberlist, ILogger? logger)
                     break;
 
                 case MessageType.Dead:
-                    logger?.LogInformation("[QUEUE] Decoding Dead message, buf length: {Length}", buf.Length);
+                    if (!memberlist.Config.StealthUdp)
+                    {
+                        logger?.LogInformation("[QUEUE] Decoding Dead message, buf length: {Length}", buf.Length);
+                    }
                     var deadMsg = Messages.MessageEncoder.Decode<Messages.DeadMessage>(buf);
-                    logger?.LogInformation("[QUEUE] Decoded Dead: Node={Node}, From={From}, Inc={Inc}",
-                        deadMsg.Node, deadMsg.From, deadMsg.Incarnation);
+                    if (!memberlist.Config.StealthUdp)
+                    {
+                        logger?.LogInformation("[QUEUE] Decoded Dead: Node={Node}, From={From}, Inc={Inc}",
+                            deadMsg.Node, deadMsg.From, deadMsg.Incarnation);
+                    }
                     var dead = new Messages.Dead
                     {
                         Incarnation = deadMsg.Incarnation,
@@ -437,7 +514,10 @@ internal class PacketHandler(Memberlist memberlist, ILogger? logger)
                         From = deadMsg.From
                     };
                     stateHandler.HandleDeadNode(dead);
-                    logger?.LogInformation("[QUEUE] HandleDeadNode returned for {Node}", deadMsg.Node);
+                    if (!memberlist.Config.StealthUdp)
+                    {
+                        logger?.LogInformation("[QUEUE] HandleDeadNode returned for {Node}", deadMsg.Node);
+                    }
                     break;
 
                 case MessageType.User:
@@ -447,18 +527,27 @@ internal class PacketHandler(Memberlist memberlist, ILogger? logger)
                         // Pass the raw buffer to the delegate
                         // Note: buf is the message payload after the message type byte
                         memberlist.Config.Delegate.NotifyMsg(buf);
-                        logger?.LogDebug("User message ({Size} bytes) delivered to delegate from {From}", buf.Length, from);
+                        if (!memberlist.Config.StealthUdp)
+                        {
+                            logger?.LogDebug("User message ({Size} bytes) delivered to delegate from {From}", buf.Length, from);
+                        }
                     }
                     else
                     {
-                        logger?.LogDebug("User message ({Size} bytes) received from {From} but no delegate configured", buf.Length, from);
+                        if (!memberlist.Config.StealthUdp)
+                        {
+                            logger?.LogDebug("User message ({Size} bytes) received from {From} but no delegate configured", buf.Length, from);
+                        }
                     }
                     break;
             }
         }
         catch (Exception ex)
         {
-            logger?.LogError(ex, "Failed to process {Type} message from {From}", msgType, from);
+            if (!memberlist.Config.StealthUdp)
+            {
+                logger?.LogError(ex, "Failed to process {Type} message from {From}", msgType, from);
+            }
         }
     }
 

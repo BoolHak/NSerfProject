@@ -69,6 +69,8 @@ public class MemberlistConfigTests
 
         // Assert - Higher suspicion mult for WAN
         config.SuspicionMult.Should().Be(6);
+
+        config.StealthUdp.Should().BeTrue();
     }
 
     [Fact]

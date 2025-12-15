@@ -181,6 +181,8 @@ public class MemberlistConfig
     /// </summary>
     public int UDPBufferSize { get; set; } = 1400;
 
+    public bool StealthUdp { get; set; }
+
     /// <summary>
     /// Time before a dead node's name can be reclaimed by another node. Zero means no reclaim.
     /// </summary>
@@ -305,6 +307,7 @@ public class MemberlistConfig
         config.GossipNodes = 4;
         config.GossipInterval = TimeSpan.FromMilliseconds(500);
         config.GossipToTheDeadTime = TimeSpan.FromSeconds(60);
+        config.StealthUdp = true;
         return config;
     }
 

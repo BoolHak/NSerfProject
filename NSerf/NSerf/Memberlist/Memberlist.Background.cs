@@ -145,7 +145,14 @@ public partial class Memberlist
                 // Add initial random stagger to avoid synchronization
                 var stagger =
                     TimeSpan.FromMilliseconds(Random.Shared.Next(0, (int)Config.ProbeInterval.TotalMilliseconds));
-                await Task.Delay(stagger, _shutdownCts.Token);
+                try
+                {
+                    await Task.Delay(stagger, _shutdownCts.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
 
                 while (!_shutdownCts.IsCancellationRequested)
                 {
@@ -181,7 +188,14 @@ public partial class Memberlist
                 // Add initial random stagger to avoid synchronization
                 var stagger =
                     TimeSpan.FromMilliseconds(Random.Shared.Next(0, (int)Config.PushPullInterval.TotalMilliseconds));
-                await Task.Delay(stagger, _shutdownCts.Token);
+                try
+                {
+                    await Task.Delay(stagger, _shutdownCts.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
 
                 while (!_shutdownCts.IsCancellationRequested)
                 {
